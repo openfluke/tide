@@ -49,9 +49,14 @@ SIMD rows honor `welvet/simd.Enabled()` (AVX2/NEON when linked).
 
 Dashboard `/api/live` includes a **server-side `history`** cache (also `history.json` on disk) so refresh / other machines see the same timeline; scrubber goes back in time.
 
+## Epoch default
+
+Each permutation trains **one full epoch** over the dataset train split (not a wall-clock slice).  
+Finish the matrix → re-run starts **epoch N+1** (weights continue). Ctrl+C resumes mid-epoch via train offset.
+
 ## Checkpoint / resume
 
 `checkpoint.Store` + runner `CheckpointEvery` (default 1m) persist:
 
 - Lucy scores / completed cells / **best Score · Throughput · Availability · Accuracy**
-- inflight model weights so Ctrl+C → restart continues mid-cell
+- inflight model + train offset so Ctrl+C → restart continues mid-epoch

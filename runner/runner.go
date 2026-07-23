@@ -1,4 +1,5 @@
-// Package runner drives concurrent serve + train pulses with mid-stream flips.
+// Package runner drives concurrent serve + train with mid-stream flips.
+// Default: one full epoch over the train split per permutation cell.
 package runner
 
 import (
@@ -20,40 +21,32 @@ import (
 type Sample struct {
 	X      *core.Tensor[float32]
 	Target *core.Tensor[float32] // one-hot
-	Labels []int                 // class ids (pre-flip)
-}
-
-// Dataset supplies train/serve batches.
-type Dataset interface {
-	NextServe(phase string) Sample
-	NextTrain(phase string) Sample
+	Labels []int
 }
 
 // Config controls a multi-permutation adaptation run.
 type Config struct {
 	Spec            chain.Spec
 	Cells           []permute.Cell
-	BatchSize       int
-	CellDuration    time.Duration
+	BatchSize       int // permutation dashboard batch size
+	Epoch           int // 1-based epoch being run (set by Run / PrepareEpoch)
 	PulseEvery      time.Duration
-	TrainEvery      time.Duration
 	CheckpointEvery time.Duration
 	LR              float64
-	FlipAt          float64
-	FlipBack        float64
+	FlipAt          float64 // fraction of epoch → phase B
+	FlipBack        float64 // fraction of epoch → phase A2
 	Store           *checkpoint.Store
 	Resume          *checkpoint.Progress
 }
 
-// DefaultConfig returns Lucy-like timings scaled for MNIST.
+// DefaultConfig: 1 epoch per cell over the dataset train split.
 func DefaultConfig(cells []permute.Cell) Config {
 	return Config{
 		Spec:            chain.DefaultMNIST(),
 		Cells:           cells,
 		BatchSize:       4,
-		CellDuration:    12 * time.Second,
+		Epoch:           1,
 		PulseEvery:      time.Second,
-		TrainEvery:      50 * time.Millisecond,
 		CheckpointEvery: time.Minute,
 		LR:              0.02,
 		FlipAt:          1.0 / 3.0,
@@ -61,7 +54,8 @@ func DefaultConfig(cells []permute.Cell) Config {
 	}
 }
 
-// Run executes all cells, updating tracker live. Skips completed cells when Resume is set.
+// Run executes all cells for one epoch (full pass over train data each).
+// If the previous epoch is fully done, Resume is prepared for epoch+1.
 func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	if ds == nil || tr == nil {
 		return fmt.Errorf("runner: nil dataset/tracker")
@@ -69,12 +63,18 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	if cfg.CheckpointEvery <= 0 {
 		cfg.CheckpointEvery = time.Minute
 	}
+	if cfg.PulseEvery <= 0 {
+		cfg.PulseEvery = time.Second
+	}
+	if cfg.Epoch < 1 {
+		cfg.Epoch = 1
+	}
 
 	done := checkpoint.DoneSet(cfg.Resume)
 	if cfg.Resume != nil {
 		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.History,
 			cfg.Resume.NextCellIndex, len(cfg.Cells),
-			fmt.Sprintf("resumed (%d done)", len(done)))
+			fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done)))
 	}
 
 	batches := permute.Batch(cfg.Cells, cfg.BatchSize)
@@ -83,13 +83,10 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 
 	if cfg.Resume != nil && cfg.Resume.Inflight != nil {
 		inf := cfg.Resume.Inflight
-		remain := cfg.CellDuration - time.Duration(inf.ElapsedNS)
-		if remain < time.Second {
-			remain = time.Second
-		}
 		cellIdx = inf.CellIndex
-		tr.SetMeta(0, len(batches), cellIdx, cellTotal, fmt.Sprintf("resume inflight %s", inf.Cell.ID))
-		err := runCell(ctx, cfg, ds, tr, inf.Cell, cellIdx, remain, true, inf)
+		tr.SetMeta(0, len(batches), cellIdx, cellTotal,
+			fmt.Sprintf("epoch %d resume %s @%d/%d", cfg.Epoch, inf.Cell.ID, inf.TrainOffset, ds.TrainLen()))
+		err := runCellEpoch(ctx, cfg, ds, tr, inf.Cell, cellIdx, true, inf)
 		if err != nil && ctx.Err() != nil {
 			return err
 		}
@@ -110,8 +107,9 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 				return ctx.Err()
 			default:
 			}
-			tr.SetMeta(bi, len(batches), cellIdx, cellTotal, fmt.Sprintf("running %s", cell.ID))
-			err := runCell(ctx, cfg, ds, tr, cell, cellIdx, cfg.CellDuration, false, nil)
+			tr.SetMeta(bi, len(batches), cellIdx, cellTotal,
+				fmt.Sprintf("epoch %d · %s", cfg.Epoch, cell.ID))
+			err := runCellEpoch(ctx, cfg, ds, tr, cell, cellIdx, false, nil)
 			if err != nil && ctx.Err() != nil {
 				return err
 			}
@@ -119,7 +117,8 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 			_ = persistProgress(cfg, tr, cellIdx, nil, nil)
 		}
 	}
-	tr.SetMeta(len(batches), len(batches), cellTotal, cellTotal, "done")
+	tr.SetMeta(len(batches), len(batches), cellTotal, cellTotal,
+		fmt.Sprintf("epoch %d done", cfg.Epoch))
 	_ = persistProgress(cfg, tr, cellTotal, nil, nil)
 	return nil
 }
@@ -131,14 +130,20 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 	live := tr.Snapshot()
 	doneIDs := make([]string, 0, len(live.Completed))
 	for _, r := range live.Completed {
-		if r.Status == "ok" || r.Status == "gap" {
+		re := r.Epoch
+		if re < 1 {
+			re = 1
+		}
+		if re == cfg.Epoch && (r.Status == "ok" || r.Status == "gap") {
 			doneIDs = append(doneIDs, r.Cell.ID)
 		}
 	}
 	if inf != nil {
 		inf.CellIndex = nextIdx
+		inf.Epoch = cfg.Epoch
 	}
 	p := &checkpoint.Progress{
+		Epoch:         cfg.Epoch,
 		CellTotal:     len(cfg.Cells),
 		NextCellIndex: nextIdx,
 		DoneIDs:       doneIDs,
@@ -155,36 +160,39 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 	return cfg.Store.SaveAtomic(p)
 }
 
-func phaseAt(elapsed, total time.Duration, flipAt, flipBack float64) string {
-	f := float64(elapsed) / float64(total)
-	if f >= flipAt && f < flipBack {
+func phaseAtFrac(frac, flipAt, flipBack float64) string {
+	if frac >= flipAt && frac < flipBack {
 		return "B"
 	}
-	if f >= flipBack {
+	if frac >= flipBack {
 		return "A2"
 	}
 	return "A"
 }
 
-func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cell permute.Cell, cellIdx int, duration time.Duration, resume bool, inf *checkpoint.Inflight) error {
-	tr.Begin(cell, "A")
+func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cell permute.Cell, cellIdx int, resume bool, inf *checkpoint.Inflight) error {
+	tr.BeginEpoch(cell, cfg.Epoch, "A")
 	m, err := chain.Build(cfg.Spec, cell)
 	if err != nil {
 		tr.Finish("gap", err.Error(), metrics.Snapshot{})
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
 		return err
 	}
-	priorElapsed := time.Duration(0)
-	if resume && inf != nil && cfg.Store != nil {
-		priorElapsed = time.Duration(inf.ElapsedNS)
-		_ = cfg.Store.LoadInflightModel(m)
-		if inf.Phase != "" {
-			tr.Pulse(metrics.Window{}, inf.Snapshot, inf.Phase)
+
+	offset := 0
+	if resume && inf != nil {
+		offset = inf.TrainOffset
+		if cfg.Store != nil {
+			_ = cfg.Store.LoadInflightModel(m)
 		}
+	} else if cfg.Epoch > 1 && cfg.Store != nil {
+		// Continue weights from previous epoch of this cell.
+		_ = cfg.Store.LoadModel(cell.ID, m)
 	}
+	ds.ResetEpoch(offset)
 
 	start := time.Now()
-	cellCtx, cancel := context.WithTimeout(ctx, duration)
+	cellCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var (
@@ -200,6 +208,7 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 		winBlocked   atomic.Int64
 		failNote     atomic.Value
 		lastSnap     atomic.Value
+		trainDone    atomic.Bool
 	)
 	phase.Store("A")
 	if resume && inf != nil {
@@ -213,8 +222,10 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 		lastSnap.Store(inf.Snapshot)
 	}
 
+	trainLen := ds.TrainLen()
 	var wg sync.WaitGroup
 
+	// Serve loop while the epoch trains.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -223,6 +234,9 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 			case <-cellCtx.Done():
 				return
 			default:
+			}
+			if trainDone.Load() {
+				return
 			}
 			p := phase.Load().(string)
 			s := remap(ds.NextServe(p), p)
@@ -245,38 +259,50 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 		}
 	}()
 
+	// Train loop — sequential full epoch over 80% train.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		tick := time.NewTicker(cfg.TrainEvery)
-		defer tick.Stop()
+		defer func() {
+			trainDone.Store(true)
+			cancel()
+		}()
 		for {
 			select {
-			case <-cellCtx.Done():
+			case <-ctx.Done():
 				return
-			case t := <-tick.C:
-				elapsed := priorElapsed + t.Sub(start)
-				p := phaseAt(elapsed, cfg.CellDuration, cfg.FlipAt, cfg.FlipBack)
-				phase.Store(p)
-				s := remap(ds.NextTrain(p), p)
-				t0 := time.Now()
-				mu.Lock()
-				_, err := m.TrainStep(s.X, s.Target, cfg.LR, cell.Mode)
-				mu.Unlock()
-				blocked := time.Since(t0)
-				blockedNS.Add(blocked.Nanoseconds())
-				winBlocked.Add(blocked.Nanoseconds())
-				if err != nil {
-					failNote.Store(err.Error())
-					cancel()
-					return
-				}
-				totalTrain.Add(1)
-				winTrain.Add(1)
+			default:
 			}
+			off := ds.EpochOffset()
+			frac := 0.0
+			if trainLen > 0 {
+				frac = float64(off) / float64(trainLen)
+			}
+			p := phaseAtFrac(frac, cfg.FlipAt, cfg.FlipBack)
+			phase.Store(p)
+
+			s, ok := ds.NextTrain()
+			if !ok {
+				return
+			}
+			s = remap(s, p)
+			t0 := time.Now()
+			mu.Lock()
+			_, err := m.TrainStep(s.X, s.Target, cfg.LR, cell.Mode)
+			mu.Unlock()
+			blocked := time.Since(t0)
+			blockedNS.Add(blocked.Nanoseconds())
+			winBlocked.Add(blocked.Nanoseconds())
+			if err != nil {
+				failNote.Store(err.Error())
+				return
+			}
+			totalTrain.Add(1)
+			winTrain.Add(1)
 		}
 	}()
 
+	// Pulse loop.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -291,6 +317,9 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 			case <-cellCtx.Done():
 				return
 			case now := <-tick.C:
+				if trainDone.Load() {
+					// one final pulse then exit
+				}
 				p := phase.Load().(string)
 				w := metrics.Window{
 					At:           now,
@@ -307,14 +336,20 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 				snap.TotalCorrect = totalCorrect.Load()
 				snap.TotalTrain = totalTrain.Load()
 				snap.BlockedTrain = time.Duration(blockedNS.Load())
-				snap.Duration = priorElapsed + now.Sub(start)
+				snap.Duration = time.Since(start)
 				metrics.Finalize(&snap)
 				lastSnap.Store(snap)
 				tr.Pulse(w, snap, p)
+				tr.SetMeta(0, 0, cellIdx, len(cfg.Cells),
+					fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen))
+				if trainDone.Load() {
+					return
+				}
 			}
 		}
 	}()
 
+	// Checkpoint every minute.
 	if cfg.Store != nil {
 		wg.Add(1)
 		go func() {
@@ -325,19 +360,19 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 				select {
 				case <-cellCtx.Done():
 					return
-				case now := <-tick.C:
-					elapsed := priorElapsed + now.Sub(start)
-					p := phase.Load().(string)
+				case <-tick.C:
 					var snap metrics.Snapshot
 					if v := lastSnap.Load(); v != nil {
 						snap = v.(metrics.Snapshot)
 					}
 					infight := &checkpoint.Inflight{
-						Cell:      cell,
-						CellIndex: cellIdx,
-						ElapsedNS: elapsed.Nanoseconds(),
-						Phase:     p,
-						Snapshot:  snap,
+						Cell:        cell,
+						CellIndex:   cellIdx,
+						Epoch:       cfg.Epoch,
+						TrainOffset: ds.EpochOffset(),
+						ElapsedNS:   time.Since(start).Nanoseconds(),
+						Phase:       phase.Load().(string),
+						Snapshot:    snap,
 					}
 					mu.Lock()
 					_ = persistProgress(cfg, tr, cellIdx, infight, m)
@@ -355,25 +390,22 @@ func runCell(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cel
 		TotalCorrect: totalCorrect.Load(),
 		TotalTrain:   totalTrain.Load(),
 		BlockedTrain: time.Duration(blockedNS.Load()),
-		Duration:     priorElapsed + duration,
+		Duration:     time.Since(start),
 	}
 	if live.Current != nil {
 		snap.Windows = live.Current.Snapshot.Windows
 	}
-	if snap.Duration > cfg.CellDuration {
-		snap.Duration = cfg.CellDuration
-	}
 	metrics.Finalize(&snap)
 
-	// Parent cancelled — keep inflight, do not mark cell done.
 	if ctx.Err() != nil {
-		elapsed := priorElapsed + time.Since(start)
 		infight := &checkpoint.Inflight{
-			Cell:      cell,
-			CellIndex: cellIdx,
-			ElapsedNS: elapsed.Nanoseconds(),
-			Phase:     phase.Load().(string),
-			Snapshot:  snap,
+			Cell:        cell,
+			CellIndex:   cellIdx,
+			Epoch:       cfg.Epoch,
+			TrainOffset: ds.EpochOffset(),
+			ElapsedNS:   time.Since(start).Nanoseconds(),
+			Phase:       phase.Load().(string),
+			Snapshot:    snap,
 		}
 		mu.Lock()
 		_ = persistProgress(cfg, tr, cellIdx, infight, m)

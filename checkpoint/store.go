@@ -16,21 +16,24 @@ import (
 	"github.com/openfluke/tide/pulse"
 )
 
-const version = 1
+const version = 2
 
-// Inflight is a partially finished cell (resume mid-run).
+// Inflight is a partially finished cell (resume mid-epoch).
 type Inflight struct {
-	Cell      permute.Cell     `json:"cell"`
-	CellIndex int              `json:"cell_index"`
-	ElapsedNS int64            `json:"elapsed_ns"`
-	Phase     string           `json:"phase"`
-	Snapshot  metrics.Snapshot `json:"snapshot"`
+	Cell        permute.Cell     `json:"cell"`
+	CellIndex   int              `json:"cell_index"`
+	Epoch       int              `json:"epoch"`
+	TrainOffset int              `json:"train_offset"` // examples consumed in this epoch
+	ElapsedNS   int64            `json:"elapsed_ns"`
+	Phase       string           `json:"phase"`
+	Snapshot    metrics.Snapshot `json:"snapshot"`
 }
 
 // Progress is the on-disk resume state.
 type Progress struct {
 	Version       int                  `json:"version"`
 	Mode          string               `json:"mode"`
+	Epoch         int                  `json:"epoch"` // 1-based; re-run after full sweep bumps this
 	UpdatedAt     time.Time            `json:"updated_at"`
 	CellTotal     int                  `json:"cell_total"`
 	NextCellIndex int                  `json:"next_cell_index"`
@@ -77,6 +80,18 @@ func (s *Store) Load() (*Progress, error) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return nil, err
 	}
+	if p.Epoch < 1 {
+		p.Epoch = 1
+	}
+	// v1 was wall-clock cells — keep bests/history/models, but re-run full epochs.
+	if p.Version < 2 {
+		p.DoneIDs = nil
+		p.Completed = nil
+		p.Inflight = nil
+		p.NextCellIndex = 0
+		p.Epoch = 1
+		p.Version = 2
+	}
 	if hb, err := os.ReadFile(s.historyPath()); err == nil {
 		var hist []pulse.HistoryPoint
 		if json.Unmarshal(hb, &hist) == nil {
@@ -86,7 +101,7 @@ func (s *Store) Load() (*Progress, error) {
 	return &p, nil
 }
 
-// SaveAtomic writes progress.json + history.json (scores lean; history full for dash).
+// SaveAtomic writes progress.json + history.json.
 func (s *Store) SaveAtomic(p *Progress) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,10 +112,13 @@ func (s *Store) SaveAtomic(p *Progress) error {
 	cp.Version = version
 	cp.Mode = s.Mode
 	cp.UpdatedAt = time.Now()
+	if cp.Epoch < 1 {
+		cp.Epoch = 1
+	}
 	cp.Completed = slimResults(p.Completed)
 	cp.Best = slimBest(p.Best)
 	hist := append([]pulse.HistoryPoint(nil), p.History...)
-	cp.History = nil // kept in history.json
+	cp.History = nil
 	if cp.Inflight != nil {
 		inf := *cp.Inflight
 		inf.Snapshot.Windows = nil
@@ -155,7 +173,6 @@ func slimPtr(r *pulse.Result) *pulse.Result {
 	return &cp
 }
 
-// SaveModel writes weights under models/<slot>/.
 func (s *Store) SaveModel(slot string, m *chain.Model) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -163,25 +180,21 @@ func (s *Store) SaveModel(slot string, m *chain.Model) error {
 	return m.SaveWeightsDir(dir)
 }
 
-// LoadModel loads weights from models/<slot>/.
 func (s *Store) LoadModel(slot string, m *chain.Model) error {
 	dir := filepath.Join(s.Root, "models", sanitize(slot))
 	return m.LoadWeightsDir(dir)
 }
 
-// SaveInflightModel saves the current cell's weights for resume.
 func (s *Store) SaveInflightModel(m *chain.Model) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return m.SaveWeightsDir(s.inflightDir())
 }
 
-// LoadInflightModel restores inflight weights if present.
 func (s *Store) LoadInflightModel(m *chain.Model) error {
 	return m.LoadWeightsDir(s.inflightDir())
 }
 
-// SaveBestModels writes weights into best_* dirs when r is the current best on an axis.
 func (s *Store) SaveBestModels(m *chain.Model, best pulse.Best, r pulse.Result) error {
 	id := r.Cell.ID
 	checks := []struct {
@@ -208,23 +221,67 @@ func sanitize(id string) string {
 	return r.Replace(id)
 }
 
-// DoneSet returns cell IDs that should not be re-run (ok/gap only).
+// DoneSet returns cell IDs finished for the current epoch.
 func DoneSet(p *Progress) map[string]bool {
 	out := map[string]bool{}
 	if p == nil {
 		return out
 	}
+	epoch := p.Epoch
+	if epoch < 1 {
+		epoch = 1
+	}
 	for _, id := range p.DoneIDs {
 		out[id] = true
 	}
 	for _, r := range p.Completed {
-		if r.Status == "ok" || r.Status == "gap" {
+		re := r.Epoch
+		if re < 1 {
+			re = 1
+		}
+		if re == epoch && (r.Status == "ok" || r.Status == "gap") {
 			out[r.Cell.ID] = true
 		}
 	}
-	// Inflight is still in progress — not done.
 	if p.Inflight != nil {
 		delete(out, p.Inflight.Cell.ID)
 	}
 	return out
+}
+
+// AllDone reports whether every cell has an ok/gap result for this epoch.
+func AllDone(p *Progress, cells []permute.Cell) bool {
+	if p == nil || len(cells) == 0 {
+		return false
+	}
+	done := DoneSet(p)
+	if p.Inflight != nil {
+		return false
+	}
+	for _, c := range cells {
+		if !done[c.ID] {
+			return false
+		}
+	}
+	return true
+}
+
+// PrepareEpoch bumps to the next epoch when the previous sweep finished.
+// Returns the epoch to run and a progress view with DoneIDs cleared for that epoch.
+func PrepareEpoch(p *Progress, cells []permute.Cell) (epoch int, resume *Progress) {
+	if p == nil {
+		return 1, nil
+	}
+	cp := *p
+	if cp.Epoch < 1 {
+		cp.Epoch = 1
+	}
+	if AllDone(&cp, cells) {
+		cp.Epoch++
+		cp.DoneIDs = nil
+		cp.NextCellIndex = 0
+		cp.Inflight = nil
+		// Keep Completed/Best/History — new epoch appends more results.
+	}
+	return cp.Epoch, &cp
 }

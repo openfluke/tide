@@ -11,6 +11,7 @@ import (
 // Result is one finished (or in-flight) permutation.
 type Result struct {
 	Cell     permute.Cell     `json:"cell"`
+	Epoch    int              `json:"epoch,omitempty"` // 1-based train epoch
 	Status   string           `json:"status"` // running | ok | fail | gap
 	Note     string           `json:"note,omitempty"`
 	Snapshot metrics.Snapshot `json:"snapshot"`
@@ -149,12 +150,20 @@ func (t *Tracker) SetMeta(batchIdx, batchTotal, cellIdx, cellTotal int, msg stri
 }
 
 func (t *Tracker) Begin(cell permute.Cell, phase string) {
+	t.BeginEpoch(cell, 1, phase)
+}
+
+func (t *Tracker) BeginEpoch(cell permute.Cell, epoch int, phase string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if epoch < 1 {
+		epoch = 1
+	}
 	t.live.Running = true
 	t.live.Phase = phase
 	t.live.Current = &Result{
 		Cell:    cell,
+		Epoch:   epoch,
 		Status:  "running",
 		Started: time.Now(),
 	}
