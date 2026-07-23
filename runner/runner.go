@@ -72,7 +72,8 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 
 	done := checkpoint.DoneSet(cfg.Resume)
 	if cfg.Resume != nil {
-		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.NextCellIndex, len(cfg.Cells),
+		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.History,
+			cfg.Resume.NextCellIndex, len(cfg.Cells),
 			fmt.Sprintf("resumed (%d done)", len(done)))
 	}
 
@@ -143,6 +144,7 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		DoneIDs:       doneIDs,
 		Completed:     live.Completed,
 		Best:          live.Best,
+		History:       live.History,
 		Inflight:      inf,
 	}
 	if m != nil {

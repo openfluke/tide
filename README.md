@@ -35,14 +35,19 @@ go run . -addr :8080 -mode smoke
 
 ## Train modes
 
-| Mode | What it does |
-|------|----------------|
-| `sgd` | Full-chain backprop + ApplyGradSGD (Lucy NormalBP) |
-| `sgd_simd` | Same with `BackendSIMD` |
-| `tween_head` | Gap update on Dense head only (live-adaptation style) |
-| `tween_head_simd` | Tween head + SIMD forward |
+| Mode | Lucy analog |
+|------|-------------|
+| `sgd` / `sgd_simd` | NormalBP |
+| `step_sgd` / `step_sgd_simd` | Step+BP (3 warm forwards) |
+| `tween` / `tween_simd` | Tween (layerwise gaps) |
+| `tween_chain` / `tween_chain_simd` | TweenChain |
+| `step_tween` / `step_tween_simd` | StepTween |
+| `step_tween_chain` / `step_tween_chain_simd` | StepTweenChain |
+| `tween_head` / `tween_head_simd` | head-only gap baseline |
 
 SIMD rows honor `welvet/simd.Enabled()` (AVX2/NEON when linked).
+
+Dashboard `/api/live` includes a **server-side `history`** cache (also `history.json` on disk) so refresh / other machines see the same timeline; scrubber goes back in time.
 
 ## Checkpoint / resume
 

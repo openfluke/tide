@@ -11,7 +11,6 @@ import (
 	"github.com/openfluke/welvet/layers/cnn2"
 	"github.com/openfluke/welvet/layers/dense"
 	"github.com/openfluke/welvet/quant"
-	"github.com/openfluke/welvet/runtime/training"
 )
 
 // Spec is the MNIST-style CNN stack.
@@ -198,74 +197,4 @@ func (m *Model) PredictArgmax(x *core.Tensor[float32]) ([]int, error) {
 		preds[b] = best
 	}
 	return preds, nil
-}
-
-// TrainStep runs one training step for the given mode.
-func (m *Model) TrainStep(x, target *core.Tensor[float32], lr float64, mode permute.TrainMode) (loss float64, err error) {
-	out, tp, err := m.Forward(x)
-	if err != nil {
-		return 0, err
-	}
-	loss, err = training.MSE(out, target)
-	if err != nil {
-		return 0, err
-	}
-	switch mode {
-	case permute.ModeTweenHead, permute.ModeTweenHeadSimd:
-		return loss, m.tweenHead(tp, target, lr)
-	default:
-		return loss, m.sgdFull(tp, target, lr)
-	}
-}
-
-func (m *Model) sgdFull(tp *tape, target *core.Tensor[float32], lr float64) error {
-	gy, err := training.MSEGrad(tp.out, target)
-	if err != nil {
-		return err
-	}
-	gFlat, dWHead, err := dense.Backward(m.Head, gy, tp.flat, tp.preH)
-	if err != nil {
-		return err
-	}
-	if err := dense.ApplyGradSGD(m.Head, dWHead, lr); err != nil {
-		return err
-	}
-	gY2 := &core.Tensor[float32]{Shape: append([]int(nil), tp.y2.Shape...), Data: gFlat.Data}
-	gY1, dW2, err := cnn2.Backward(m.CNN2, gY2, tp.y1, tp.pre2)
-	if err != nil {
-		return err
-	}
-	if err := cnn2.ApplyGradSGD(m.CNN2, dW2, lr); err != nil {
-		return err
-	}
-	_, dW1, err := cnn2.Backward(m.CNN1, gY1, tp.x, tp.pre1)
-	if err != nil {
-		return err
-	}
-	return cnn2.ApplyGradSGD(m.CNN1, dW1, lr)
-}
-
-// tweenHead updates only the Dense classifier toward the target (gap × input).
-func (m *Model) tweenHead(tp *tape, target *core.Tensor[float32], lr float64) error {
-	batch := tp.out.Shape[0]
-	classes := tp.out.Shape[1]
-	in := m.FlatIn
-	dW := core.NewTensor[float32](classes, in)
-	for b := 0; b < batch; b++ {
-		for c := 0; c < classes; c++ {
-			// Same sign as MSE: ∂L/∂pred ∝ (pred − target); ApplyGradSGD does w -= lr·dW.
-			gap := tp.out.Data[b*classes+c] - target.Data[b*classes+c]
-			base := c * in
-			off := b * in
-			for i := 0; i < in; i++ {
-				dW.Data[base+i] += gap * tp.flat.Data[off+i]
-			}
-		}
-	}
-	scale := float32(lr / float64(batch))
-	for i := range dW.Data {
-		dW.Data[i] *= scale
-	}
-	// ApplyGradSGD does w -= lr * dW; we already scaled by lr, so pass lr=1.
-	return dense.ApplyGradSGD(m.Head, dW, 1)
 }

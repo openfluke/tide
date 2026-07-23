@@ -29,15 +29,16 @@ type Inflight struct {
 
 // Progress is the on-disk resume state.
 type Progress struct {
-	Version       int            `json:"version"`
-	Mode          string         `json:"mode"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	CellTotal     int            `json:"cell_total"`
-	NextCellIndex int            `json:"next_cell_index"`
-	DoneIDs       []string       `json:"done_ids"`
-	Completed     []pulse.Result `json:"completed"`
-	Best          pulse.Best     `json:"best"`
-	Inflight      *Inflight      `json:"inflight,omitempty"`
+	Version       int                  `json:"version"`
+	Mode          string               `json:"mode"`
+	UpdatedAt     time.Time            `json:"updated_at"`
+	CellTotal     int                  `json:"cell_total"`
+	NextCellIndex int                  `json:"next_cell_index"`
+	DoneIDs       []string             `json:"done_ids"`
+	Completed     []pulse.Result       `json:"completed"`
+	Best          pulse.Best           `json:"best"`
+	History       []pulse.HistoryPoint `json:"history,omitempty"`
+	Inflight      *Inflight            `json:"inflight,omitempty"`
 }
 
 // Store writes progress.json + model weight dirs under Root.
@@ -55,12 +56,13 @@ func New(root, mode string) *Store {
 }
 
 func (s *Store) progressPath() string { return filepath.Join(s.Root, "progress.json") }
+func (s *Store) historyPath() string  { return filepath.Join(s.Root, "history.json") }
 func (s *Store) inflightDir() string  { return filepath.Join(s.Root, "models", "inflight") }
 func (s *Store) bestDir(kind string) string {
 	return filepath.Join(s.Root, "models", "best_"+kind)
 }
 
-// Load reads progress.json if present.
+// Load reads progress.json (+ history.json) if present.
 func (s *Store) Load() (*Progress, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,10 +77,16 @@ func (s *Store) Load() (*Progress, error) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return nil, err
 	}
+	if hb, err := os.ReadFile(s.historyPath()); err == nil {
+		var hist []pulse.HistoryPoint
+		if json.Unmarshal(hb, &hist) == nil {
+			p.History = hist
+		}
+	}
 	return &p, nil
 }
 
-// SaveAtomic writes progress.json (strips per-window history to keep file lean).
+// SaveAtomic writes progress.json + history.json (scores lean; history full for dash).
 func (s *Store) SaveAtomic(p *Progress) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -91,6 +99,8 @@ func (s *Store) SaveAtomic(p *Progress) error {
 	cp.UpdatedAt = time.Now()
 	cp.Completed = slimResults(p.Completed)
 	cp.Best = slimBest(p.Best)
+	hist := append([]pulse.HistoryPoint(nil), p.History...)
+	cp.History = nil // kept in history.json
 	if cp.Inflight != nil {
 		inf := *cp.Inflight
 		inf.Snapshot.Windows = nil
@@ -104,7 +114,18 @@ func (s *Store) SaveAtomic(p *Progress) error {
 	if err := os.WriteFile(tmp, b, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.progressPath())
+	if err := os.Rename(tmp, s.progressPath()); err != nil {
+		return err
+	}
+	hb, err := json.Marshal(hist)
+	if err != nil {
+		return err
+	}
+	htmp := s.historyPath() + ".tmp"
+	if err := os.WriteFile(htmp, hb, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(htmp, s.historyPath())
 }
 
 func slimResults(in []pulse.Result) []pulse.Result {

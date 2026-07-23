@@ -68,6 +68,16 @@
     display: inline-block; padding: 0.15rem 0.45rem;
     border: 1px solid var(--grid); font-size: 0.75rem; color: var(--muted);
   }
+  .scrub {
+    display: flex; gap: 0.75rem; align-items: center; margin-top: 0.75rem;
+    font-size: 0.85rem; color: var(--muted);
+  }
+  .scrub input[type=range] { flex: 1; }
+  button.livebtn {
+    background: transparent; color: var(--accent); border: 1px solid var(--accent);
+    padding: 0.25rem 0.6rem; cursor: pointer; font: inherit;
+  }
+  button.livebtn.off { color: var(--muted); border-color: var(--grid); }
 </style>
 </head>
 <body>
@@ -75,19 +85,24 @@
   <h1><span>tide</span> live adaptation</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Score = Throughput × Availability% × AvgAccuracy% / 10,000</p>
+<p class="score-eq">Score = Throughput × Availability% × AvgAccuracy% / 10,000 · history is server-cached (refresh-safe)</p>
 <main>
   <section>
     <h2>Score pulse</h2>
     <canvas id="chart" width="900" height="260"></canvas>
+    <div class="scrub">
+      <button class="livebtn" id="livebtn" type="button">LIVE</button>
+      <input id="scrub" type="range" min="0" max="0" value="0"/>
+      <span id="scrubLabel">live</span>
+    </div>
   </section>
   <section>
-    <h2>Current</h2>
+    <h2>Current / scrub view</h2>
     <div id="current" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Best (3 metrics + Score)</h2>
     <div id="bests" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Leaderboard</h2>
-    <div style="overflow:auto; max-height:320px">
+    <div style="overflow:auto; max-height:280px">
       <table>
         <thead><tr><th>#</th><th>Cell</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>St</th></tr></thead>
         <tbody id="board"></tbody>
@@ -98,9 +113,15 @@
 <script>
 const canvas = document.getElementById('chart');
 const ctx = canvas.getContext('2d');
-const series = []; // {t, score, acc, thru}
+const scrub = document.getElementById('scrub');
+const scrubLabel = document.getElementById('scrubLabel');
+const liveBtn = document.getElementById('livebtn');
 
-function draw() {
+let history = []; // server HistoryPoint[]
+let followLive = true;
+let seeded = false;
+
+function draw(viewEnd) {
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0,0,w,h);
   ctx.strokeStyle = '#24313a';
@@ -108,21 +129,74 @@ function draw() {
     const y = 20 + i * ((h-40)/4);
     ctx.beginPath(); ctx.moveTo(40,y); ctx.lineTo(w-10,y); ctx.stroke();
   }
-  if (series.length < 2) return;
-  const maxS = Math.max(...series.map(p => p.score), 1e-6);
-  const maxA = 100;
+  if (history.length < 2) return;
+  const end = Math.min(viewEnd, history.length - 1);
+  const start = Math.max(0, end - 179);
+  const slice = history.slice(start, end + 1);
+  const maxS = Math.max(...slice.map(p => p.score||0), 1e-6);
+  const maxT = Math.max(...slice.map(p => p.throughput||0), 1);
   const plot = (key, color, maxV) => {
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    series.forEach((p,i) => {
-      const x = 40 + i * ((w-50) / Math.max(series.length-1,1));
-      const y = h-20 - (p[key]/maxV) * (h-40);
+    slice.forEach((p,i) => {
+      const x = 40 + i * ((w-50) / Math.max(slice.length-1,1));
+      const y = h-20 - ((p[key]||0)/maxV) * (h-40);
       if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
     });
     ctx.stroke();
   };
   plot('score', '#3dd6c6', maxS);
-  plot('acc', '#e6b35a', maxA);
-  plot('thru', '#7aa2f7', Math.max(...series.map(p => p.thru), 1));
+  plot('accuracy', '#e6b35a', 100);
+  plot('throughput', '#7aa2f7', maxT);
+}
+
+function showPoint(p) {
+  const cur = document.getElementById('current');
+  if (!p) { cur.textContent = '—'; return; }
+  const t = p.at ? new Date(p.at).toLocaleTimeString() : '';
+  cur.innerHTML = `<div><span class="pill">${p.cell_id||'—'}</span> <span class="pill">${p.phase||''}</span> <span class="pill">${p.status||''}</span> ${t}</div>
+    <div style="margin-top:0.5rem">score <b>${(p.score||0).toFixed(3)}</b> · acc ${(p.accuracy||0).toFixed(1)}% · thru ${(p.throughput||0).toFixed(1)}/s · avail ${(p.availability||0).toFixed(1)}%</div>`;
+}
+
+function setFollow(on) {
+  followLive = on;
+  liveBtn.classList.toggle('off', !on);
+  if (on && history.length) {
+    scrub.value = String(history.length - 1);
+    scrubLabel.textContent = 'live';
+    showPoint(history[history.length - 1]);
+    draw(history.length - 1);
+  }
+}
+
+liveBtn.onclick = () => setFollow(true);
+scrub.addEventListener('input', () => {
+  followLive = false;
+  liveBtn.classList.add('off');
+  const i = +scrub.value;
+  scrubLabel.textContent = history[i] && history[i].at
+    ? new Date(history[i].at).toLocaleTimeString()
+    : String(i);
+  showPoint(history[i]);
+  draw(i);
+});
+
+function mergeHistory(serverHist) {
+  if (!Array.isArray(serverHist) || !serverHist.length) return;
+  // Replace from server (authoritative cache) so any machine sees the same timeline.
+  history = serverHist.slice();
+  scrub.max = String(Math.max(0, history.length - 1));
+  if (followLive) {
+    scrub.value = scrub.max;
+    scrubLabel.textContent = 'live';
+    showPoint(history[history.length - 1]);
+    draw(history.length - 1);
+  } else {
+    const i = Math.min(+scrub.value, history.length - 1);
+    scrub.value = String(i);
+    showPoint(history[i]);
+    draw(i);
+  }
+  seeded = true;
 }
 
 async function tick() {
@@ -130,16 +204,15 @@ async function tick() {
     const r = await fetch('/api/live');
     const j = await r.json();
     const st = document.getElementById('status');
-    st.textContent = `${j.message || ''} · batch ${j.batch_index+1}/${j.batch_total || 0} · cell ${j.cell_index+1}/${j.cell_total || 0} · phase ${j.phase || '—'} · ${j.running ? 'RUNNING' : 'idle'}`;
-    const cur = document.getElementById('current');
-    if (j.current) {
+    st.textContent = `${j.message || ''} · batch ${j.batch_index+1}/${j.batch_total || 0} · cell ${j.cell_index+1}/${j.cell_total || 0} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${j.running ? 'RUNNING' : 'idle'}`;
+
+    mergeHistory(j.history || []);
+
+    if (followLive && j.current) {
       const s = j.current.snapshot || {};
-      cur.innerHTML = `<div><span class="pill">${j.current.cell.id}</span></div>
-        <div style="margin-top:0.5rem">score <b>${(s.score||0).toFixed(3)}</b> · acc ${(s.avg_accuracy||0).toFixed(1)}% · thru ${(s.throughput||0).toFixed(1)}/s · avail ${(s.availability||0).toFixed(1)}%</div>`;
-      series.push({t: Date.now(), score: s.score||0, acc: s.avg_accuracy||0, thru: s.throughput||0});
-      if (series.length > 180) series.shift();
-      draw();
+      // current card already updated via history tip; keep leaderboard/best fresh
     }
+
     const bestEl = document.getElementById('bests');
     const b = j.best || {};
     const line = (label, row, key) => {
@@ -157,6 +230,7 @@ async function tick() {
       line('availability', b.availability, 'avail'),
       line('accuracy', b.accuracy, 'acc'),
     ].join('');
+
     const tb = document.getElementById('board');
     tb.innerHTML = (j.leaderboard||[]).map((row,i) => {
       const s = row.snapshot || {};

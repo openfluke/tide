@@ -40,6 +40,12 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(live)
 	})
+	// Explicit history endpoint (same payload slice) for other machines / tools.
+	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(s.Tracker.History())
+	})
 	return mux
 }
 
