@@ -201,6 +201,9 @@ func (t *Tracker) Pulse(win metrics.Window, snap metrics.Snapshot, phase string)
 		t.live.Current.Snapshot = snap
 		cellID = t.live.Current.Cell.ID
 	}
+	// Live boards: completed + in-flight cell, refreshed every pulse.
+	t.refreshBoardsLocked()
+	t.refreshProvisionalBestsLocked()
 	t.appendHistoryLocked(HistoryPoint{
 		At:           time.Now(),
 		CellID:       cellID,
@@ -228,10 +231,16 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 	t.live.Current.Ended = time.Now()
 	done := *t.live.Current
 	t.live.Completed = append(t.live.Completed, done)
-	t.live.Leaderboard = rankByScore(append([]Result(nil), t.live.Completed...))
-	t.live.LeaderboardMobile = rankByMobile(append([]Result(nil), t.live.Completed...))
-	UpdateBest(&t.live.Best, done)
-	UpdateBestMobile(&t.live.BestMobile, done)
+	t.live.Current = nil
+	t.live.Running = false
+	t.refreshBoardsLocked()
+	// Committed winners: ok cells only (rebuild from completed).
+	t.live.Best = Best{}
+	t.live.BestMobile = BestMobile{}
+	for _, r := range t.live.Completed {
+		UpdateBest(&t.live.Best, r)
+		UpdateBestMobile(&t.live.BestMobile, r)
+	}
 	t.appendHistoryLocked(HistoryPoint{
 		At:           time.Now(),
 		CellID:       done.Cell.ID,
@@ -244,10 +253,37 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 		Outputs:      snap.TotalOutputs,
 		Status:       status,
 	})
-	t.live.Current = nil
-	t.live.Running = false
 	t.live.UpdatedAt = time.Now()
 	return done
+}
+
+// refreshBoardsLocked ranks completed + current in-flight row.
+func (t *Tracker) refreshBoardsLocked() {
+	pool := append([]Result(nil), t.live.Completed...)
+	if t.live.Current != nil {
+		pool = append(pool, *t.live.Current)
+	}
+	t.live.Leaderboard = rankByScore(pool)
+	t.live.LeaderboardMobile = rankByMobile(pool)
+}
+
+// refreshProvisionalBestsLocked updates Best cards including the running cell.
+func (t *Tracker) refreshProvisionalBestsLocked() {
+	t.live.Best = Best{}
+	t.live.BestMobile = BestMobile{}
+	for _, r := range t.live.Completed {
+		UpdateBest(&t.live.Best, r)
+		UpdateBestMobile(&t.live.BestMobile, r)
+	}
+	if t.live.Current != nil {
+		cur := *t.live.Current
+		// Allow running into provisional winners for live UI.
+		if cur.Status == "running" {
+			cur.Status = "ok"
+		}
+		UpdateBest(&t.live.Best, cur)
+		UpdateBestMobile(&t.live.BestMobile, cur)
+	}
 }
 
 func rankByScore(in []Result) []Result {

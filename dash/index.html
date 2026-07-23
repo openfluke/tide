@@ -64,6 +64,7 @@
   .ok { color: var(--accent); }
   .fail { color: var(--bad); }
   .gap { color: var(--warn); }
+  .running { color: var(--warn); font-weight: 600; }
   .pill {
     display: inline-block; padding: 0.15rem 0.45rem;
     border: 1px solid var(--grid); font-size: 0.75rem; color: var(--muted);
@@ -103,14 +104,14 @@
     <div id="bests" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Best mobile (metric / MiB)</h2>
     <div id="mobile" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Leaderboard — raw Score</h2>
+    <h2 style="margin-top:1.25rem">Leaderboard — raw Score (live)</h2>
     <div style="overflow:auto; max-height:220px">
       <table>
         <thead><tr><th>#</th><th>Cell</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>RAM</th><th>St</th></tr></thead>
         <tbody id="board"></tbody>
       </table>
     </div>
-    <h2 style="margin-top:1.25rem">Leaderboard — mobile (Score/MiB)</h2>
+    <h2 style="margin-top:1.25rem">Leaderboard — mobile Score/MiB (live)</h2>
     <div style="overflow:auto; max-height:220px">
       <table>
         <thead><tr><th>#</th><th>Cell</th><th>Score/MiB</th><th>Score</th><th>Acc</th><th>RAM</th><th>St</th></tr></thead>
