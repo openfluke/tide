@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/openfluke/tide/pulse"
@@ -33,18 +34,29 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
 	})
+	// Lightweight 1s poll — tip only, not the whole timeline.
 	mux.HandleFunc("/api/live", func(w http.ResponseWriter, r *http.Request) {
-		live := s.Tracker.Snapshot()
+		live := s.Tracker.SnapshotLive()
 		live.UpdatedAt = time.Now()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(live)
 	})
-	// Explicit history endpoint (same payload slice) for other machines / tools.
+	// Full or incremental history: /api/history or /api/history?from=N
 	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
+		from := 0
+		if v := r.URL.Query().Get("from"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				from = n
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(s.Tracker.History())
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"from":    from,
+			"total":   s.Tracker.SnapshotLive().HistoryLen,
+			"history": s.Tracker.HistoryFrom(from),
+		})
 	})
 	return mux
 }

@@ -51,6 +51,15 @@ func New() *Tracker {
 }
 
 func (t *Tracker) Snapshot() Live {
+	return t.snapshot(true)
+}
+
+// SnapshotLive is the 1s poll payload: no full history (tip only).
+func (t *Tracker) SnapshotLive() Live {
+	return t.snapshot(false)
+}
+
+func (t *Tracker) snapshot(fullHistory bool) Live {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	cp := t.live
@@ -61,8 +70,16 @@ func (t *Tracker) Snapshot() Live {
 	cp.Completed = append([]Result(nil), t.live.Completed...)
 	cp.Leaderboard = append([]Result(nil), t.live.Leaderboard...)
 	cp.Best = copyBest(t.live.Best)
-	cp.History = append([]HistoryPoint(nil), t.live.History...)
-	cp.HistoryLen = len(cp.History)
+	n := len(t.live.History)
+	cp.HistoryLen = n
+	if fullHistory {
+		cp.History = append([]HistoryPoint(nil), t.live.History...)
+	} else if n > 0 {
+		// Tip only — browser already holds the rest (or loads /api/history once).
+		cp.History = []HistoryPoint{t.live.History[n-1]}
+	} else {
+		cp.History = nil
+	}
 	return cp
 }
 
@@ -104,9 +121,20 @@ func (t *Tracker) Best() Best {
 }
 
 func (t *Tracker) History() []HistoryPoint {
+	return t.HistoryFrom(0)
+}
+
+// HistoryFrom returns points [from:] for incremental browser sync.
+func (t *Tracker) HistoryFrom(from int) []HistoryPoint {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return append([]HistoryPoint(nil), t.live.History...)
+	if from < 0 {
+		from = 0
+	}
+	if from >= len(t.live.History) {
+		return nil
+	}
+	return append([]HistoryPoint(nil), t.live.History[from:]...)
 }
 
 func (t *Tracker) SetMeta(batchIdx, batchTotal, cellIdx, cellTotal int, msg string) {

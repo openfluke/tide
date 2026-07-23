@@ -180,10 +180,7 @@ scrub.addEventListener('input', () => {
   draw(i);
 });
 
-function mergeHistory(serverHist) {
-  if (!Array.isArray(serverHist) || !serverHist.length) return;
-  // Replace from server (authoritative cache) so any machine sees the same timeline.
-  history = serverHist.slice();
+function refreshScrub() {
   scrub.max = String(Math.max(0, history.length - 1));
   if (followLive) {
     scrub.value = scrub.max;
@@ -196,7 +193,36 @@ function mergeHistory(serverHist) {
     showPoint(history[i]);
     draw(i);
   }
+}
+
+async function loadHistory() {
+  const r = await fetch('/api/history');
+  const j = await r.json();
+  history = Array.isArray(j.history) ? j.history : [];
   seeded = true;
+  refreshScrub();
+}
+
+async function syncHistoryTip(serverLen, tip) {
+  if (!seeded) {
+    await loadHistory();
+    return;
+  }
+  // Server rotated/truncated — reload once.
+  if (serverLen < history.length) {
+    await loadHistory();
+    return;
+  }
+  if (serverLen > history.length) {
+    const r = await fetch('/api/history?from=' + history.length);
+    const j = await r.json();
+    if (Array.isArray(j.history) && j.history.length) {
+      history = history.concat(j.history);
+    }
+  } else if (tip && tip.length && history.length) {
+    history[history.length - 1] = tip[tip.length - 1];
+  }
+  refreshScrub();
 }
 
 async function tick() {
@@ -206,12 +232,7 @@ async function tick() {
     const st = document.getElementById('status');
     st.textContent = `${j.message || ''} · batch ${j.batch_index+1}/${j.batch_total || 0} · cell ${j.cell_index+1}/${j.cell_total || 0} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${j.running ? 'RUNNING' : 'idle'}`;
 
-    mergeHistory(j.history || []);
-
-    if (followLive && j.current) {
-      const s = j.current.snapshot || {};
-      // current card already updated via history tip; keep leaderboard/best fresh
-    }
+    await syncHistoryTip(j.history_len || 0, j.history || []);
 
     const bestEl = document.getElementById('bests');
     const b = j.best || {};
