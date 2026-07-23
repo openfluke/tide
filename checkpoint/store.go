@@ -40,6 +40,7 @@ type Progress struct {
 	DoneIDs       []string             `json:"done_ids"`
 	Completed     []pulse.Result       `json:"completed"`
 	Best          pulse.Best           `json:"best"`
+	BestMobile    pulse.BestMobile     `json:"best_mobile"`
 	History       []pulse.HistoryPoint `json:"history,omitempty"`
 	Inflight      *Inflight            `json:"inflight,omitempty"`
 }
@@ -117,6 +118,7 @@ func (s *Store) SaveAtomic(p *Progress) error {
 	}
 	cp.Completed = slimResults(p.Completed)
 	cp.Best = slimBest(p.Best)
+	cp.BestMobile = slimBestMobile(p.BestMobile)
 	hist := append([]pulse.HistoryPoint(nil), p.History...)
 	cp.History = nil
 	if cp.Inflight != nil {
@@ -164,6 +166,15 @@ func slimBest(b pulse.Best) pulse.Best {
 	}
 }
 
+func slimBestMobile(b pulse.BestMobile) pulse.BestMobile {
+	return pulse.BestMobile{
+		Score:        slimPtr(b.Score),
+		Throughput:   slimPtr(b.Throughput),
+		Availability: slimPtr(b.Availability),
+		Accuracy:     slimPtr(b.Accuracy),
+	}
+}
+
 func slimPtr(r *pulse.Result) *pulse.Result {
 	if r == nil {
 		return nil
@@ -195,7 +206,7 @@ func (s *Store) LoadInflightModel(m *chain.Model) error {
 	return m.LoadWeightsDir(s.inflightDir())
 }
 
-func (s *Store) SaveBestModels(m *chain.Model, best pulse.Best, r pulse.Result) error {
+func (s *Store) SaveBestModels(m *chain.Model, best pulse.Best, mobile pulse.BestMobile, r pulse.Result) error {
 	id := r.Cell.ID
 	checks := []struct {
 		kind string
@@ -205,6 +216,10 @@ func (s *Store) SaveBestModels(m *chain.Model, best pulse.Best, r pulse.Result) 
 		{"throughput", best.Throughput},
 		{"availability", best.Availability},
 		{"accuracy", best.Accuracy},
+		{"mobile_score", mobile.Score},
+		{"mobile_throughput", mobile.Throughput},
+		{"mobile_availability", mobile.Availability},
+		{"mobile_accuracy", mobile.Accuracy},
 	}
 	for _, c := range checks {
 		if c.cur != nil && c.cur.Cell.ID == id {

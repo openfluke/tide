@@ -24,12 +24,19 @@ type Snapshot struct {
 	TotalTrain     int64         `json:"total_train"`
 	BlockedTrain   time.Duration `json:"blocked_train"`
 	Duration       time.Duration `json:"duration"`
-	AvgAccuracy    float64       `json:"avg_accuracy"`    // 0–100
-	Throughput     float64       `json:"throughput"`      // outputs/s
-	Availability   float64       `json:"availability"`    // 0–100
+	AvgAccuracy    float64       `json:"avg_accuracy"`  // 0–100
+	Throughput     float64       `json:"throughput"`    // outputs/s
+	Availability   float64       `json:"availability"`  // 0–100
 	Score          float64       `json:"score"`
-	ZeroDowntime   float64       `json:"zero_downtime"`   // Acc × Avail / 100
-	Windows        []Window      `json:"windows,omitempty"`
+	ZeroDowntime   float64       `json:"zero_downtime"` // Acc × Avail / 100
+	WeightBytes    int64         `json:"weight_bytes"`  // model payload (mobile footprint)
+	WeightMiB      float64       `json:"weight_mib"`
+	// Mobile* = metric / MiB — higher = better performance per RAM.
+	MobileScore        float64 `json:"mobile_score"`
+	MobileThroughput   float64 `json:"mobile_throughput"`
+	MobileAvailability float64 `json:"mobile_availability"`
+	MobileAccuracy     float64 `json:"mobile_accuracy"`
+	Windows            []Window `json:"windows,omitempty"`
 }
 
 // Finalize computes Lucy aggregates from windows + totals.
@@ -56,6 +63,15 @@ func Finalize(s *Snapshot) {
 	}
 	s.Score = s.Throughput * s.Availability * s.AvgAccuracy / 10000
 	s.ZeroDowntime = s.AvgAccuracy * s.Availability / 100
+	s.WeightMiB = float64(s.WeightBytes) / (1024 * 1024)
+	mb := s.WeightMiB
+	if mb < 1e-9 {
+		mb = 1e-9
+	}
+	s.MobileScore = s.Score / mb
+	s.MobileThroughput = s.Throughput / mb
+	s.MobileAvailability = s.Availability / mb
+	s.MobileAccuracy = s.AvgAccuracy / mb
 }
 
 // WindowAccuracy returns 0–100 accuracy for a window.

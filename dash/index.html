@@ -99,13 +99,22 @@
   <section>
     <h2>Current / scrub view</h2>
     <div id="current" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Best (3 metrics + Score)</h2>
+    <h2 style="margin-top:1.25rem">Best raw</h2>
     <div id="bests" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Leaderboard</h2>
-    <div style="overflow:auto; max-height:280px">
+    <h2 style="margin-top:1.25rem">Best mobile (metric / MiB)</h2>
+    <div id="mobile" class="meta">—</div>
+    <h2 style="margin-top:1.25rem">Leaderboard — raw Score</h2>
+    <div style="overflow:auto; max-height:220px">
       <table>
-        <thead><tr><th>#</th><th>Cell</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>St</th></tr></thead>
+        <thead><tr><th>#</th><th>Cell</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>RAM</th><th>St</th></tr></thead>
         <tbody id="board"></tbody>
+      </table>
+    </div>
+    <h2 style="margin-top:1.25rem">Leaderboard — mobile (Score/MiB)</h2>
+    <div style="overflow:auto; max-height:220px">
+      <table>
+        <thead><tr><th>#</th><th>Cell</th><th>Score/MiB</th><th>Score</th><th>Acc</th><th>RAM</th><th>St</th></tr></thead>
+        <tbody id="boardMobile"></tbody>
       </table>
     </div>
   </section>
@@ -252,9 +261,35 @@ async function tick() {
       line('accuracy', b.accuracy, 'acc'),
     ].join('');
 
-    const tb = document.getElementById('board');
-    tb.innerHTML = (j.leaderboard||[]).map((row,i) => {
+    const mobEl = document.getElementById('mobile');
+    const m = j.best_mobile || {};
+    const mline = (label, row, effKey) => {
+      if (!row) return `<div>${label}: —</div>`;
       const s = row.snapshot || {};
+      const kib = ((s.weight_bytes||0)/1024).toFixed(1);
+      const eff = (s[effKey]||0).toFixed(2);
+      return `<div><span class="pill">${label}</span> ${eff}/MiB · ${kib} KiB · ${row.cell.id}</div>`;
+    };
+    mobEl.innerHTML = [
+      mline('score', m.score, 'mobile_score'),
+      mline('throughput', m.throughput, 'mobile_throughput'),
+      mline('availability', m.availability, 'mobile_availability'),
+      mline('accuracy', m.accuracy, 'mobile_accuracy'),
+    ].join('');
+
+    const rowHTML = (row,i,mobile) => {
+      const s = row.snapshot || {};
+      if (mobile) {
+        return `<tr>
+          <td>${i+1}</td>
+          <td>${row.cell.id}</td>
+          <td>${(s.mobile_score||0).toFixed(2)}</td>
+          <td>${(s.score||0).toFixed(3)}</td>
+          <td>${(s.avg_accuracy||0).toFixed(1)}</td>
+          <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
+          <td class="${row.status}">${row.status}</td>
+        </tr>`;
+      }
       return `<tr>
         <td>${i+1}</td>
         <td>${row.cell.id}</td>
@@ -262,9 +297,12 @@ async function tick() {
         <td>${(s.avg_accuracy||0).toFixed(1)}</td>
         <td>${(s.throughput||0).toFixed(1)}</td>
         <td>${(s.availability||0).toFixed(1)}</td>
+        <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
         <td class="${row.status}">${row.status}</td>
       </tr>`;
-    }).join('');
+    };
+    document.getElementById('board').innerHTML = (j.leaderboard||[]).map((r,i)=>rowHTML(r,i,false)).join('');
+    document.getElementById('boardMobile').innerHTML = (j.leaderboard_mobile||[]).map((r,i)=>rowHTML(r,i,true)).join('');
   } catch (e) {
     document.getElementById('status').textContent = 'waiting for /api/live…';
   }

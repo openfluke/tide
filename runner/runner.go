@@ -72,7 +72,7 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 
 	done := checkpoint.DoneSet(cfg.Resume)
 	if cfg.Resume != nil {
-		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.History,
+		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.BestMobile, cfg.Resume.History,
 			cfg.Resume.NextCellIndex, len(cfg.Cells),
 			fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done)))
 	}
@@ -149,6 +149,7 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		DoneIDs:       doneIDs,
 		Completed:     live.Completed,
 		Best:          live.Best,
+		BestMobile:    live.BestMobile,
 		History:       live.History,
 		Inflight:      inf,
 	}
@@ -223,6 +224,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	}
 
 	trainLen := ds.TrainLen()
+	weightBytes := m.WeightBytes()
 	var wg sync.WaitGroup
 
 	// Serve loop while the epoch trains.
@@ -337,6 +339,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				snap.TotalTrain = totalTrain.Load()
 				snap.BlockedTrain = time.Duration(blockedNS.Load())
 				snap.Duration = time.Since(start)
+				snap.WeightBytes = weightBytes
 				metrics.Finalize(&snap)
 				lastSnap.Store(snap)
 				tr.Pulse(w, snap, p)
@@ -391,6 +394,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		TotalTrain:   totalTrain.Load(),
 		BlockedTrain: time.Duration(blockedNS.Load()),
 		Duration:     time.Since(start),
+		WeightBytes:  m.WeightBytes(),
 	}
 	if live.Current != nil {
 		snap.Windows = live.Current.Snapshot.Windows
@@ -422,8 +426,9 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	done := tr.Finish("ok", "", snap)
 	if cfg.Store != nil {
 		best := tr.Best()
+		mobile := tr.BestMobile()
 		mu.Lock()
-		_ = cfg.Store.SaveBestModels(m, best, done)
+		_ = cfg.Store.SaveBestModels(m, best, mobile, done)
 		_ = cfg.Store.SaveModel(cell.ID, m)
 		mu.Unlock()
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
