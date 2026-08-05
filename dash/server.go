@@ -64,7 +64,7 @@ func (s *Server) Handler() http.Handler {
 // ListenAndServe blocks on Addr.
 func (s *Server) ListenAndServe() error {
 	if s.Addr == "" {
-		s.Addr = ":8080"
+		s.Addr = "0.0.0.0:8080"
 	}
 	return http.ListenAndServe(s.Addr, s.Handler())
 }
