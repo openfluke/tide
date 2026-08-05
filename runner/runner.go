@@ -5,6 +5,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -228,6 +229,8 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	var wg sync.WaitGroup
 
 	// Serve loop while the epoch trains.
+	// TryLock + allocate-only-when-free: the old busy-spin allocated a new MNIST
+	// batch then blocked on mu while train held it — huge alloc churn → Go RSS balloon.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -240,9 +243,16 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			if trainDone.Load() {
 				return
 			}
+			if !mu.TryLock() {
+				runtime.Gosched()
+				continue
+			}
+			if trainDone.Load() {
+				mu.Unlock()
+				return
+			}
 			p := phase.Load().(string)
 			s := remap(ds.NextServe(p), p)
-			mu.Lock()
 			preds, err := m.PredictArgmax(s.X)
 			mu.Unlock()
 			if err != nil {
@@ -314,6 +324,12 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		if v := lastSnap.Load(); v != nil {
 			snap = v.(metrics.Snapshot)
 		}
+		var pulseAccSum float64
+		var pulseAccN int64
+		if snap.AccuracyPulses > 0 {
+			pulseAccN = snap.AccuracyPulses
+			pulseAccSum = snap.AvgAccuracy * float64(pulseAccN)
+		}
 		for {
 			select {
 			case <-cellCtx.Done():
@@ -333,13 +349,17 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				}
 				w.Accuracy = metrics.WindowAccuracy(w.Correct, w.Outputs)
 				w.Throughput = float64(w.Outputs) / cfg.PulseEvery.Seconds()
-				snap.Windows = append(snap.Windows, w)
+				pulseAccSum += w.Accuracy
+				pulseAccN++
+				snap.Windows = metrics.AppendWindow(snap.Windows, w)
 				snap.TotalOutputs = totalOut.Load()
 				snap.TotalCorrect = totalCorrect.Load()
 				snap.TotalTrain = totalTrain.Load()
 				snap.BlockedTrain = time.Duration(blockedNS.Load())
 				snap.Duration = time.Since(start)
 				snap.WeightBytes = weightBytes
+				snap.AvgAccuracy = pulseAccSum / float64(pulseAccN)
+				snap.AccuracyPulses = pulseAccN
 				metrics.Finalize(&snap)
 				lastSnap.Store(snap)
 				tr.Pulse(w, snap, p)
@@ -396,8 +416,15 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		Duration:     time.Since(start),
 		WeightBytes:  m.WeightBytes(),
 	}
-	if live.Current != nil {
+	if v := lastSnap.Load(); v != nil {
+		prev := v.(metrics.Snapshot)
+		snap.AvgAccuracy = prev.AvgAccuracy
+		snap.AccuracyPulses = prev.AccuracyPulses
+		snap.Windows = prev.Windows
+	} else if live.Current != nil {
 		snap.Windows = live.Current.Snapshot.Windows
+		snap.AvgAccuracy = live.Current.Snapshot.AvgAccuracy
+		snap.AccuracyPulses = live.Current.Snapshot.AccuracyPulses
 	}
 	metrics.Finalize(&snap)
 
@@ -420,6 +447,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	if note, ok := failNote.Load().(string); ok && note != "" {
 		tr.Finish("fail", note, snap)
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
+		m = nil
 		return fmt.Errorf("%s", note)
 	}
 
@@ -433,6 +461,9 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		mu.Unlock()
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
 	}
+	// Drop model refs so GC can reclaim before the next of 756 cells.
+	m = nil
+	runtime.GC()
 	return nil
 }
 

@@ -37,6 +37,22 @@ type Snapshot struct {
 	MobileAvailability float64 `json:"mobile_availability"`
 	MobileAccuracy     float64 `json:"mobile_accuracy"`
 	Windows            []Window `json:"windows,omitempty"`
+	// AccuracyPulses is the number of 1s windows folded into AvgAccuracy (running mean).
+	// When >0, Finalize keeps AvgAccuracy instead of re-averaging (possibly capped) Windows.
+	AccuracyPulses int64 `json:"-"`
+}
+
+// MaxRetainedWindows caps in-memory sparkline history (dashboard / Current only).
+// Completed cells strip Windows entirely — unbounded growth was blowing RSS on long sweeps.
+const MaxRetainedWindows = 120
+
+// AppendWindow adds w and drops the oldest when over MaxRetainedWindows.
+func AppendWindow(dst []Window, w Window) []Window {
+	dst = append(dst, w)
+	if len(dst) > MaxRetainedWindows {
+		dst = append([]Window(nil), dst[len(dst)-MaxRetainedWindows:]...)
+	}
+	return dst
 }
 
 // Finalize computes Lucy aggregates from windows + totals.
@@ -52,14 +68,16 @@ func Finalize(s *Snapshot) {
 		}
 		s.Availability = float64(avail) / float64(s.Duration) * 100
 	}
-	if len(s.Windows) > 0 {
-		var sum float64
-		for _, w := range s.Windows {
-			sum += w.Accuracy
+	if s.AccuracyPulses == 0 {
+		if len(s.Windows) > 0 {
+			var sum float64
+			for _, w := range s.Windows {
+				sum += w.Accuracy
+			}
+			s.AvgAccuracy = sum / float64(len(s.Windows))
+		} else if s.TotalOutputs > 0 {
+			s.AvgAccuracy = 100 * float64(s.TotalCorrect) / float64(s.TotalOutputs)
 		}
-		s.AvgAccuracy = sum / float64(len(s.Windows))
-	} else if s.TotalOutputs > 0 {
-		s.AvgAccuracy = 100 * float64(s.TotalCorrect) / float64(s.TotalOutputs)
 	}
 	s.Score = s.Throughput * s.Availability * s.AvgAccuracy / 10000
 	s.ZeroDowntime = s.AvgAccuracy * s.Availability / 100

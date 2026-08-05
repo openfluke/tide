@@ -60,3 +60,13 @@ Finish the matrix → re-run starts **epoch N+1** (weights continue). Ctrl+C res
 
 - Lucy scores / completed cells / **best Score · Throughput · Availability · Accuracy**
 - inflight model + train offset so Ctrl+C → restart continues mid-epoch
+
+## Memory notes
+
+Only **one** Welvet model is live per permutation cell (~250 KiB weights).  
+RAM blowups on long sweeps were from:
+
+1. Serve goroutine busy-spin allocating MNIST batches while blocked on the train mutex  
+2. Unbounded 1s `Windows` slices retained on every completed cell  
+
+Serve now uses `TryLock` (allocate only when free); window sparklines are capped (~120) and stripped from completed results.
