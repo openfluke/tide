@@ -61,6 +61,18 @@ Finish the matrix → re-run starts **epoch N+1** (weights continue). Ctrl+C res
 - Lucy scores / completed cells / **best Score · Throughput · Availability · Accuracy**
 - inflight model + train offset so Ctrl+C → restart continues mid-epoch
 
+## Learning speed
+
+Recorded live per cell (1s serve windows):
+
+| Metric | Meaning |
+|--------|---------|
+| `time_to_acc25_sec` / `time_to_acc50_sec` | Wall seconds until a 1s window first hit ≥25% / ≥50% accuracy |
+| `acc_per_sec` | Final AvgAccuracy ÷ duration |
+| `mobile_acc_per_sec` | Acc/sec ÷ model MiB |
+
+Dashboard has separate learn leaderboards + charts (fastest to 50%, Acc/sec/MiB).
+
 ## Memory notes
 
 Only **one** Welvet model is live per permutation cell (~250 KiB weights).  

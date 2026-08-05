@@ -41,6 +41,8 @@ type Progress struct {
 	Completed     []pulse.Result       `json:"completed"`
 	Best          pulse.Best           `json:"best"`
 	BestMobile    pulse.BestMobile     `json:"best_mobile"`
+	BestLearn     pulse.BestLearn      `json:"best_learn"`
+	BestLearnMobile pulse.BestLearnMobile `json:"best_learn_mobile"`
 	History       []pulse.HistoryPoint `json:"history,omitempty"`
 	Inflight      *Inflight            `json:"inflight,omitempty"`
 }
@@ -119,6 +121,8 @@ func (s *Store) SaveAtomic(p *Progress) error {
 	cp.Completed = slimResults(p.Completed)
 	cp.Best = slimBest(p.Best)
 	cp.BestMobile = slimBestMobile(p.BestMobile)
+	cp.BestLearn = slimBestLearn(p.BestLearn)
+	cp.BestLearnMobile = slimBestLearnMobile(p.BestLearnMobile)
 	hist := append([]pulse.HistoryPoint(nil), p.History...)
 	cp.History = nil
 	if cp.Inflight != nil {
@@ -172,6 +176,21 @@ func slimBestMobile(b pulse.BestMobile) pulse.BestMobile {
 		Throughput:   slimPtr(b.Throughput),
 		Availability: slimPtr(b.Availability),
 		Accuracy:     slimPtr(b.Accuracy),
+	}
+}
+
+func slimBestLearn(b pulse.BestLearn) pulse.BestLearn {
+	return pulse.BestLearn{
+		To25:      slimPtr(b.To25),
+		To50:      slimPtr(b.To50),
+		AccPerSec: slimPtr(b.AccPerSec),
+	}
+}
+
+func slimBestLearnMobile(b pulse.BestLearnMobile) pulse.BestLearnMobile {
+	return pulse.BestLearnMobile{
+		AccPerSec: slimPtr(b.AccPerSec),
+		To50:      slimPtr(b.To50),
 	}
 }
 

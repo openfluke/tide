@@ -40,7 +40,19 @@ type Snapshot struct {
 	// AccuracyPulses is the number of 1s windows folded into AvgAccuracy (running mean).
 	// When >0, Finalize keeps AvgAccuracy instead of re-averaging (possibly capped) Windows.
 	AccuracyPulses int64 `json:"-"`
+
+	// Learning-speed (recorded live; 0 = threshold never hit).
+	TimeToAcc25Sec float64 `json:"time_to_acc25_sec"` // wall seconds until 1s-window acc ≥ 25%
+	TimeToAcc50Sec float64 `json:"time_to_acc50_sec"` // wall seconds until 1s-window acc ≥ 50%
+	AccPerSec      float64 `json:"acc_per_sec"`       // AvgAccuracy / Duration.Seconds()
+	MobileAccPerSec float64 `json:"mobile_acc_per_sec"` // AccPerSec / MiB
 }
+
+// Acc thresholds for time-to-accuracy tracking.
+const (
+	AccThreshold25 = 25.0
+	AccThreshold50 = 50.0
+)
 
 // MaxRetainedWindows caps in-memory sparkline history (dashboard / Current only).
 // Completed cells strip Windows entirely — unbounded growth was blowing RSS on long sweeps.
@@ -90,6 +102,10 @@ func Finalize(s *Snapshot) {
 	s.MobileThroughput = s.Throughput / mb
 	s.MobileAvailability = s.Availability / mb
 	s.MobileAccuracy = s.AvgAccuracy / mb
+	if s.Duration > 0 {
+		s.AccPerSec = s.AvgAccuracy / s.Duration.Seconds()
+		s.MobileAccPerSec = s.AccPerSec / mb
+	}
 }
 
 // WindowAccuracy returns 0–100 accuracy for a window.

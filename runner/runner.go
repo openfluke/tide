@@ -73,7 +73,8 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 
 	done := checkpoint.DoneSet(cfg.Resume)
 	if cfg.Resume != nil {
-		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.BestMobile, cfg.Resume.History,
+		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.BestMobile,
+			cfg.Resume.BestLearn, cfg.Resume.BestLearnMobile, cfg.Resume.History,
 			cfg.Resume.NextCellIndex, len(cfg.Cells),
 			fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done)))
 	}
@@ -151,6 +152,8 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		Completed:     live.Completed,
 		Best:          live.Best,
 		BestMobile:    live.BestMobile,
+		BestLearn:     live.BestLearn,
+		BestLearnMobile: live.BestLearnMobile,
 		History:       live.History,
 		Inflight:      inf,
 	}
@@ -360,6 +363,13 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				snap.WeightBytes = weightBytes
 				snap.AvgAccuracy = pulseAccSum / float64(pulseAccN)
 				snap.AccuracyPulses = pulseAccN
+				sec := snap.Duration.Seconds()
+				if snap.TimeToAcc25Sec == 0 && w.Accuracy >= metrics.AccThreshold25 {
+					snap.TimeToAcc25Sec = sec
+				}
+				if snap.TimeToAcc50Sec == 0 && w.Accuracy >= metrics.AccThreshold50 {
+					snap.TimeToAcc50Sec = sec
+				}
 				metrics.Finalize(&snap)
 				lastSnap.Store(snap)
 				tr.Pulse(w, snap, p)
@@ -421,10 +431,14 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		snap.AvgAccuracy = prev.AvgAccuracy
 		snap.AccuracyPulses = prev.AccuracyPulses
 		snap.Windows = prev.Windows
+		snap.TimeToAcc25Sec = prev.TimeToAcc25Sec
+		snap.TimeToAcc50Sec = prev.TimeToAcc50Sec
 	} else if live.Current != nil {
 		snap.Windows = live.Current.Snapshot.Windows
 		snap.AvgAccuracy = live.Current.Snapshot.AvgAccuracy
 		snap.AccuracyPulses = live.Current.Snapshot.AccuracyPulses
+		snap.TimeToAcc25Sec = live.Current.Snapshot.TimeToAcc25Sec
+		snap.TimeToAcc50Sec = live.Current.Snapshot.TimeToAcc50Sec
 	}
 	metrics.Finalize(&snap)
 

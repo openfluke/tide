@@ -27,8 +27,12 @@ type Live struct {
 	Completed         []Result   `json:"completed"`
 	Leaderboard       []Result   `json:"leaderboard"`        // ranked by raw Lucy Score
 	LeaderboardMobile []Result   `json:"leaderboard_mobile"` // ranked by Score/MiB
+	LeaderboardLearn  []Result   `json:"leaderboard_learn"`  // ranked by time-to-50% (then AccPerSec)
+	LeaderboardLearnMobile []Result `json:"leaderboard_learn_mobile"` // ranked by AccPerSec/MiB
 	Best              Best       `json:"best"`
 	BestMobile        BestMobile `json:"best_mobile"` // axis winners by metric/MiB
+	BestLearn         BestLearn  `json:"best_learn"`
+	BestLearnMobile   BestLearnMobile `json:"best_learn_mobile"`
 	History     []HistoryPoint `json:"history"`     // server cache — refresh-safe
 	Phase       string         `json:"phase"`
 	BatchIndex  int            `json:"batch_index"`
@@ -73,8 +77,12 @@ func (t *Tracker) snapshot(fullHistory bool) Live {
 	cp.Completed = append([]Result(nil), t.live.Completed...)
 	cp.Leaderboard = append([]Result(nil), t.live.Leaderboard...)
 	cp.LeaderboardMobile = append([]Result(nil), t.live.LeaderboardMobile...)
+	cp.LeaderboardLearn = append([]Result(nil), t.live.LeaderboardLearn...)
+	cp.LeaderboardLearnMobile = append([]Result(nil), t.live.LeaderboardLearnMobile...)
 	cp.Best = copyBest(t.live.Best)
 	cp.BestMobile = copyBestMobile(t.live.BestMobile)
+	cp.BestLearn = copyBestLearn(t.live.BestLearn)
+	cp.BestLearnMobile = copyBestLearnMobile(t.live.BestLearnMobile)
 	n := len(t.live.History)
 	cp.HistoryLen = n
 	if fullHistory {
@@ -106,6 +114,21 @@ func copyBestMobile(b BestMobile) BestMobile {
 	}
 }
 
+func copyBestLearn(b BestLearn) BestLearn {
+	return BestLearn{
+		To25:      cloneResult(b.To25),
+		To50:      cloneResult(b.To50),
+		AccPerSec: cloneResult(b.AccPerSec),
+	}
+}
+
+func copyBestLearnMobile(b BestLearnMobile) BestLearnMobile {
+	return BestLearnMobile{
+		AccPerSec: cloneResult(b.AccPerSec),
+		To50:      cloneResult(b.To50),
+	}
+}
+
 func cloneResult(r *Result) *Result {
 	if r == nil {
 		return nil
@@ -115,14 +138,31 @@ func cloneResult(r *Result) *Result {
 }
 
 // Restore loads completed results + bests + history from a checkpoint (resume).
-func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, history []HistoryPoint, cellIdx, cellTotal int, msg string) {
+func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, learn BestLearn, learnMobile BestLearnMobile, history []HistoryPoint, cellIdx, cellTotal int, msg string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.live.Completed = append([]Result(nil), completed...)
-	t.live.Leaderboard = rankByScore(append([]Result(nil), completed...))
-	t.live.LeaderboardMobile = rankByMobile(append([]Result(nil), completed...))
+	for i := range t.live.Completed {
+		s := &t.live.Completed[i].Snapshot
+		if s.AccPerSec == 0 && s.Duration > 0 {
+			metrics.Finalize(s)
+		}
+	}
+	t.live.Leaderboard = rankByScore(append([]Result(nil), t.live.Completed...))
+	t.live.LeaderboardMobile = rankByMobile(append([]Result(nil), t.live.Completed...))
+	t.live.LeaderboardLearn = rankByLearn(append([]Result(nil), t.live.Completed...))
+	t.live.LeaderboardLearnMobile = rankByLearnMobile(append([]Result(nil), t.live.Completed...))
 	t.live.Best = copyBest(best)
 	t.live.BestMobile = copyBestMobile(mobile)
+	t.live.BestLearn = copyBestLearn(learn)
+	t.live.BestLearnMobile = copyBestLearnMobile(learnMobile)
+	// Rebuild learn bests if checkpoint lacked them (older progress.json).
+	if t.live.BestLearn.To50 == nil && t.live.BestLearn.AccPerSec == nil {
+		for _, r := range t.live.Completed {
+			UpdateBestLearn(&t.live.BestLearn, r)
+			UpdateBestLearnMobile(&t.live.BestLearnMobile, r)
+		}
+	}
 	t.live.History = append([]HistoryPoint(nil), history...)
 	t.live.CellIndex = cellIdx
 	t.live.CellTotal = cellTotal
@@ -140,6 +180,18 @@ func (t *Tracker) BestMobile() BestMobile {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return copyBestMobile(t.live.BestMobile)
+}
+
+func (t *Tracker) BestLearn() BestLearn {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return copyBestLearn(t.live.BestLearn)
+}
+
+func (t *Tracker) BestLearnMobile() BestLearnMobile {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return copyBestLearnMobile(t.live.BestLearnMobile)
 }
 
 func (t *Tracker) History() []HistoryPoint {
@@ -248,9 +300,13 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 	// Committed winners: ok cells only (rebuild from completed).
 	t.live.Best = Best{}
 	t.live.BestMobile = BestMobile{}
+	t.live.BestLearn = BestLearn{}
+	t.live.BestLearnMobile = BestLearnMobile{}
 	for _, r := range t.live.Completed {
 		UpdateBest(&t.live.Best, r)
 		UpdateBestMobile(&t.live.BestMobile, r)
+		UpdateBestLearn(&t.live.BestLearn, r)
+		UpdateBestLearnMobile(&t.live.BestLearnMobile, r)
 	}
 	t.appendHistoryLocked(HistoryPoint{
 		At:           time.Now(),
@@ -276,15 +332,21 @@ func (t *Tracker) refreshBoardsLocked() {
 	}
 	t.live.Leaderboard = rankByScore(pool)
 	t.live.LeaderboardMobile = rankByMobile(pool)
+	t.live.LeaderboardLearn = rankByLearn(pool)
+	t.live.LeaderboardLearnMobile = rankByLearnMobile(pool)
 }
 
 // refreshProvisionalBestsLocked updates Best cards including the running cell.
 func (t *Tracker) refreshProvisionalBestsLocked() {
 	t.live.Best = Best{}
 	t.live.BestMobile = BestMobile{}
+	t.live.BestLearn = BestLearn{}
+	t.live.BestLearnMobile = BestLearnMobile{}
 	for _, r := range t.live.Completed {
 		UpdateBest(&t.live.Best, r)
 		UpdateBestMobile(&t.live.BestMobile, r)
+		UpdateBestLearn(&t.live.BestLearn, r)
+		UpdateBestLearnMobile(&t.live.BestLearnMobile, r)
 	}
 	if t.live.Current != nil {
 		cur := *t.live.Current
@@ -294,6 +356,8 @@ func (t *Tracker) refreshProvisionalBestsLocked() {
 		}
 		UpdateBest(&t.live.Best, cur)
 		UpdateBestMobile(&t.live.BestMobile, cur)
+		UpdateBestLearn(&t.live.BestLearn, cur)
+		UpdateBestLearnMobile(&t.live.BestLearnMobile, cur)
 	}
 }
 
@@ -312,6 +376,36 @@ func rankByMobile(in []Result) []Result {
 			return a.Snapshot.WeightBytes < b.Snapshot.WeightBytes
 		}
 		return a.Snapshot.Score > b.Snapshot.Score
+	})
+}
+
+// rankByLearn: reached 50% fastest first; never-reached last; tie-break AccPerSec.
+func rankByLearn(in []Result) []Result {
+	return rankAll(in, func(a, b Result) bool {
+		aHit, bHit := a.Snapshot.TimeToAcc50Sec > 0, b.Snapshot.TimeToAcc50Sec > 0
+		if aHit != bHit {
+			return aHit
+		}
+		if aHit && bHit && a.Snapshot.TimeToAcc50Sec != b.Snapshot.TimeToAcc50Sec {
+			return a.Snapshot.TimeToAcc50Sec < b.Snapshot.TimeToAcc50Sec
+		}
+		return a.Snapshot.AccPerSec > b.Snapshot.AccPerSec
+	})
+}
+
+func rankByLearnMobile(in []Result) []Result {
+	return rankAll(in, func(a, b Result) bool {
+		if a.Snapshot.MobileAccPerSec != b.Snapshot.MobileAccPerSec {
+			return a.Snapshot.MobileAccPerSec > b.Snapshot.MobileAccPerSec
+		}
+		aHit, bHit := a.Snapshot.TimeToAcc50Sec > 0, b.Snapshot.TimeToAcc50Sec > 0
+		if aHit != bHit {
+			return aHit
+		}
+		if aHit && bHit {
+			return a.Snapshot.TimeToAcc50Sec < b.Snapshot.TimeToAcc50Sec
+		}
+		return a.Snapshot.AccPerSec > b.Snapshot.AccPerSec
 	})
 }
 

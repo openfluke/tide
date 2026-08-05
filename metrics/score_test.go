@@ -30,4 +30,7 @@ func TestLucyScoreEquation(t *testing.T) {
 	if s.Score != 600 {
 		t.Fatalf("score %v want 600", s.Score)
 	}
+	if s.AccPerSec != 75 {
+		t.Fatalf("acc/sec %v want 75", s.AccPerSec)
+	}
 }

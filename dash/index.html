@@ -70,6 +70,7 @@
   #pieChart { height: 180px; }
   #pulseChart { height: 420px; }
   #rankChart { height: 420px; }
+  #learnTo50Chart, #learnRateChart { height: 320px; }
   main {
     display: grid;
     grid-template-columns: 1.25fr 1fr;
@@ -184,12 +185,35 @@
     <div id="bests" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Best mobile (metric / MiB)</h2>
     <div id="mobile" class="meta">—</div>
+    <h2 style="margin-top:1.25rem">Best learn (fastest)</h2>
+    <div id="bestLearn" class="meta">—</div>
+    <h2 style="margin-top:1.25rem">Best learn mobile</h2>
+    <div id="bestLearnMobile" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Mode mix (finished)</h2>
     <p class="hint">Train modes already completed.</p>
     <canvas id="modePie" width="300" height="180"></canvas>
     <div class="pie-aside" id="modeAside"></div>
   </section>
 </main>
+
+</main>
+
+<div class="top-row" style="grid-template-columns: 1fr 1fr;">
+  <section>
+    <h2>Learn speed — time to 50% acc</h2>
+    <p class="hint">Lower is better. First 1s window that hit ≥50% serve accuracy. Models that never hit 50% are omitted from the bars.</p>
+    <canvas id="learnTo50Chart" width="900" height="320"></canvas>
+  </section>
+  <section>
+    <h2>Learn speed — accuracy / second (/MiB)</h2>
+    <p class="hint">Higher is better. Teal = Acc/sec (raw). Purple = Acc/sec/MiB (mobile).</p>
+    <div class="legend">
+      <span><i style="background:#3dd6c6"></i>acc/sec</span>
+      <span><i style="background:#c3a6ff"></i>acc/sec/MiB</span>
+    </div>
+    <canvas id="learnRateChart" width="900" height="320"></canvas>
+  </section>
+</div>
 
 <div class="tables">
   <section>
@@ -220,6 +244,35 @@
   </section>
 </div>
 
+<div class="tables">
+  <section>
+    <h2>Learn — fastest to 50% (then Acc/sec)</h2>
+    <p class="hint" id="boardLearnCount">0 cells</p>
+    <div class="table-tools">
+      <input id="filterLearn" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Cell</th><th>t→25%</th><th>t→50%</th><th>Acc/s</th><th>Acc</th><th>Dur</th><th>St</th></tr></thead>
+        <tbody id="boardLearn"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>Learn — Acc/sec/MiB (mobile)</h2>
+    <p class="hint" id="boardLearnMobileCount">0 cells</p>
+    <div class="table-tools">
+      <input id="filterLearnMobile" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Cell</th><th>Acc/s/MiB</th><th>Acc/s</th><th>t→50%</th><th>RAM</th><th>Acc</th><th>St</th></tr></thead>
+        <tbody id="boardLearnMobile"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
 <script>
 const pieCanvas = document.getElementById('pieChart');
 const pieCtx = pieCanvas.getContext('2d');
@@ -229,6 +282,10 @@ const pulseCanvas = document.getElementById('pulseChart');
 const pulseCtx = pulseCanvas.getContext('2d');
 const rankCanvas = document.getElementById('rankChart');
 const rankCtx = rankCanvas.getContext('2d');
+const learnTo50Canvas = document.getElementById('learnTo50Chart');
+const learnTo50Ctx = learnTo50Canvas.getContext('2d');
+const learnRateCanvas = document.getElementById('learnRateChart');
+const learnRateCtx = learnRateCanvas.getContext('2d');
 const scrub = document.getElementById('scrub');
 const scrubLabel = document.getElementById('scrubLabel');
 const liveBtn = document.getElementById('livebtn');
@@ -239,6 +296,8 @@ let seeded = false;
 let lastLive = null;
 let filterRaw = '';
 let filterMobile = '';
+let filterLearn = '';
+let filterLearnMobile = '';
 let etaSec = NaN;
 
 const BANDS = ['#152428','#151c2a','#241c14','#1c1424','#14241c','#241814'];
@@ -270,6 +329,14 @@ document.getElementById('filterRaw').addEventListener('input', (e) => {
 });
 document.getElementById('filterMobile').addEventListener('input', (e) => {
   filterMobile = (e.target.value || '').toLowerCase();
+  renderBoards();
+});
+document.getElementById('filterLearn').addEventListener('input', (e) => {
+  filterLearn = (e.target.value || '').toLowerCase();
+  renderBoards();
+});
+document.getElementById('filterLearnMobile').addEventListener('input', (e) => {
+  filterLearnMobile = (e.target.value || '').toLowerCase();
   renderBoards();
 });
 
@@ -491,6 +558,95 @@ function boardMobileRows() {
   if (!lastLive) return [];
   return [...(lastLive.leaderboard_mobile || lastLive.completed || [])];
 }
+function boardLearnRows() {
+  if (!lastLive) return [];
+  return [...(lastLive.leaderboard_learn || [])];
+}
+function boardLearnMobileRows() {
+  if (!lastLive) return [];
+  return [...(lastLive.leaderboard_learn_mobile || [])];
+}
+
+function fmtSec(sec) {
+  if (!sec || sec <= 0) return '—';
+  if (sec < 60) return sec.toFixed(1) + 's';
+  return (sec/60).toFixed(1) + 'm';
+}
+
+function drawHBars(ctx, canvas, rows, valueFn, color, labelFn) {
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  if (!rows.length) {
+    ctx.fillStyle = '#8aa0ad';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('no data yet', 20, 30);
+    return;
+  }
+  const maxV = Math.max(...rows.map(valueFn), 1e-9);
+  const labelW = 200;
+  const top = 8;
+  const rowH = (h - top - 4) / rows.length;
+  rows.forEach((row, i) => {
+    const v = valueFn(row);
+    const y = top + i * rowH;
+    const bw = Math.max(2, (w - labelW - 80) * (v / maxV));
+    ctx.fillStyle = color;
+    ctx.fillRect(labelW, y + 4, bw, Math.max(8, rowH - 8));
+    ctx.fillStyle = '#c5d0d6';
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(shortId(row.cell?.id), labelW - 8, y + rowH * 0.68);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#8aa0ad';
+    ctx.fillText(labelFn(v, row), labelW + bw + 6, y + rowH * 0.68);
+  });
+}
+
+function drawLearnCharts() {
+  const to50 = boardLearnRows().filter(r => (r.snapshot?.time_to_acc50_sec || 0) > 0).slice(0, 14);
+  // For time chart, shorter is better — invert visual by showing max-v so longer bars = faster? 
+  // Better: bar length = 1/time so taller/longer = faster learner.
+  drawHBars(learnTo50Ctx, learnTo50Canvas, to50,
+    r => 1 / r.snapshot.time_to_acc50_sec,
+    '#e6b35a',
+    (v, r) => fmtSec(r.snapshot.time_to_acc50_sec) + '  (t→25 ' + fmtSec(r.snapshot.time_to_acc25_sec) + ')'
+  );
+
+  const rate = boardLearnMobileRows().slice(0, 12);
+  const w = learnRateCanvas.width, h = learnRateCanvas.height;
+  learnRateCtx.clearRect(0,0,w,h);
+  if (!rate.length) {
+    learnRateCtx.fillStyle = '#8aa0ad';
+    learnRateCtx.font = '13px sans-serif';
+    learnRateCtx.fillText('no data yet', 20, 30);
+    return;
+  }
+  const maxRaw = Math.max(...rate.map(r => r.snapshot?.acc_per_sec || 0), 1e-9);
+  const maxMob = Math.max(...rate.map(r => r.snapshot?.mobile_acc_per_sec || 0), 1e-9);
+  const labelW = 200;
+  const top = 8;
+  const rowH = (h - top - 4) / rate.length;
+  const slot = (w - labelW - 12) / 2;
+  rate.forEach((row, i) => {
+    const s = row.snapshot || {};
+    const y = top + i * rowH;
+    learnRateCtx.fillStyle = '#c5d0d6';
+    learnRateCtx.font = '11px ui-monospace, monospace';
+    learnRateCtx.textAlign = 'right';
+    learnRateCtx.fillText(shortId(row.cell?.id), labelW - 8, y + rowH * 0.68);
+    const raw = s.acc_per_sec || 0;
+    const mob = s.mobile_acc_per_sec || 0;
+    learnRateCtx.fillStyle = '#3dd6c6';
+    learnRateCtx.fillRect(labelW, y + 4, Math.max(2, (slot - 40) * raw / maxRaw), Math.max(7, rowH/2 - 4));
+    learnRateCtx.fillStyle = '#c3a6ff';
+    learnRateCtx.fillRect(labelW + slot, y + 4, Math.max(2, (slot - 40) * mob / maxMob), Math.max(7, rowH/2 - 4));
+    learnRateCtx.fillStyle = '#8aa0ad';
+    learnRateCtx.font = '9px sans-serif';
+    learnRateCtx.textAlign = 'left';
+    learnRateCtx.fillText(raw.toFixed(3), labelW + Math.max(2, (slot-40)*raw/maxRaw) + 4, y + rowH * 0.55);
+    learnRateCtx.fillText(mob.toFixed(2), labelW + slot + Math.max(2, (slot-40)*mob/maxMob) + 4, y + rowH * 0.55);
+  });
+}
 
 function drawRank() {
   const w = rankCanvas.width, h = rankCanvas.height;
@@ -673,13 +829,45 @@ function rowHTML(row, i, mobile) {
   </tr>`;
 }
 
+function learnRowHTML(row, i, mobile) {
+  const s = row.snapshot || {};
+  const id = row.cell?.id || '';
+  const dur = (s.duration || 0) / 1e9; // Go json Duration = ns
+  if (mobile) {
+    return `<tr>
+      <td>${i+1}</td><td class="cellid">${id}</td>
+      <td>${(s.mobile_acc_per_sec||0).toFixed(2)}</td>
+      <td>${(s.acc_per_sec||0).toFixed(3)}</td>
+      <td>${fmtSec(s.time_to_acc50_sec)}</td>
+      <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
+      <td>${(s.avg_accuracy||0).toFixed(1)}</td>
+      <td class="${row.status}">${row.status}</td>
+    </tr>`;
+  }
+  return `<tr>
+    <td>${i+1}</td><td class="cellid">${id}</td>
+    <td>${fmtSec(s.time_to_acc25_sec)}</td>
+    <td>${fmtSec(s.time_to_acc50_sec)}</td>
+    <td>${(s.acc_per_sec||0).toFixed(3)}</td>
+    <td>${(s.avg_accuracy||0).toFixed(1)}</td>
+    <td>${fmtSec(dur)}</td>
+    <td class="${row.status}">${row.status}</td>
+  </tr>`;
+}
+
 function renderBoards() {
   const raw = boardRows().filter(r => !filterRaw || (r.cell?.id||'').toLowerCase().includes(filterRaw));
   const mob = boardMobileRows().filter(r => !filterMobile || (r.cell?.id||'').toLowerCase().includes(filterMobile));
+  const learn = boardLearnRows().filter(r => !filterLearn || (r.cell?.id||'').toLowerCase().includes(filterLearn));
+  const learnM = boardLearnMobileRows().filter(r => !filterLearnMobile || (r.cell?.id||'').toLowerCase().includes(filterLearnMobile));
   document.getElementById('boardCount').textContent = `${raw.length} shown · ${boardRows().length} total`;
   document.getElementById('boardMobileCount').textContent = `${mob.length} shown · ${boardMobileRows().length} total`;
+  document.getElementById('boardLearnCount').textContent = `${learn.length} shown · ${boardLearnRows().length} total`;
+  document.getElementById('boardLearnMobileCount').textContent = `${learnM.length} shown · ${boardLearnMobileRows().length} total`;
   document.getElementById('board').innerHTML = raw.map((r,i)=>rowHTML(r,i,false)).join('');
   document.getElementById('boardMobile').innerHTML = mob.map((r,i)=>rowHTML(r,i,true)).join('');
+  document.getElementById('boardLearn').innerHTML = learn.map((r,i)=>learnRowHTML(r,i,false)).join('');
+  document.getElementById('boardLearnMobile').innerHTML = learnM.map((r,i)=>learnRowHTML(r,i,true)).join('');
 }
 
 async function loadHistory() {
@@ -748,8 +936,26 @@ async function tick() {
       mline('accuracy', m.accuracy, 'mobile_accuracy'),
     ].join('');
 
+    const bl = j.best_learn || {};
+    const blEl = document.getElementById('bestLearn');
+    const learnLine = (label, row, fmt) => {
+      if (!row) return `<div>${label}: —</div>`;
+      return `<div><span class="pill">${label}</span> ${fmt(row.snapshot)} · ${row.cell.id}</div>`;
+    };
+    blEl.innerHTML = [
+      learnLine('t→25%', bl.to25, s => fmtSec(s.time_to_acc25_sec)),
+      learnLine('t→50%', bl.to50, s => fmtSec(s.time_to_acc50_sec)),
+      learnLine('acc/sec', bl.acc_per_sec, s => (s.acc_per_sec||0).toFixed(3)),
+    ].join('');
+    const blm = j.best_learn_mobile || {};
+    document.getElementById('bestLearnMobile').innerHTML = [
+      learnLine('acc/sec/MiB', blm.acc_per_sec, s => (s.mobile_acc_per_sec||0).toFixed(2)),
+      learnLine('t→50% /MiB', blm.to50, s => fmtSec(s.time_to_acc50_sec)),
+    ].join('');
+
     renderBoards();
     drawRank();
+    drawLearnCharts();
   } catch (e) {
     document.getElementById('status').textContent = 'waiting for /api/live…';
   }
