@@ -13,6 +13,9 @@
     --accent: #3dd6c6;
     --warn: #e6b35a;
     --bad: #e06c75;
+    --thru: #7aa2f7;
+    --avail: #c3a6ff;
+    --left: #3a4a55;
     --grid: #24313a;
   }
   * { box-sizing: border-box; }
@@ -37,30 +40,55 @@
   h1 span { color: var(--accent); }
   .meta { color: var(--muted); font-size: 0.95rem; }
   .score-eq {
-    margin: 0 1.5rem 1rem;
+    margin: 0 1.5rem 0.75rem;
     padding: 0.65rem 0.9rem;
     border-left: 3px solid var(--accent);
     background: rgba(61,214,198,0.06);
     font-family: "IBM Plex Mono", ui-monospace, monospace;
     font-size: 0.85rem;
   }
-  main {
+  .top-row {
     display: grid;
-    grid-template-columns: 1.4fr 1fr;
+    grid-template-columns: 260px 1fr;
     gap: 1rem;
-    padding: 0 1.5rem 1.5rem;
+    padding: 0 1.5rem 1rem;
   }
-  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .top-row { grid-template-columns: 1fr; } }
   section {
     background: rgba(0,0,0,0.22);
     border: 1px solid var(--grid);
     padding: 1rem;
   }
-  h2 { margin: 0 0 0.75rem; font-size: 1rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
-  canvas { width: 100%; height: 260px; display: block; background: rgba(0,0,0,0.25); }
-  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  th, td { text-align: left; padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--grid); }
-  th { color: var(--muted); font-weight: 500; }
+  h2 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  .hint { font-size: 0.75rem; color: var(--muted); margin: 0 0 0.65rem; line-height: 1.35; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem; }
+  .legend i {
+    display: inline-block; width: 10px; height: 10px; margin-right: 0.3rem;
+    vertical-align: -1px; border-radius: 1px;
+  }
+  canvas { width: 100%; display: block; background: rgba(0,0,0,0.25); }
+  #pieChart { height: 180px; }
+  #pulseChart { height: 420px; }
+  #rankChart { height: 420px; }
+  main {
+    display: grid;
+    grid-template-columns: 1.25fr 1fr;
+    gap: 1rem;
+    padding: 0 1.5rem 1rem;
+  }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .pie-aside {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.82rem; color: var(--muted);
+    display: grid; gap: 0.35rem; margin-top: 0.5rem;
+  }
+  .pie-aside b { color: var(--ink); }
+  .pie-aside .eta { color: var(--accent); font-size: 1.05rem; }
+  .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 0.35rem; vertical-align: -1px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  th, td { text-align: left; padding: 0.3rem 0.35rem; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: #121a20; z-index: 1; }
+  td.cellid { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.72rem; white-space: normal; word-break: break-all; max-width: 280px; }
   .ok { color: var(--accent); }
   .fail { color: var(--bad); }
   .gap { color: var(--warn); }
@@ -79,6 +107,23 @@
     padding: 0.25rem 0.6rem; cursor: pointer; font: inherit;
   }
   button.livebtn.off { color: var(--muted); border-color: var(--grid); }
+  .tables {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0 1.5rem 2rem;
+  }
+  @media (max-width: 1100px) { .tables { grid-template-columns: 1fr; } }
+  .table-wrap { overflow: auto; max-height: min(70vh, 720px); }
+  .table-tools {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  .table-tools input {
+    flex: 1; min-width: 140px;
+    background: rgba(0,0,0,0.35); border: 1px solid var(--grid); color: var(--ink);
+    padding: 0.35rem 0.5rem; font: inherit; font-size: 0.85rem;
+  }
 </style>
 </head>
 <body>
@@ -86,85 +131,470 @@
   <h1><span>tide</span> live adaptation</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Score = Throughput × Availability% × AvgAccuracy% / 10,000 · history is server-cached (refresh-safe)</p>
-<main>
+<p class="score-eq">Score = Throughput × Availability% × AvgAccuracy% / 10,000</p>
+
+<div class="top-row">
   <section>
-    <h2>Score pulse</h2>
-    <canvas id="chart" width="900" height="260"></canvas>
+    <h2>Sweep progress</h2>
+    <p class="hint">Finished vs still queued + ETA.</p>
+    <canvas id="pieChart" width="240" height="180"></canvas>
+    <div class="pie-aside" id="pieAside">—</div>
+  </section>
+  <section>
+    <h2>Live pulse — current vs champions</h2>
+    <p class="hint">
+      Solid = live. Dashed white = champ on <b>that metric</b>. Dotted teal = Lucy <b>Score champ</b>’s value on this metric.
+      Background bands = model changes.
+    </p>
+    <div class="legend">
+      <span><i style="background:#3dd6c6"></i>live score</span>
+      <span><i style="background:#e6b35a"></i>live accuracy</span>
+      <span><i style="background:#7aa2f7"></i>live throughput</span>
+      <span><i style="background:#c3a6ff"></i>live availability</span>
+      <span><i style="background:#ffffff; outline:1px dashed #fff"></i>metric champ</span>
+      <span><i style="background:transparent; outline:1px dotted #3dd6c6"></i>score champ</span>
+    </div>
+    <canvas id="pulseChart" width="960" height="420"></canvas>
     <div class="scrub">
       <button class="livebtn" id="livebtn" type="button">LIVE</button>
       <input id="scrub" type="range" min="0" max="0" value="0"/>
       <span id="scrubLabel">live</span>
     </div>
+    <div id="current" class="meta" style="margin-top:0.75rem">—</div>
+  </section>
+</div>
+
+<main>
+  <section>
+    <h2>Models ranked — all metrics</h2>
+    <p class="hint">
+      Top models by Score. Each row shows score · accuracy · throughput · availability together
+      (bars scaled within that metric). Full list in tables below.
+    </p>
+    <div class="legend">
+      <span><i style="background:#3dd6c6"></i>score</span>
+      <span><i style="background:#e6b35a"></i>acc</span>
+      <span><i style="background:#7aa2f7"></i>thru</span>
+      <span><i style="background:#c3a6ff"></i>avail</span>
+    </div>
+    <canvas id="rankChart" width="960" height="420"></canvas>
   </section>
   <section>
-    <h2>Current / scrub view</h2>
-    <div id="current" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Best raw</h2>
+    <h2>Best raw</h2>
     <div id="bests" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Best mobile (metric / MiB)</h2>
     <div id="mobile" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Leaderboard — raw Score (live)</h2>
-    <div style="overflow:auto; max-height:220px">
+    <h2 style="margin-top:1.25rem">Mode mix (finished)</h2>
+    <p class="hint">Train modes already completed.</p>
+    <canvas id="modePie" width="300" height="180"></canvas>
+    <div class="pie-aside" id="modeAside"></div>
+  </section>
+</main>
+
+<div class="tables">
+  <section>
+    <h2>All models — raw Score</h2>
+    <p class="hint" id="boardCount">0 cells</p>
+    <div class="table-tools">
+      <input id="filterRaw" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
       <table>
         <thead><tr><th>#</th><th>Cell</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>RAM</th><th>St</th></tr></thead>
         <tbody id="board"></tbody>
       </table>
     </div>
-    <h2 style="margin-top:1.25rem">Leaderboard — mobile Score/MiB (live)</h2>
-    <div style="overflow:auto; max-height:220px">
+  </section>
+  <section>
+    <h2>All models — mobile Score/MiB</h2>
+    <p class="hint" id="boardMobileCount">0 cells</p>
+    <div class="table-tools">
+      <input id="filterMobile" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
       <table>
-        <thead><tr><th>#</th><th>Cell</th><th>Score/MiB</th><th>Score</th><th>Acc</th><th>RAM</th><th>St</th></tr></thead>
+        <thead><tr><th>#</th><th>Cell</th><th>Score/MiB</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>RAM</th><th>St</th></tr></thead>
         <tbody id="boardMobile"></tbody>
       </table>
     </div>
   </section>
-</main>
+</div>
+
 <script>
-const canvas = document.getElementById('chart');
-const ctx = canvas.getContext('2d');
+const pieCanvas = document.getElementById('pieChart');
+const pieCtx = pieCanvas.getContext('2d');
+const modeCanvas = document.getElementById('modePie');
+const modeCtx = modeCanvas.getContext('2d');
+const pulseCanvas = document.getElementById('pulseChart');
+const pulseCtx = pulseCanvas.getContext('2d');
+const rankCanvas = document.getElementById('rankChart');
+const rankCtx = rankCanvas.getContext('2d');
 const scrub = document.getElementById('scrub');
 const scrubLabel = document.getElementById('scrubLabel');
 const liveBtn = document.getElementById('livebtn');
 
-let history = []; // server HistoryPoint[]
+let history = [];
 let followLive = true;
 let seeded = false;
+let lastLive = null;
+let filterRaw = '';
+let filterMobile = '';
+let etaSec = NaN;
 
-function draw(viewEnd) {
+const BANDS = ['#152428','#151c2a','#241c14','#1c1424','#14241c','#241814'];
+const METRICS = [
+  { key: 'score', snap: 'score', best: 'score', label: 'score', color: '#3dd6c6', fixed: null, digits: 3 },
+  { key: 'accuracy', snap: 'avg_accuracy', best: 'accuracy', label: 'accuracy %', color: '#e6b35a', fixed: 100, digits: 1 },
+  { key: 'throughput', snap: 'throughput', best: 'throughput', label: 'throughput /s', color: '#7aa2f7', fixed: null, digits: 1 },
+  { key: 'availability', snap: 'availability', best: 'availability', label: 'availability %', color: '#c3a6ff', fixed: 100, digits: 1 },
+];
+
+function snapMetric(row, snapKey) {
+  if (!row || !row.snapshot) return null;
+  const v = row.snapshot[snapKey];
+  return typeof v === 'number' ? v : null;
+}
+
+function champForMetric(m) {
+  const b = lastLive?.best || {};
+  return b[m.best] || null; // Result for this axis
+}
+
+function scoreChamp() {
+  return lastLive?.best?.score || null;
+}
+
+document.getElementById('filterRaw').addEventListener('input', (e) => {
+  filterRaw = (e.target.value || '').toLowerCase();
+  renderBoards();
+});
+document.getElementById('filterMobile').addEventListener('input', (e) => {
+  filterMobile = (e.target.value || '').toLowerCase();
+  renderBoards();
+});
+
+function fmtDur(sec) {
+  if (!isFinite(sec) || sec < 0) return '—';
+  if (sec < 60) return Math.round(sec) + 's';
+  if (sec < 3600) return (sec/60).toFixed(1) + 'm';
+  const h = Math.floor(sec/3600);
+  const m = Math.round((sec%3600)/60);
+  return h + 'h ' + m + 'm';
+}
+
+function drawDonut(ctx, canvas, slices, centerLines) {
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0,0,w,h);
-  ctx.strokeStyle = '#24313a';
-  for (let i = 0; i < 5; i++) {
-    const y = 20 + i * ((h-40)/4);
-    ctx.beginPath(); ctx.moveTo(40,y); ctx.lineTo(w-10,y); ctx.stroke();
+  const cx = w/2, cy = h/2 - 2;
+  const R = Math.min(w,h) * 0.38;
+  const r = R * 0.58;
+  const total = slices.reduce((a,s) => a + s.value, 0) || 1;
+  let a0 = -Math.PI/2;
+  slices.forEach(s => {
+    const a1 = a0 + (s.value/total) * Math.PI*2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, R, a0, a1);
+    ctx.closePath();
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    a0 = a1;
+  });
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = '#0e1418';
+  ctx.fill();
+  ctx.textAlign = 'center';
+  (centerLines||[]).forEach((line, i) => {
+    ctx.font = i === 0 ? '600 14px sans-serif' : '11px sans-serif';
+    ctx.fillStyle = i === 0 ? '#3dd6c6' : '#8aa0ad';
+    ctx.fillText(line, cx, cy - 4 + i*15);
+  });
+}
+
+function drawProgressPie() {
+  if (!lastLive) return;
+  const total = lastLive.cell_total || 0;
+  const done = (lastLive.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
+  const fail = (lastLive.completed || []).filter(r => r.status === 'fail').length;
+  const running = lastLive.running ? 1 : 0;
+  const left = Math.max(0, total - done - fail - running);
+  const slices = [
+    { value: done, color: '#3dd6c6' },
+    { value: running, color: '#e6b35a' },
+    { value: fail, color: '#e06c75' },
+    { value: left, color: '#3a4a55' },
+  ].filter(s => s.value > 0);
+  const pct = total > 0 ? (100*done/total).toFixed(1) + '%' : '—';
+  drawDonut(pieCtx, pieCanvas, slices, [pct + ' done', fmtDur(etaSec) + ' ETA']);
+  document.getElementById('pieAside').innerHTML =
+    `<div><span class="swatch" style="background:#3dd6c6"></span>done <b>${done}</b></div>` +
+    `<div><span class="swatch" style="background:#e6b35a"></span>running <b>${running}</b></div>` +
+    `<div><span class="swatch" style="background:#3a4a55"></span>left <b>${left}</b> / ${total}</div>` +
+    (fail ? `<div><span class="swatch" style="background:#e06c75"></span>fail <b>${fail}</b></div>` : '') +
+    `<div class="eta">ETA ~ ${fmtDur(etaSec)}</div>`;
+}
+
+function modeOf(id) {
+  const parts = (id||'').split('|');
+  return parts[2] || 'unknown';
+}
+
+function drawModePie() {
+  const counts = {};
+  (lastLive?.completed || []).forEach(r => {
+    if (r.status !== 'ok' && r.status !== 'gap') return;
+    const m = modeOf(r.cell?.id);
+    counts[m] = (counts[m]||0) + 1;
+  });
+  const colors = ['#3dd6c6','#7aa2f7','#e6b35a','#c3a6ff','#e06c75','#8fd19e','#f0a0a0','#9ad0f5'];
+  const entries = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+  const slices = entries.map((e,i) => ({ value: e[1], color: colors[i%colors.length] }));
+  if (!slices.length) {
+    modeCtx.clearRect(0,0,modeCanvas.width, modeCanvas.height);
+    document.getElementById('modeAside').textContent = 'no finished cells yet';
+    return;
   }
-  if (history.length < 2) return;
-  const end = Math.min(viewEnd, history.length - 1);
-  const start = Math.max(0, end - 179);
-  const slice = history.slice(start, end + 1);
-  const maxS = Math.max(...slice.map(p => p.score||0), 1e-6);
-  const maxT = Math.max(...slice.map(p => p.throughput||0), 1);
-  const plot = (key, color, maxV) => {
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    slice.forEach((p,i) => {
-      const x = 40 + i * ((w-50) / Math.max(slice.length-1,1));
-      const y = h-20 - ((p[key]||0)/maxV) * (h-40);
-      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    });
-    ctx.stroke();
+  drawDonut(modeCtx, modeCanvas, slices, [String(slices.reduce((a,s)=>a+s.value,0)), 'finished']);
+  document.getElementById('modeAside').innerHTML = entries.slice(0,8).map((e,i) =>
+    `<div><span class="swatch" style="background:${colors[i%colors.length]}"></span>${e[0]} <b>${e[1]}</b></div>`
+  ).join('');
+}
+
+function drawBands(ctx, x0, y0, x1, y1, slice) {
+  let band = 0, prev = slice[0]?.cell_id, seg = 0;
+  const flush = (to) => {
+    const xa = x0 + seg * ((x1-x0) / Math.max(slice.length-1,1));
+    const xb = x0 + to * ((x1-x0) / Math.max(slice.length-1,1));
+    ctx.fillStyle = BANDS[band % BANDS.length];
+    ctx.fillRect(xa, y0, Math.max(1, xb-xa), y1-y0);
   };
-  plot('score', '#3dd6c6', maxS);
-  plot('accuracy', '#e6b35a', 100);
-  plot('throughput', '#7aa2f7', maxT);
+  for (let i = 1; i < slice.length; i++) {
+    if (slice[i].cell_id !== prev) {
+      flush(i); band++; prev = slice[i].cell_id; seg = i;
+    }
+  }
+  if (slice.length) flush(slice.length-1);
+}
+
+function drawPulse(viewEnd) {
+  const w = pulseCanvas.width, h = pulseCanvas.height;
+  pulseCtx.clearRect(0,0,w,h);
+  if (history.length < 2) {
+    pulseCtx.fillStyle = '#8aa0ad';
+    pulseCtx.font = '13px sans-serif';
+    pulseCtx.fillText('waiting for pulses…', 20, 30);
+    return;
+  }
+  const end = Math.min(viewEnd, history.length - 1);
+  const start = Math.max(0, end - 240);
+  const slice = history.slice(start, end + 1);
+  const padL = 52, padR = 12, padTop = 8, gap = 8;
+  const panelH = (h - padTop - gap * (METRICS.length - 1)) / METRICS.length;
+  const scoreC = scoreChamp();
+
+  METRICS.forEach((m, mi) => {
+    const y0 = padTop + mi * (panelH + gap);
+    const y1 = y0 + panelH;
+    const plotT = y0 + 16;
+    const plotB = y1 - 4;
+
+    pulseCtx.fillStyle = 'rgba(0,0,0,0.2)';
+    pulseCtx.fillRect(padL, y0, w - padL - padR, panelH);
+    drawBands(pulseCtx, padL, plotT, w - padR, plotB, slice);
+
+    pulseCtx.strokeStyle = '#24313a';
+    for (let g = 0; g < 3; g++) {
+      const y = plotT + g * ((plotB-plotT)/2);
+      pulseCtx.beginPath(); pulseCtx.moveTo(padL, y); pulseCtx.lineTo(w-padR, y); pulseCtx.stroke();
+    }
+
+    const vals = slice.map(p => p[m.key] || 0);
+    const metricC = champForMetric(m);
+    const metricChampV = snapMetric(metricC, m.snap);
+    const scoreChampV = snapMetric(scoreC, m.snap);
+    const maxCand = [Math.max(...vals, 1e-9)];
+    if (metricChampV != null) maxCand.push(metricChampV);
+    if (scoreChampV != null) maxCand.push(scoreChampV);
+    const maxV = m.fixed != null ? m.fixed : Math.max(...maxCand);
+
+    const yAt = (v) => plotB - (v / maxV) * (plotB - plotT);
+    const href = (v, style, color) => {
+      if (v == null || !isFinite(v)) return;
+      const y = yAt(v);
+      pulseCtx.save();
+      pulseCtx.strokeStyle = color;
+      pulseCtx.lineWidth = 1.5;
+      if (style === 'dash') pulseCtx.setLineDash([7, 5]);
+      else if (style === 'dot') pulseCtx.setLineDash([2, 4]);
+      pulseCtx.beginPath();
+      pulseCtx.moveTo(padL, y);
+      pulseCtx.lineTo(w - padR, y);
+      pulseCtx.stroke();
+      pulseCtx.restore();
+    };
+
+    // Champions first (under live line)
+    href(metricChampV, 'dash', 'rgba(255,255,255,0.75)');
+    // Only draw score-champ line when it's a different model than metric champ
+    if (scoreC && metricC && scoreC.cell?.id !== metricC.cell?.id) {
+      href(scoreChampV, 'dot', 'rgba(61,214,198,0.9)');
+    } else if (scoreC && !metricC) {
+      href(scoreChampV, 'dot', 'rgba(61,214,198,0.9)');
+    }
+
+    pulseCtx.strokeStyle = m.color;
+    pulseCtx.lineWidth = 2;
+    pulseCtx.beginPath();
+    slice.forEach((p, i) => {
+      const x = padL + i * ((w - padL - padR) / Math.max(slice.length - 1, 1));
+      const y = yAt(p[m.key]||0);
+      if (i === 0) pulseCtx.moveTo(x, y); else pulseCtx.lineTo(x, y);
+    });
+    pulseCtx.stroke();
+
+    const tip = vals[vals.length - 1] || 0;
+    pulseCtx.fillStyle = m.color;
+    pulseCtx.font = '11px sans-serif';
+    pulseCtx.textAlign = 'left';
+    let label = `${m.label}  live ${tip.toFixed(m.digits)}`;
+    if (metricChampV != null) {
+      label += `  │ champ ${metricChampV.toFixed(m.digits)}`;
+    }
+    if (scoreChampV != null && scoreC && (!metricC || scoreC.cell?.id !== metricC.cell?.id)) {
+      label += `  │ score-champ ${scoreChampV.toFixed(m.digits)}`;
+    }
+    pulseCtx.fillText(label, padL + 4, y0 + 12);
+  });
+
+  const tip = slice[slice.length - 1];
+  if (tip?.cell_id) {
+    pulseCtx.fillStyle = '#e6eef2';
+    pulseCtx.font = '11px ui-monospace, monospace';
+    pulseCtx.textAlign = 'right';
+    pulseCtx.fillText(tip.cell_id, w - padR, 12);
+  }
+}
+
+function shortId(id) {
+  if (!id) return '—';
+  const p = id.split('|');
+  if (p.length >= 3) return p.slice(0, 3).join('|');
+  return id.length > 34 ? id.slice(0, 32) + '…' : id;
+}
+
+function boardRows() {
+  if (!lastLive) return [];
+  return [...(lastLive.leaderboard || lastLive.completed || [])];
+}
+function boardMobileRows() {
+  if (!lastLive) return [];
+  return [...(lastLive.leaderboard_mobile || lastLive.completed || [])];
+}
+
+function drawRank() {
+  const w = rankCanvas.width, h = rankCanvas.height;
+  rankCtx.clearRect(0,0,w,h);
+  let rows = boardRows().filter(r => r.status === 'ok' || r.status === 'running');
+  rows = rows.slice().sort((a,b) => (b.snapshot?.score||0) - (a.snapshot?.score||0)).slice(0, 14);
+  if (!rows.length) {
+    rankCtx.fillStyle = '#8aa0ad';
+    rankCtx.font = '13px sans-serif';
+    rankCtx.fillText('no finished models yet', 20, 30);
+    return;
+  }
+
+  const maxScore = Math.max(...rows.map(r => r.snapshot?.score || 0), 1e-9);
+  const maxThru = Math.max(...rows.map(r => r.snapshot?.throughput || 0), 1);
+  // acc and avail already 0-100
+
+  const labelW = 200;
+  const padR = 12;
+  const top = 8;
+  const rowH = (h - top - 4) / rows.length;
+  const barArea = w - labelW - padR;
+  const slot = barArea / 4;
+  const colors = ['#3dd6c6', '#e6b35a', '#7aa2f7', '#c3a6ff'];
+
+  rows.forEach((row, i) => {
+    const s = row.snapshot || {};
+    const y = top + i * rowH;
+    const mid = y + rowH * 0.72;
+
+    rankCtx.fillStyle = row.status === 'running' ? '#e6b35a' : '#c5d0d6';
+    rankCtx.font = '11px ui-monospace, monospace';
+    rankCtx.textAlign = 'right';
+    rankCtx.fillText(shortId(row.cell?.id), labelW - 8, mid);
+
+    const vals = [
+      (s.score || 0) / maxScore,
+      (s.avg_accuracy || 0) / 100,
+      (s.throughput || 0) / maxThru,
+      (s.availability || 0) / 100,
+    ];
+    const raw = [
+      (s.score || 0).toFixed(3),
+      (s.avg_accuracy || 0).toFixed(0),
+      (s.throughput || 0).toFixed(0),
+      (s.availability || 0).toFixed(1),
+    ];
+
+    vals.forEach((n, j) => {
+      const x0 = labelW + j * slot + 4;
+      const bw = Math.max(2, (slot - 16) * Math.min(1, Math.max(0, n)));
+      const bh = Math.max(8, rowH - 14);
+      rankCtx.fillStyle = colors[j];
+      rankCtx.globalAlpha = 0.9;
+      rankCtx.fillRect(x0, y + 6, bw, bh);
+      rankCtx.globalAlpha = 1;
+      rankCtx.fillStyle = '#8aa0ad';
+      rankCtx.font = '9px sans-serif';
+      rankCtx.textAlign = 'left';
+      rankCtx.fillText(raw[j], x0 + bw + 3, mid);
+    });
+  });
+
+  // column headers
+  rankCtx.fillStyle = '#8aa0ad';
+  rankCtx.font = '10px sans-serif';
+  rankCtx.textAlign = 'left';
+  ['score', 'acc', 'thru', 'avail'].forEach((lab, j) => {
+    rankCtx.fillText(lab, labelW + j * slot + 4, 10);
+  });
 }
 
 function showPoint(p) {
   const cur = document.getElementById('current');
   if (!p) { cur.textContent = '—'; return; }
   const t = p.at ? new Date(p.at).toLocaleTimeString() : '';
+  const sc = scoreChamp();
+  const bits = METRICS.map(m => {
+    const live = p[m.key] || 0;
+    const mc = champForMetric(m);
+    const mv = snapMetric(mc, m.snap);
+    const sv = snapMetric(sc, m.snap);
+    let s = `<b style="color:${m.color}">${m.key}</b> ${live.toFixed(m.digits)}`;
+    if (mv != null) {
+      const d = live - mv;
+      s += ` <span class="pill">vs metric-champ ${d>=0?'+':''}${d.toFixed(m.digits)}</span>`;
+    }
+    if (sv != null && sc && (!mc || sc.cell?.id !== mc.cell?.id)) {
+      const d = live - sv;
+      s += ` <span class="pill">vs score-champ ${d>=0?'+':''}${d.toFixed(m.digits)}</span>`;
+    }
+    return s;
+  }).join('<br/>');
+  const champIds = [];
+  if (sc?.cell?.id) champIds.push(`score-champ: ${sc.cell.id}`);
+  METRICS.forEach(m => {
+    const mc = champForMetric(m);
+    if (mc?.cell?.id && (!sc || mc.cell.id !== sc.cell.id)) {
+      champIds.push(`${m.key}-champ: ${mc.cell.id}`);
+    }
+  });
   cur.innerHTML = `<div><span class="pill">${p.cell_id||'—'}</span> <span class="pill">${p.phase||''}</span> <span class="pill">${p.status||''}</span> ${t}</div>
-    <div style="margin-top:0.5rem">score <b>${(p.score||0).toFixed(3)}</b> · acc ${(p.accuracy||0).toFixed(1)}% · thru ${(p.throughput||0).toFixed(1)}/s · avail ${(p.availability||0).toFixed(1)}%</div>`;
+    <div style="margin-top:0.45rem; line-height:1.55">${bits}</div>
+    <div style="margin-top:0.45rem; font-size:0.78rem">${champIds.map(x => `<div class="pill" style="margin:0.15rem 0.15rem 0 0">${x}</div>`).join('')}</div>`;
 }
 
 function setFollow(on) {
@@ -174,20 +604,17 @@ function setFollow(on) {
     scrub.value = String(history.length - 1);
     scrubLabel.textContent = 'live';
     showPoint(history[history.length - 1]);
-    draw(history.length - 1);
+    drawPulse(history.length - 1);
   }
 }
-
 liveBtn.onclick = () => setFollow(true);
 scrub.addEventListener('input', () => {
   followLive = false;
   liveBtn.classList.add('off');
   const i = +scrub.value;
-  scrubLabel.textContent = history[i] && history[i].at
-    ? new Date(history[i].at).toLocaleTimeString()
-    : String(i);
+  scrubLabel.textContent = history[i]?.at ? new Date(history[i].at).toLocaleTimeString() : String(i);
   showPoint(history[i]);
-  draw(i);
+  drawPulse(i);
 });
 
 function refreshScrub() {
@@ -196,13 +623,63 @@ function refreshScrub() {
     scrub.value = scrub.max;
     scrubLabel.textContent = 'live';
     showPoint(history[history.length - 1]);
-    draw(history.length - 1);
+    drawPulse(history.length - 1);
   } else {
     const i = Math.min(+scrub.value, history.length - 1);
     scrub.value = String(i);
     showPoint(history[i]);
-    draw(i);
+    drawPulse(i);
   }
+}
+
+function updateETA(j) {
+  const total = j.cell_total || 0;
+  const done = (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
+  const left = Math.max(0, total - done - (j.running ? 1 : 0));
+  const finished = (j.completed || []).filter(r => r.ended && r.started);
+  let avgMs = 0;
+  if (finished.length) {
+    avgMs = finished.reduce((a, r) => {
+      const ms = new Date(r.ended) - new Date(r.started);
+      return a + (ms > 0 ? ms : 0);
+    }, 0) / finished.length;
+  }
+  etaSec = avgMs > 0 ? (left * avgMs) / 1000 : NaN;
+}
+
+function rowHTML(row, i, mobile) {
+  const s = row.snapshot || {};
+  const id = row.cell?.id || '';
+  if (mobile) {
+    return `<tr>
+      <td>${i+1}</td><td class="cellid">${id}</td>
+      <td>${(s.mobile_score||0).toFixed(2)}</td>
+      <td>${(s.score||0).toFixed(3)}</td>
+      <td>${(s.avg_accuracy||0).toFixed(1)}</td>
+      <td>${(s.throughput||0).toFixed(1)}</td>
+      <td>${(s.availability||0).toFixed(1)}</td>
+      <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
+      <td class="${row.status}">${row.status}</td>
+    </tr>`;
+  }
+  return `<tr>
+    <td>${i+1}</td><td class="cellid">${id}</td>
+    <td>${(s.score||0).toFixed(3)}</td>
+    <td>${(s.avg_accuracy||0).toFixed(1)}</td>
+    <td>${(s.throughput||0).toFixed(1)}</td>
+    <td>${(s.availability||0).toFixed(1)}</td>
+    <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
+    <td class="${row.status}">${row.status}</td>
+  </tr>`;
+}
+
+function renderBoards() {
+  const raw = boardRows().filter(r => !filterRaw || (r.cell?.id||'').toLowerCase().includes(filterRaw));
+  const mob = boardMobileRows().filter(r => !filterMobile || (r.cell?.id||'').toLowerCase().includes(filterMobile));
+  document.getElementById('boardCount').textContent = `${raw.length} shown · ${boardRows().length} total`;
+  document.getElementById('boardMobileCount').textContent = `${mob.length} shown · ${boardMobileRows().length} total`;
+  document.getElementById('board').innerHTML = raw.map((r,i)=>rowHTML(r,i,false)).join('');
+  document.getElementById('boardMobile').innerHTML = mob.map((r,i)=>rowHTML(r,i,true)).join('');
 }
 
 async function loadHistory() {
@@ -214,22 +691,13 @@ async function loadHistory() {
 }
 
 async function syncHistoryTip(serverLen, tip) {
-  if (!seeded) {
-    await loadHistory();
-    return;
-  }
-  // Server rotated/truncated — reload once.
-  if (serverLen < history.length) {
-    await loadHistory();
-    return;
-  }
+  if (!seeded) { await loadHistory(); return; }
+  if (serverLen < history.length) { await loadHistory(); return; }
   if (serverLen > history.length) {
     const r = await fetch('/api/history?from=' + history.length);
     const j = await r.json();
-    if (Array.isArray(j.history) && j.history.length) {
-      history = history.concat(j.history);
-    }
-  } else if (tip && tip.length && history.length) {
+    if (Array.isArray(j.history) && j.history.length) history = history.concat(j.history);
+  } else if (tip?.length && history.length) {
     history[history.length - 1] = tip[tip.length - 1];
   }
   refreshScrub();
@@ -239,9 +707,13 @@ async function tick() {
   try {
     const r = await fetch('/api/live');
     const j = await r.json();
-    const st = document.getElementById('status');
-    st.textContent = `${j.message || ''} · batch ${j.batch_index+1}/${j.batch_total || 0} · cell ${j.cell_index+1}/${j.cell_total || 0} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${j.running ? 'RUNNING' : 'idle'}`;
+    lastLive = j;
+    document.getElementById('status').textContent =
+      `${j.message || ''} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${j.running ? 'RUNNING' : 'idle'}`;
 
+    updateETA(j);
+    drawProgressPie();
+    drawModePie();
     await syncHistoryTip(j.history_len || 0, j.history || []);
 
     const bestEl = document.getElementById('bests');
@@ -267,9 +739,7 @@ async function tick() {
     const mline = (label, row, effKey) => {
       if (!row) return `<div>${label}: —</div>`;
       const s = row.snapshot || {};
-      const kib = ((s.weight_bytes||0)/1024).toFixed(1);
-      const eff = (s[effKey]||0).toFixed(2);
-      return `<div><span class="pill">${label}</span> ${eff}/MiB · ${kib} KiB · ${row.cell.id}</div>`;
+      return `<div><span class="pill">${label}</span> ${(s[effKey]||0).toFixed(2)}/MiB · ${((s.weight_bytes||0)/1024).toFixed(1)} KiB · ${row.cell.id}</div>`;
     };
     mobEl.innerHTML = [
       mline('score', m.score, 'mobile_score'),
@@ -278,32 +748,8 @@ async function tick() {
       mline('accuracy', m.accuracy, 'mobile_accuracy'),
     ].join('');
 
-    const rowHTML = (row,i,mobile) => {
-      const s = row.snapshot || {};
-      if (mobile) {
-        return `<tr>
-          <td>${i+1}</td>
-          <td>${row.cell.id}</td>
-          <td>${(s.mobile_score||0).toFixed(2)}</td>
-          <td>${(s.score||0).toFixed(3)}</td>
-          <td>${(s.avg_accuracy||0).toFixed(1)}</td>
-          <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
-          <td class="${row.status}">${row.status}</td>
-        </tr>`;
-      }
-      return `<tr>
-        <td>${i+1}</td>
-        <td>${row.cell.id}</td>
-        <td>${(s.score||0).toFixed(3)}</td>
-        <td>${(s.avg_accuracy||0).toFixed(1)}</td>
-        <td>${(s.throughput||0).toFixed(1)}</td>
-        <td>${(s.availability||0).toFixed(1)}</td>
-        <td>${((s.weight_bytes||0)/1024).toFixed(1)}K</td>
-        <td class="${row.status}">${row.status}</td>
-      </tr>`;
-    };
-    document.getElementById('board').innerHTML = (j.leaderboard||[]).map((r,i)=>rowHTML(r,i,false)).join('');
-    document.getElementById('boardMobile').innerHTML = (j.leaderboard_mobile||[]).map((r,i)=>rowHTML(r,i,true)).join('');
+    renderBoards();
+    drawRank();
   } catch (e) {
     document.getElementById('status').textContent = 'waiting for /api/live…';
   }

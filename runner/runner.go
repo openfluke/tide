@@ -363,7 +363,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				metrics.Finalize(&snap)
 				lastSnap.Store(snap)
 				tr.Pulse(w, snap, p)
-				tr.SetMeta(0, 0, cellIdx, len(cfg.Cells),
+				tr.SetCellProgress(cellIdx, len(cfg.Cells),
 					fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen))
 				if trainDone.Load() {
 					return

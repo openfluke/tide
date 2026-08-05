@@ -170,6 +170,16 @@ func (t *Tracker) SetMeta(batchIdx, batchTotal, cellIdx, cellTotal int, msg stri
 	t.live.UpdatedAt = time.Now()
 }
 
+// SetCellProgress updates cell counter + message without clobbering batch totals.
+func (t *Tracker) SetCellProgress(cellIdx, cellTotal int, msg string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.live.CellIndex = cellIdx
+	t.live.CellTotal = cellTotal
+	t.live.Message = msg
+	t.live.UpdatedAt = time.Now()
+}
+
 func (t *Tracker) Begin(cell permute.Cell, phase string) {
 	t.BeginEpoch(cell, 1, phase)
 }
@@ -288,13 +298,13 @@ func (t *Tracker) refreshProvisionalBestsLocked() {
 }
 
 func rankByScore(in []Result) []Result {
-	return rankTop(in, 32, func(a, b Result) bool {
+	return rankAll(in, func(a, b Result) bool {
 		return a.Snapshot.Score > b.Snapshot.Score
 	})
 }
 
 func rankByMobile(in []Result) []Result {
-	return rankTop(in, 32, func(a, b Result) bool {
+	return rankAll(in, func(a, b Result) bool {
 		if a.Snapshot.MobileScore != b.Snapshot.MobileScore {
 			return a.Snapshot.MobileScore > b.Snapshot.MobileScore
 		}
@@ -305,7 +315,7 @@ func rankByMobile(in []Result) []Result {
 	})
 }
 
-func rankTop(in []Result, n int, better func(a, b Result) bool) []Result {
+func rankAll(in []Result, better func(a, b Result) bool) []Result {
 	out := append([]Result(nil), in...)
 	for i := 0; i < len(out); i++ {
 		best := i
@@ -315,9 +325,6 @@ func rankTop(in []Result, n int, better func(a, b Result) bool) []Result {
 			}
 		}
 		out[i], out[best] = out[best], out[i]
-	}
-	if len(out) > n {
-		out = out[:n]
 	}
 	return out
 }
