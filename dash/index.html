@@ -204,8 +204,6 @@
   </section>
 </main>
 
-</main>
-
 <div class="top-row" style="grid-template-columns: 1fr 1fr;">
   <section>
     <h2>Learn speed — time to 50% acc</h2>
@@ -220,6 +218,75 @@
       <span><i style="background:#c3a6ff"></i>acc/sec/MiB</span>
     </div>
     <canvas id="learnRateChart" width="900" height="320"></canvas>
+  </section>
+</div>
+
+<div class="tables">
+  <section>
+    <h2>Best numerical type per train mode</h2>
+    <p class="hint">Among finished <b>ok</b> cells — highest Lucy Score dtype for each mode.</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Mode</th><th>Best dtype</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <tbody id="winDTypeMode"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>Best quant format per train mode</h2>
+    <p class="hint">Highest Score format for each mode (none = native dtype).</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Mode</th><th>Best format</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <tbody id="winFmtMode"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="tables">
+  <section>
+    <h2>Best train mode per numerical type</h2>
+    <p class="hint">Which training path wins for each dtype.</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Dtype</th><th>Best mode</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <tbody id="winModeDType"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>Best train mode per quant format</h2>
+    <p class="hint">Which training path wins for each pack format.</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Format</th><th>Best mode</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <tbody id="winModeFmt"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="tables">
+  <section>
+    <h2>Best full cell per train mode</h2>
+    <p class="hint">Champion cell id (dtype|format|mode|backend) for each mode.</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Mode</th><th>Score</th><th>Acc</th><th>t→50%</th><th>Acc/s</th><th>n</th><th>Cell</th></tr></thead>
+        <tbody id="winCellMode"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>Best format per numerical type</h2>
+    <p class="hint">For FormatNone dtypes this is usually <code>none</code>; packed rows compare quants at float32.</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Dtype</th><th>Best format</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <tbody id="winFmtDType"></tbody>
+      </table>
+    </div>
   </section>
 </div>
 
@@ -407,6 +474,54 @@ function renderModeQueue(modes) {
       <td style="min-width:72px">${bar}</td>
     </tr>`;
   }).join('');
+}
+
+function fmtSecShort(s) {
+  if (s == null || s <= 0) return '—';
+  if (s < 60) return s.toFixed(1) + 's';
+  return (s/60).toFixed(1) + 'm';
+}
+
+function renderWinnerRows(tbodyId, rows, cols) {
+  const el = document.getElementById(tbodyId);
+  if (!el) return;
+  if (!Array.isArray(rows) || !rows.length) {
+    el.innerHTML = `<tr><td colspan="${cols}">no finished ok cells yet</td></tr>`;
+    return;
+  }
+  el.innerHTML = rows.map(w => {
+    const score = (w.score||0).toFixed(3);
+    const acc = (w.avg_accuracy||0).toFixed(1) + '%';
+    const thru = (w.throughput||0).toFixed(1);
+    const avail = (w.availability||0).toFixed(1) + '%';
+    const t50 = fmtSecShort(w.time_to_acc50_sec);
+    const aps = (w.acc_per_sec||0).toFixed(3);
+    if (tbodyId === 'winCellMode') {
+      return `<tr>
+        <td class="cellid">${w.group}</td>
+        <td>${score}</td><td>${acc}</td><td>${t50}</td><td>${aps}</td>
+        <td>${w.n||0}</td>
+        <td class="cellid">${w.cell_id||w.winner||''}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td class="cellid">${w.group}</td>
+      <td><b>${w.winner||'—'}</b></td>
+      <td>${score}</td><td>${acc}</td><td>${thru}</td><td>${avail}</td>
+      <td>${w.n||0}</td>
+      <td class="cellid">${w.cell_id||''}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderWinners(w) {
+  w = w || {};
+  renderWinnerRows('winDTypeMode', w.best_dtype_per_mode, 8);
+  renderWinnerRows('winFmtMode', w.best_format_per_mode, 8);
+  renderWinnerRows('winModeDType', w.best_mode_per_dtype, 8);
+  renderWinnerRows('winModeFmt', w.best_mode_per_format, 8);
+  renderWinnerRows('winCellMode', w.best_cell_per_mode, 7);
+  renderWinnerRows('winFmtDType', w.best_format_per_dtype, 8);
 }
 
 function drawProgressPie() {
@@ -932,6 +1047,7 @@ async function tick() {
     updateETA(j);
     drawProgressPie();
     renderModeQueue(j.mode_progress);
+    renderWinners(j.winners);
     drawModePie();
     await syncHistoryTip(j.history_len || 0, j.history || []);
 

@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 			"cell_total":    live.CellTotal,
 			"message":       live.Message,
 			"mode_progress": s.modeProgress(live),
+			"winners":       computeWinners(live),
 		})
 	})
 	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
