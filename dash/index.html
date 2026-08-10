@@ -137,9 +137,17 @@
 <div class="top-row">
   <section>
     <h2>Sweep progress</h2>
-    <p class="hint">Finished vs still queued + ETA.</p>
+    <p class="hint">Finished vs still queued + ETA. Train modes run in order — <b>step_tween_chain</b> is near the end.</p>
     <canvas id="pieChart" width="240" height="180"></canvas>
     <div class="pie-aside" id="pieAside">—</div>
+    <h2 style="margin-top:1rem">Queue by train mode</h2>
+    <p class="hint">Done / running / left for each mode in plan order.</p>
+    <div class="table-wrap" style="max-height:280px">
+      <table>
+        <thead><tr><th>Mode</th><th>Done</th><th>Run</th><th>Left</th><th>Total</th><th></th></tr></thead>
+        <tbody id="modeQueue"></tbody>
+      </table>
+    </div>
   </section>
   <section>
     <h2>Live pulse — current vs champions</h2>
@@ -377,6 +385,28 @@ function drawDonut(ctx, canvas, slices, centerLines) {
     ctx.fillStyle = i === 0 ? '#3dd6c6' : '#8aa0ad';
     ctx.fillText(line, cx, cy - 4 + i*15);
   });
+}
+
+function renderModeQueue(modes) {
+  const el = document.getElementById('modeQueue');
+  if (!el) return;
+  if (!Array.isArray(modes) || !modes.length) {
+    el.innerHTML = '<tr><td colspan="6">plan unknown (restart live_mnist with updated tide)</td></tr>';
+    return;
+  }
+  el.innerHTML = modes.map(m => {
+    const pct = m.total > 0 ? Math.round(100 * m.done / m.total) : 0;
+    const st = m.running ? 'running' : (m.left === 0 ? 'ok' : '');
+    const bar = `<div style="height:6px;background:var(--grid);margin-top:2px"><div style="height:6px;width:${pct}%;background:${m.running ? 'var(--warn)' : 'var(--accent)'}"></div></div>`;
+    return `<tr class="${st}">
+      <td class="cellid">${m.mode}</td>
+      <td>${m.done}</td>
+      <td>${m.running || '—'}</td>
+      <td><b>${m.left}</b></td>
+      <td>${m.total}</td>
+      <td style="min-width:72px">${bar}</td>
+    </tr>`;
+  }).join('');
 }
 
 function drawProgressPie() {
@@ -901,6 +931,7 @@ async function tick() {
 
     updateETA(j);
     drawProgressPie();
+    renderModeQueue(j.mode_progress);
     drawModePie();
     await syncHistoryTip(j.history_len || 0, j.history || []);
 
