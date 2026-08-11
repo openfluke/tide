@@ -296,8 +296,12 @@ func (m *Model) PredictArgmax(x *core.Tensor[float32]) ([]int, error) {
 }
 
 // ServeEval runs Forward once and returns argmax preds + SoftAcc vs one-hot target.
-// SoftAcc is SoftAccOne on the true-class logit vs 1.0 (mean over batch) — same
-// scalar SoftAcc formula as test41, applied to the supervised output channel.
+//
+// SoftAcc keeps the test41 formula 100×(1−|pred−target|/scale), applied to the
+// true-class softmax probability vs 1.0 (both in [0,1], like sine targets).
+// Classification uses SoftAccScaleClass=1.0 so SoftAcc ≈ 100×p(true) — the sine
+// scale 0.10 would zero SoftAcc until p≥0.9 and collapse Score while Hard Acc
+// was already high (raw logits vs 1.0 had the same failure mode).
 func (m *Model) ServeEval(x, target *core.Tensor[float32]) (preds []int, softAcc float64, err error) {
 	out, _, err := m.Forward(x)
 	if err != nil {
@@ -307,6 +311,7 @@ func (m *Model) ServeEval(x, target *core.Tensor[float32]) (preds []int, softAcc
 	classes := out.Shape[1]
 	preds = make([]int, batch)
 	sumSoft := 0.0
+	probs := make([]float32, classes)
 	for b := 0; b < batch; b++ {
 		off := b * classes
 		best := 0
@@ -325,7 +330,8 @@ func (m *Model) ServeEval(x, target *core.Tensor[float32]) (preds []int, softAcc
 					lab = c
 				}
 			}
-			sumSoft += SoftAccOne(out.Data[off+lab], 1.0)
+			softmaxInto(out.Data[off:off+classes], probs)
+			sumSoft += SoftAccProb(probs[lab], 1.0)
 		}
 	}
 	if batch > 0 {
@@ -334,7 +340,26 @@ func (m *Model) ServeEval(x, target *core.Tensor[float32]) (preds []int, softAcc
 	return preds, softAcc, nil
 }
 
-// SoftAccOne is SoftAcc for a single pred/target pair (test41 formula).
+// SoftAccScaleClass: SoftAcc on probabilities (MNIST). Sine test41 uses 0.10.
+const SoftAccScaleClass = 1.0
+
+// SoftAccProb is SoftAcc for a probability in [0,1] vs target (usually 1.0).
+func SoftAccProb(pred, target float32) float64 {
+	p := float64(pred)
+	if math.IsNaN(p) || math.IsInf(p, 0) {
+		return 0
+	}
+	a := 100 * (1 - math.Abs(p-float64(target))/SoftAccScaleClass)
+	if a < 0 {
+		return 0
+	}
+	if a > 100 {
+		return 100
+	}
+	return a
+}
+
+// SoftAccOne is SoftAcc for a single pred/target pair (test41 sine formula, scale 0.10).
 func SoftAccOne(pred, target float32) float64 {
 	p := float64(pred)
 	if math.IsNaN(p) || math.IsInf(p, 0) {
@@ -348,4 +373,32 @@ func SoftAccOne(pred, target float32) float64 {
 		return 100
 	}
 	return a
+}
+
+func softmaxInto(logits, out []float32) {
+	n := len(logits)
+	if n == 0 || len(out) < n {
+		return
+	}
+	max := logits[0]
+	for i := 1; i < n; i++ {
+		if logits[i] > max {
+			max = logits[i]
+		}
+	}
+	var sum float64
+	for i := 0; i < n; i++ {
+		out[i] = float32(math.Exp(float64(logits[i] - max)))
+		sum += float64(out[i])
+	}
+	if sum <= 0 {
+		for i := 0; i < n; i++ {
+			out[i] = 1 / float32(n)
+		}
+		return
+	}
+	inv := float32(1 / sum)
+	for i := 0; i < n; i++ {
+		out[i] *= inv
+	}
 }

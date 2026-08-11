@@ -30,7 +30,7 @@ cells fall off; the interesting winners sit on the undominated edge.
 
 | Symbol | Formula |
 |--------|---------|
-| SoftAcc | `100 × (1 − \|pred − target\| / 0.10)` on the **true-class logit vs 1.0** (test41 SoftAcc, multi-class channel) |
+| SoftAcc | SoftAcc formula on **true-class softmax prob vs 1.0** (scale 1 → ≈100×p); sine uses scale 0.10 on continuous targets |
 | Hard Acc | argmax accuracy % (still recorded as `avg_accuracy`) |
 | Availability | `InferMs / (InferMs + TrainMs) × 100` |
 | AdaptPct | Mean SoftAcc in the first few pulse windows after each phase switch |
