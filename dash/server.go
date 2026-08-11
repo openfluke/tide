@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/openfluke/tide/permute"
@@ -19,6 +20,10 @@ type Server struct {
 	Tracker *pulse.Tracker
 	Cells   []permute.Cell // full sweep plan (for remaining-by-mode)
 	Addr    string
+
+	startMu sync.Mutex
+	started bool
+	startCh chan struct{} // closed when Start is pressed
 }
 
 // ModeProgress is done/left counts for one train mode in the plan.
@@ -127,9 +132,26 @@ func (s *Server) Handler() http.Handler {
 			"batch_total":   live.BatchTotal,
 			"cell_index":    live.CellIndex,
 			"cell_total":    live.CellTotal,
-			"message":       live.Message,
-			"mode_progress": s.modeProgress(live),
-			"winners":       computeWinners(live),
+			"message":         live.Message,
+			"mode_progress":   s.modeProgress(live),
+			"winners":         computeWinners(live),
+			"awaiting_start":  !s.Started(),
+			"started":         s.Started(),
+		})
+	})
+	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			http.Error(w, "POST /api/start", http.StatusMethodNotAllowed)
+			return
+		}
+		already := s.Started()
+		s.SignalStart()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"started":  true,
+			"already":  already,
+			"message":  "training start signaled",
 		})
 	})
 	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {

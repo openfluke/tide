@@ -55,6 +55,29 @@ func DefaultConfig(cells []permute.Cell) Config {
 	}
 }
 
+// Hydrate loads checkpoint boards into the tracker so the dashboard can show
+// metrics before training starts. msg overrides the status line (empty → default).
+func Hydrate(tr *pulse.Tracker, cfg Config, msg string) {
+	if tr == nil {
+		return
+	}
+	done := checkpoint.DoneSet(cfg.Resume)
+	if msg == "" {
+		if cfg.Resume != nil {
+			msg = fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done))
+		} else {
+			msg = fmt.Sprintf("epoch %d — ready", cfg.Epoch)
+		}
+	}
+	if cfg.Resume != nil {
+		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.BestMobile,
+			cfg.Resume.BestLearn, cfg.Resume.BestLearnMobile, cfg.Resume.History,
+			cfg.Resume.NextCellIndex, len(cfg.Cells), msg)
+		return
+	}
+	tr.SetMeta(0, 0, 0, len(cfg.Cells), msg)
+}
+
 // Run executes all cells for one epoch (full pass over train data each).
 // If the previous epoch is fully done, Resume is prepared for epoch+1.
 func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
@@ -72,12 +95,7 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	}
 
 	done := checkpoint.DoneSet(cfg.Resume)
-	if cfg.Resume != nil {
-		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.BestMobile,
-			cfg.Resume.BestLearn, cfg.Resume.BestLearnMobile, cfg.Resume.History,
-			cfg.Resume.NextCellIndex, len(cfg.Cells),
-			fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done)))
-	}
+	Hydrate(tr, cfg, fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done)))
 
 	batches := permute.Batch(cfg.Cells, cfg.BatchSize)
 	cellTotal := len(cfg.Cells)
