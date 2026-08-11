@@ -406,6 +406,10 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				pulseSoftSum += w.SoftAcc
 				pulseAccN++
 				snap.Windows = metrics.AppendWindow(snap.Windows, w)
+				// Full-epoch SoftAcc strip (not capped like Windows sparklines).
+				snap.SoftAccBlocks = append(snap.SoftAccBlocks, softWin)
+				snap.PhaseBlocks = append(snap.PhaseBlocks, p)
+				snap.SwitchBlocks = append(snap.SwitchBlocks, switches > 0)
 				snap.TotalOutputs = totalOut.Load()
 				snap.TotalCorrect = totalCorrect.Load()
 				snap.TotalTrain = totalTrain.Load()
@@ -495,6 +499,9 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		snap.AdaptPct = prev.AdaptPct
 		snap.Stability = prev.Stability
 		snap.Consistency = prev.Consistency
+		snap.SoftAccBlocks = prev.SoftAccBlocks
+		snap.PhaseBlocks = prev.PhaseBlocks
+		snap.SwitchBlocks = prev.SwitchBlocks
 	} else if live.Current != nil {
 		snap.Windows = live.Current.Snapshot.Windows
 		snap.AvgAccuracy = live.Current.Snapshot.AvgAccuracy

@@ -76,6 +76,11 @@ type Snapshot struct {
 	MobileAccuracy     float64 `json:"mobile_accuracy"` // SoftAcc / MiB
 	Windows            []Window `json:"windows,omitempty"`
 
+	// SoftAccBlocks is the 1s SoftAcc strip kept after Windows are stripped (dash detail).
+	SoftAccBlocks []float64 `json:"soft_acc_blocks,omitempty"`
+	PhaseBlocks   []string  `json:"phase_blocks,omitempty"`
+	SwitchBlocks  []bool    `json:"switch_blocks,omitempty"`
+
 	// AccuracyPulses folds SoftAcc into SoftAcc running mean when >0.
 	AccuracyPulses int64 `json:"-"`
 
@@ -158,24 +163,32 @@ func Finalize(s *Snapshot) {
 		}
 	}
 
-	// Stability / Consistency / AdaptPct from SoftAcc windows.
+	// Stability / Consistency / AdaptPct from SoftAcc windows or retained SoftAccBlocks.
 	nWin := len(s.Windows)
-	if nWin > 0 {
-		mean := s.SoftAcc
-		if s.AccuracyPulses > 0 {
-			mean = s.SoftAcc
+	blocks := s.SoftAccBlocks
+	switches := s.SwitchBlocks
+	if len(blocks) == 0 && nWin > 0 {
+		blocks = make([]float64, nWin)
+		switches = make([]bool, nWin)
+		for i, w := range s.Windows {
+			blocks[i] = w.SoftAcc
+			switches[i] = w.PhaseSwitches > 0
 		}
+	}
+	nBlk := len(blocks)
+	if nBlk > 0 {
+		mean := s.SoftAcc
 		vari := 0.0
 		valid := 0
 		above := 0
-		for _, w := range s.Windows {
-			if math.IsNaN(w.SoftAcc) {
+		for _, a := range blocks {
+			if math.IsNaN(a) {
 				continue
 			}
-			d := w.SoftAcc - mean
+			d := a - mean
 			vari += d * d
 			valid++
-			if w.SoftAcc >= ConsThreshold {
+			if a >= ConsThreshold {
 				above++
 			}
 		}
@@ -183,20 +196,38 @@ func Finalize(s *Snapshot) {
 			vari /= float64(valid)
 			s.Stability = math.Max(0, 100-math.Sqrt(vari))
 		}
-		s.Consistency = float64(above) / float64(nWin) * 100
+		s.Consistency = float64(above) / float64(nBlk) * 100
 
 		adaptSum, adaptN := 0.0, 0
-		for i, w := range s.Windows {
-			if w.PhaseSwitches == 0 {
+		for i := range blocks {
+			sw := false
+			if i < len(switches) {
+				sw = switches[i]
+			} else if i < nWin {
+				sw = s.Windows[i].PhaseSwitches > 0
+			}
+			if !sw {
 				continue
 			}
-			for k := 0; k < AdaptWindows && i+k < nWin; k++ {
-				adaptSum += s.Windows[i+k].SoftAcc
+			for k := 0; k < AdaptWindows && i+k < nBlk; k++ {
+				adaptSum += blocks[i+k]
 				adaptN++
 			}
 		}
 		if adaptN > 0 {
 			s.AdaptPct = adaptSum / float64(adaptN)
+		}
+	}
+
+	// SoftAcc 1s strip for dash detail — prefer runner-accumulated blocks; else copy Windows.
+	if len(s.SoftAccBlocks) == 0 && nWin > 0 {
+		s.SoftAccBlocks = make([]float64, nWin)
+		s.PhaseBlocks = make([]string, nWin)
+		s.SwitchBlocks = make([]bool, nWin)
+		for i, w := range s.Windows {
+			s.SoftAccBlocks[i] = w.SoftAcc
+			s.PhaseBlocks[i] = w.Phase
+			s.SwitchBlocks[i] = w.PhaseSwitches > 0
 		}
 	}
 

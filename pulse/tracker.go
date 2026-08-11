@@ -290,7 +290,8 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 	t.live.Current.Status = status
 	t.live.Current.Note = note
 	t.live.Current.Snapshot = snap
-	t.live.Current.Snapshot.Windows = nil // don't retain sparkline on every completed cell
+	// Keep SoftAccBlocks / summary metrics; drop heavy Windows sparklines.
+	t.live.Current.Snapshot.Windows = nil
 	t.live.Current.Ended = time.Now()
 	done := *t.live.Current
 	t.live.Completed = append(t.live.Completed, done)
