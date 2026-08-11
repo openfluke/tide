@@ -224,11 +224,16 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		totalOut     atomic.Int64
 		totalCorrect atomic.Int64
 		totalTrain   atomic.Int64
-		blockedNS    atomic.Int64
+		inferNS      atomic.Int64
+		trainNS      atomic.Int64
 		winOut       atomic.Int64
 		winCorrect   atomic.Int64
 		winTrain     atomic.Int64
-		winBlocked   atomic.Int64
+		winInferNS   atomic.Int64
+		winTrainNS   atomic.Int64
+		winSoftSum   atomic.Uint64 // float64 bits via math? use int64 micro-soft×1000
+		winSoftN     atomic.Int64
+		phaseSwitch  atomic.Int64
 		failNote     atomic.Value
 		lastSnap     atomic.Value
 		trainDone    atomic.Bool
@@ -241,17 +246,23 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		totalOut.Store(inf.Snapshot.TotalOutputs)
 		totalCorrect.Store(inf.Snapshot.TotalCorrect)
 		totalTrain.Store(inf.Snapshot.TotalTrain)
-		blockedNS.Store(inf.Snapshot.BlockedTrain.Nanoseconds())
+		inferNS.Store(int64(inf.Snapshot.InferMs * 1e6))
+		trainNS.Store(int64(inf.Snapshot.TrainMs * 1e6))
 		lastSnap.Store(inf.Snapshot)
 	}
 
 	trainLen := ds.TrainLen()
 	weightBytes := m.WeightBytes()
+	heapBytes := int64(0)
+	{
+		runtime.GC()
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		heapBytes = int64(ms.HeapAlloc)
+	}
 	var wg sync.WaitGroup
 
 	// Serve loop while the epoch trains.
-	// TryLock + allocate-only-when-free: the old busy-spin allocated a new MNIST
-	// batch then blocked on mu while train held it — huge alloc churn → Go RSS balloon.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -274,13 +285,19 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			}
 			p := phase.Load().(string)
 			s := remap(ds.NextServe(p), p)
-			preds, err := m.PredictArgmax(s.X)
+			t0 := time.Now()
+			preds, soft, err := m.ServeEval(s.X, s.Target)
+			infDur := time.Since(t0)
 			mu.Unlock()
 			if err != nil {
 				failNote.Store(err.Error())
 				cancel()
 				return
 			}
+			inferNS.Add(infDur.Nanoseconds())
+			winInferNS.Add(infDur.Nanoseconds())
+			winSoftN.Add(1)
+			winSoftSum.Add(uint64(soft * 1e6))
 			for i, pred := range preds {
 				totalOut.Add(1)
 				winOut.Add(1)
@@ -300,6 +317,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			trainDone.Store(true)
 			cancel()
 		}()
+		prevPhase := "A"
 		for {
 			select {
 			case <-ctx.Done():
@@ -312,6 +330,10 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				frac = float64(off) / float64(trainLen)
 			}
 			p := phaseAtFrac(frac, cfg.FlipAt, cfg.FlipBack)
+			if p != prevPhase {
+				phaseSwitch.Add(1)
+				prevPhase = p
+			}
 			phase.Store(p)
 
 			s, ok := ds.NextTrain()
@@ -323,9 +345,9 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			mu.Lock()
 			_, err := m.TrainStep(s.X, s.Target, cfg.LR, cell.Mode)
 			mu.Unlock()
-			blocked := time.Since(t0)
-			blockedNS.Add(blocked.Nanoseconds())
-			winBlocked.Add(blocked.Nanoseconds())
+			trDur := time.Since(t0)
+			trainNS.Add(trDur.Nanoseconds())
+			winTrainNS.Add(trDur.Nanoseconds())
 			if err != nil {
 				failNote.Store(err.Error())
 				return
@@ -345,41 +367,56 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		if v := lastSnap.Load(); v != nil {
 			snap = v.(metrics.Snapshot)
 		}
-		var pulseAccSum float64
+		var pulseHardSum, pulseSoftSum float64
 		var pulseAccN int64
 		if snap.AccuracyPulses > 0 {
 			pulseAccN = snap.AccuracyPulses
-			pulseAccSum = snap.AvgAccuracy * float64(pulseAccN)
+			pulseHardSum = snap.AvgAccuracy * float64(pulseAccN)
+			pulseSoftSum = snap.SoftAcc * float64(pulseAccN)
 		}
 		for {
 			select {
 			case <-cellCtx.Done():
 				return
 			case now := <-tick.C:
-				if trainDone.Load() {
-					// one final pulse then exit
-				}
 				p := phase.Load().(string)
-				w := metrics.Window{
-					At:           now,
-					Outputs:      winOut.Swap(0),
-					Correct:      winCorrect.Swap(0),
-					TrainSteps:   winTrain.Swap(0),
-					BlockedTrain: time.Duration(winBlocked.Swap(0)),
-					Phase:        p,
+				softN := winSoftN.Swap(0)
+				softMicro := winSoftSum.Swap(0)
+				softWin := 0.0
+				if softN > 0 {
+					softWin = float64(softMicro) / 1e6 / float64(softN)
 				}
+				switches := int(phaseSwitch.Swap(0))
+				w := metrics.Window{
+					At:            now,
+					Outputs:       winOut.Swap(0),
+					Correct:       winCorrect.Swap(0),
+					TrainSteps:    winTrain.Swap(0),
+					InferMs:       float64(winInferNS.Swap(0)) / 1e6,
+					TrainMs:       float64(winTrainNS.Swap(0)) / 1e6,
+					BlockedTrain:  time.Duration(0),
+					Phase:         p,
+					PhaseSwitches: switches,
+					SoftAcc:       softWin,
+				}
+				w.BlockedTrain = time.Duration(w.TrainMs * float64(time.Millisecond))
 				w.Accuracy = metrics.WindowAccuracy(w.Correct, w.Outputs)
 				w.Throughput = float64(w.Outputs) / cfg.PulseEvery.Seconds()
-				pulseAccSum += w.Accuracy
+				pulseHardSum += w.Accuracy
+				pulseSoftSum += w.SoftAcc
 				pulseAccN++
 				snap.Windows = metrics.AppendWindow(snap.Windows, w)
 				snap.TotalOutputs = totalOut.Load()
 				snap.TotalCorrect = totalCorrect.Load()
 				snap.TotalTrain = totalTrain.Load()
-				snap.BlockedTrain = time.Duration(blockedNS.Load())
+				snap.InferMs = float64(inferNS.Load()) / 1e6
+				snap.TrainMs = float64(trainNS.Load()) / 1e6
+				snap.BlockedTrain = time.Duration(trainNS.Load())
 				snap.Duration = time.Since(start)
 				snap.WeightBytes = weightBytes
-				snap.AvgAccuracy = pulseAccSum / float64(pulseAccN)
+				snap.HeapBytes = heapBytes
+				snap.AvgAccuracy = pulseHardSum / float64(pulseAccN)
+				snap.SoftAcc = pulseSoftSum / float64(pulseAccN)
 				snap.AccuracyPulses = pulseAccN
 				sec := snap.Duration.Seconds()
 				if snap.TimeToAcc25Sec == 0 && w.Accuracy >= metrics.AccThreshold25 {
@@ -440,20 +477,28 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		TotalOutputs: totalOut.Load(),
 		TotalCorrect: totalCorrect.Load(),
 		TotalTrain:   totalTrain.Load(),
-		BlockedTrain: time.Duration(blockedNS.Load()),
+		InferMs:      float64(inferNS.Load()) / 1e6,
+		TrainMs:      float64(trainNS.Load()) / 1e6,
+		BlockedTrain: time.Duration(trainNS.Load()),
 		Duration:     time.Since(start),
 		WeightBytes:  m.WeightBytes(),
+		HeapBytes:    heapBytes,
 	}
 	if v := lastSnap.Load(); v != nil {
 		prev := v.(metrics.Snapshot)
 		snap.AvgAccuracy = prev.AvgAccuracy
+		snap.SoftAcc = prev.SoftAcc
 		snap.AccuracyPulses = prev.AccuracyPulses
 		snap.Windows = prev.Windows
 		snap.TimeToAcc25Sec = prev.TimeToAcc25Sec
 		snap.TimeToAcc50Sec = prev.TimeToAcc50Sec
+		snap.AdaptPct = prev.AdaptPct
+		snap.Stability = prev.Stability
+		snap.Consistency = prev.Consistency
 	} else if live.Current != nil {
 		snap.Windows = live.Current.Snapshot.Windows
 		snap.AvgAccuracy = live.Current.Snapshot.AvgAccuracy
+		snap.SoftAcc = live.Current.Snapshot.SoftAcc
 		snap.AccuracyPulses = live.Current.Snapshot.AccuracyPulses
 		snap.TimeToAcc25Sec = live.Current.Snapshot.TimeToAcc25Sec
 		snap.TimeToAcc50Sec = live.Current.Snapshot.TimeToAcc50Sec

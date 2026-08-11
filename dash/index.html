@@ -154,7 +154,10 @@
   <h1><span>tide</span> live adaptation</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Score = Throughput × Availability% × AvgAccuracy% / 10,000</p>
+<p class="score-eq">Score = Throughput × Availability% × SoftAcc% / 10,000 &nbsp;·&nbsp; Availability = Infer / (Infer+Train)</p>
+<p class="score-eq" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
+  SoftAcc = 100×(1−|pred−target|/0.10) · AdaptPct after phase flips · WeightBytes / MobileScore
+</p>
 
 <div class="start-banner" id="startBanner">
   <div>
@@ -408,7 +411,7 @@ let etaSec = NaN;
 const BANDS = ['#152428','#151c2a','#241c14','#1c1424','#14241c','#241814'];
 const METRICS = [
   { key: 'score', snap: 'score', best: 'score', label: 'score', color: '#3dd6c6', fixed: null, digits: 3 },
-  { key: 'accuracy', snap: 'avg_accuracy', best: 'accuracy', label: 'accuracy %', color: '#e6b35a', fixed: 100, digits: 1 },
+  { key: 'accuracy', snap: 'soft_acc', best: 'accuracy', label: 'softAcc %', color: '#e6b35a', fixed: 100, digits: 1 },
   { key: 'throughput', snap: 'throughput', best: 'throughput', label: 'throughput /s', color: '#7aa2f7', fixed: null, digits: 1 },
   { key: 'availability', snap: 'availability', best: 'availability', label: 'availability %', color: '#c3a6ff', fixed: 100, digits: 1 },
 ];

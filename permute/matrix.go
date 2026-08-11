@@ -1,58 +1,50 @@
-// Package permute builds numerical-type × quant × train-mode matrices.
+// Package permute builds numerical-type × quant × train-mode × arch matrices.
+// Backend is always SIMD (no CPU-tiled twin modes).
 package permute
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/openfluke/welvet/core"
 	"github.com/openfluke/welvet/quant"
 	"github.com/openfluke/welvet/simd"
 )
 
-// TrainMode is a serve+train path (Lucy dense adaptation suite).
+// TrainMode is a serve+train path (Lucy / test41-w suite @ SIMD).
 type TrainMode string
 
 const (
-	// Lucy [2] Tests — dense mid-stream adaptation modes (± SIMD).
-	ModeSGD               TrainMode = "sgd"                 // NormalBP
-	ModeSGDSimd           TrainMode = "sgd_simd"
-	ModeStepSGD           TrainMode = "step_sgd"            // Step+BP
-	ModeStepSGDSimd       TrainMode = "step_sgd_simd"
-	ModeTween             TrainMode = "tween"               // Tween (layerwise gaps)
-	ModeTweenSimd         TrainMode = "tween_simd"
-	ModeTweenChain        TrainMode = "tween_chain"         // TweenChain (chain-rule gaps)
-	ModeTweenChainSimd    TrainMode = "tween_chain_simd"
-	ModeStepTween         TrainMode = "step_tween"          // StepTween
-	ModeStepTweenSimd     TrainMode = "step_tween_simd"
-	ModeStepTweenChain    TrainMode = "step_tween_chain"    // StepTweenChain
-	ModeStepTweenChainSimd TrainMode = "step_tween_chain_simd"
-
-	// Head-only gap (extra; useful live-adaptation baseline).
-	ModeTweenHead     TrainMode = "tween_head"
-	ModeTweenHeadSimd TrainMode = "tween_head_simd"
+	ModeSGD            TrainMode = "sgd"              // NormalBP
+	ModeStepSGD        TrainMode = "step_sgd"         // StepBP
+	ModeTween          TrainMode = "tween"            // Tween
+	ModeTweenChain     TrainMode = "tween_chain"      // TweenChain
+	ModeStepTween      TrainMode = "step_tween"       // StepTween
+	ModeStepTweenChain TrainMode = "step_tween_chain" // StepTweenChain
 )
 
-// LucyModes is the full 12-mode adaptation suite (6 paths × scalar/SIMD).
+// ArchKind selects the network topology for a cell.
+type ArchKind string
+
+const (
+	ArchCNN       ArchKind = "cnn"       // CNN2→CNN2→Dense
+	ArchBicameral ArchKind = "bicameral" // CNN2→CNN2→Parallel(Dense∥Dense, add)→Dense
+)
+
+// LucyModes is the test41 sequential adaptation suite (SIMD-only; no tween_head).
 func LucyModes() []TrainMode {
 	return []TrainMode{
-		ModeSGD, ModeSGDSimd,
-		ModeStepSGD, ModeStepSGDSimd,
-		ModeTween, ModeTweenSimd,
-		ModeTweenChain, ModeTweenChainSimd,
-		ModeStepTween, ModeStepTweenSimd,
-		ModeStepTweenChain, ModeStepTweenChainSimd,
+		ModeSGD, ModeStepSGD,
+		ModeTween, ModeTweenChain,
+		ModeStepTween, ModeStepTweenChain,
 	}
 }
 
-// AllModes is Lucy suite + tween_head baselines.
-func AllModes() []TrainMode {
-	return append(LucyModes(), ModeTweenHead, ModeTweenHeadSimd)
-}
+// AllModes aliases LucyModes (tween_head removed).
+func AllModes() []TrainMode { return LucyModes() }
 
-// ModeUsesSIMD reports whether the mode requests BackendSIMD.
-func ModeUsesSIMD(m TrainMode) bool {
-	return strings.HasSuffix(string(m), "_simd")
+// AllArches is CNN + Bicameral (matches test41 Dense + Bicameral axis).
+func AllArches() []ArchKind {
+	return []ArchKind{ArchCNN, ArchBicameral}
 }
 
 // Cell is one permutation to benchmark.
@@ -61,12 +53,13 @@ type Cell struct {
 	DType   core.DType   `json:"dtype"`
 	Format  quant.Format `json:"format"`
 	Mode    TrainMode    `json:"mode"`
+	Arch    ArchKind     `json:"arch"`
 	Backend core.Backend `json:"backend"`
 	UseSIMD bool         `json:"use_simd"`
 }
 
 func (c Cell) String() string {
-	return fmt.Sprintf("%s|%s|%s|%s", c.DType, c.Format, c.Mode, c.Backend)
+	return fmt.Sprintf("%s|%s|%s|%s|simd", c.DType, c.Format, c.Mode, c.Arch)
 }
 
 // Config controls which axes expand.
@@ -74,9 +67,10 @@ type Config struct {
 	DTypes  []core.DType
 	Formats []quant.Format
 	Modes   []TrainMode
+	Arches  []ArchKind
 }
 
-// Smoke is a fast dashboard-friendly subset — still includes full Lucy train modes.
+// Smoke is a fast dashboard-friendly subset.
 func Smoke() Config {
 	return Config{
 		DTypes: []core.DType{
@@ -85,11 +79,12 @@ func Smoke() Config {
 		Formats: []quant.Format{
 			quant.FormatNone, quant.FormatQ8_0, quant.FormatQ4_K,
 		},
-		Modes: AllModes(),
+		Modes:  AllModes(),
+		Arches: AllArches(),
 	}
 }
 
-// Full expands Welvet's FormatNone dtypes + packed quants + all train modes.
+// Full expands Welvet's FormatNone dtypes + packed quants + all train modes × arches.
 func Full() Config {
 	fmts := make([]quant.Format, 0, len(quant.AllFormats))
 	for _, f := range quant.AllFormats {
@@ -99,10 +94,11 @@ func Full() Config {
 		DTypes:  append([]core.DType(nil), core.AllDTypes...),
 		Formats: fmts,
 		Modes:   AllModes(),
+		Arches:  AllArches(),
 	}
 }
 
-// KQuant focuses on k-quant packs × Lucy train modes.
+// KQuant focuses on k-quant packs × Lucy train modes × arches.
 func KQuant() Config {
 	return Config{
 		DTypes: []core.DType{core.DTypeFloat32},
@@ -110,39 +106,42 @@ func KQuant() Config {
 			quant.FormatQ2_K, quant.FormatQ3_K, quant.FormatQ4_K,
 			quant.FormatQ5_K, quant.FormatQ6_K,
 		},
-		Modes: LucyModes(),
+		Modes:  LucyModes(),
+		Arches: AllArches(),
 	}
 }
 
-// Expand builds the cartesian product. FormatNone cells use DType demotion;
-// packed-format cells keep float32 source then Pack (down-the-dem style).
+// Expand builds the cartesian product. Always BackendSIMD.
+// FormatNone cells use DType demotion; packed-format cells keep float32 source then Pack.
 func Expand(cfg Config) []Cell {
+	arches := cfg.Arches
+	if len(arches) == 0 {
+		arches = AllArches()
+	}
 	var out []Cell
 	simdOK := simd.Enabled()
 	for _, mode := range cfg.Modes {
-		useSIMD := ModeUsesSIMD(mode)
-		be := core.BackendCPUTiled
-		if useSIMD {
-			be = core.BackendSIMD
-		}
-		for _, dt := range cfg.DTypes {
-			for _, f := range cfg.Formats {
-				cellDT := dt
-				if f != quant.FormatNone {
-					cellDT = core.DTypeFloat32
+		for _, arch := range arches {
+			for _, dt := range cfg.DTypes {
+				for _, f := range cfg.Formats {
+					cellDT := dt
+					if f != quant.FormatNone {
+						cellDT = core.DTypeFloat32
+					}
+					if f != quant.FormatNone && dt != core.DTypeFloat32 {
+						continue
+					}
+					c := Cell{
+						DType:   cellDT,
+						Format:  f,
+						Mode:    mode,
+						Arch:    arch,
+						Backend: core.BackendSIMD,
+						UseSIMD: simdOK,
+					}
+					c.ID = c.String()
+					out = append(out, c)
 				}
-				if f != quant.FormatNone && dt != core.DTypeFloat32 {
-					continue
-				}
-				c := Cell{
-					DType:   cellDT,
-					Format:  f,
-					Mode:    mode,
-					Backend: be,
-					UseSIMD: useSIMD && simdOK,
-				}
-				c.ID = c.String()
-				out = append(out, c)
 			}
 		}
 	}

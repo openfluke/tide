@@ -6,78 +6,116 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+
+	"github.com/openfluke/tide/permute"
 )
 
-// ExportF32 returns float32 copies of CNN1 / CNN2 / Dense weights (unpacked).
-func (m *Model) ExportF32() (cnn1, cnn2, head []float32, err error) {
-	if m == nil || m.CNN1 == nil || m.CNN2 == nil || m.Head == nil {
-		return nil, nil, nil, fmt.Errorf("chain: nil model")
+// ExportF32 returns float32 copies of all stack weights (unpacked).
+func (m *Model) ExportF32() (parts map[string][]float32, err error) {
+	if m == nil || m.CNN1 == nil || m.CNN2 == nil {
+		return nil, fmt.Errorf("chain: nil model")
 	}
-	cnn1, err = m.CNN1.Proj.Weights.FlattenF32()
+	parts = make(map[string][]float32)
+	c1, err := m.CNN1.Proj.Weights.FlattenF32()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cnn1: %w", err)
+		return nil, fmt.Errorf("cnn1: %w", err)
 	}
-	cnn2, err = m.CNN2.Proj.Weights.FlattenF32()
+	c2, err := m.CNN2.Proj.Weights.FlattenF32()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cnn2: %w", err)
+		return nil, fmt.Errorf("cnn2: %w", err)
 	}
-	head, err = m.Head.Weights.FlattenF32()
+	parts["cnn1"] = c1
+	parts["cnn2"] = c2
+	if m.Arch == permute.ArchBicameral {
+		for name, layer := range map[string]*struct {
+			flat func() ([]float32, error)
+		}{
+			"dense_in":  {func() ([]float32, error) { return m.DenseIn.Weights.FlattenF32() }},
+			"branch_r":  {func() ([]float32, error) { return m.BranchR.Weights.FlattenF32() }},
+			"branch_l":  {func() ([]float32, error) { return m.BranchL.Weights.FlattenF32() }},
+			"dense_out": {func() ([]float32, error) { return m.DenseOut.Weights.FlattenF32() }},
+		} {
+			v, e := layer.flat()
+			if e != nil {
+				return nil, fmt.Errorf("%s: %w", name, e)
+			}
+			parts[name] = v
+		}
+		return parts, nil
+	}
+	if m.Head == nil {
+		return nil, fmt.Errorf("chain: nil head")
+	}
+	h, err := m.Head.Weights.FlattenF32()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("head: %w", err)
+		return nil, fmt.Errorf("head: %w", err)
 	}
-	return cnn1, cnn2, head, nil
+	parts["head"] = h
+	return parts, nil
 }
 
 // ImportF32 reloads weights and re-encodes into the layers' current dtype/format.
-func (m *Model) ImportF32(cnn1, cnn2, head []float32) error {
-	if m == nil || m.CNN1 == nil || m.CNN2 == nil || m.Head == nil {
+func (m *Model) ImportF32(parts map[string][]float32) error {
+	if m == nil || m.CNN1 == nil || m.CNN2 == nil {
 		return fmt.Errorf("chain: nil model")
 	}
-	if err := m.CNN1.Proj.Weights.SetFromF32(cnn1); err != nil {
+	if err := m.CNN1.Proj.Weights.SetFromF32(parts["cnn1"]); err != nil {
 		return fmt.Errorf("cnn1: %w", err)
 	}
-	if err := m.CNN2.Proj.Weights.SetFromF32(cnn2); err != nil {
+	if err := m.CNN2.Proj.Weights.SetFromF32(parts["cnn2"]); err != nil {
 		return fmt.Errorf("cnn2: %w", err)
 	}
-	if err := m.Head.Weights.SetFromF32(head); err != nil {
-		return fmt.Errorf("head: %w", err)
+	if m.Arch == permute.ArchBicameral {
+		for name, set := range map[string]func([]float32) error{
+			"dense_in":  m.DenseIn.Weights.SetFromF32,
+			"branch_r":  m.BranchR.Weights.SetFromF32,
+			"branch_l":  m.BranchL.Weights.SetFromF32,
+			"dense_out": m.DenseOut.Weights.SetFromF32,
+		} {
+			if err := set(parts[name]); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
+		return nil
 	}
-	return nil
+	if m.Head == nil {
+		return fmt.Errorf("chain: nil head")
+	}
+	return m.Head.Weights.SetFromF32(parts["head"])
 }
 
-// SaveWeightsDir writes cnn1.bin / cnn2.bin / head.bin under dir.
+// SaveWeightsDir writes weight bins under dir.
 func (m *Model) SaveWeightsDir(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	c1, c2, h, err := m.ExportF32()
+	parts, err := m.ExportF32()
 	if err != nil {
 		return err
 	}
-	if err := writeF32(filepath.Join(dir, "cnn1.bin"), c1); err != nil {
-		return err
+	for name, v := range parts {
+		if err := writeF32(filepath.Join(dir, name+".bin"), v); err != nil {
+			return err
+		}
 	}
-	if err := writeF32(filepath.Join(dir, "cnn2.bin"), c2); err != nil {
-		return err
-	}
-	return writeF32(filepath.Join(dir, "head.bin"), h)
+	return nil
 }
 
-// LoadWeightsDir reads cnn1.bin / cnn2.bin / head.bin into the model.
+// LoadWeightsDir reads weight bins into the model.
 func (m *Model) LoadWeightsDir(dir string) error {
-	c1, err := readF32(filepath.Join(dir, "cnn1.bin"))
-	if err != nil {
-		return err
+	names := []string{"cnn1", "cnn2", "head"}
+	if m.Arch == permute.ArchBicameral {
+		names = []string{"cnn1", "cnn2", "dense_in", "branch_r", "branch_l", "dense_out"}
 	}
-	c2, err := readF32(filepath.Join(dir, "cnn2.bin"))
-	if err != nil {
-		return err
+	parts := make(map[string][]float32, len(names))
+	for _, name := range names {
+		v, err := readF32(filepath.Join(dir, name+".bin"))
+		if err != nil {
+			return err
+		}
+		parts[name] = v
 	}
-	h, err := readF32(filepath.Join(dir, "head.bin"))
-	if err != nil {
-		return err
-	}
-	return m.ImportF32(c1, c2, h)
+	return m.ImportF32(parts)
 }
 
 func writeF32(path string, v []float32) error {

@@ -1,4 +1,4 @@
-// Package chain builds input → CNN2 → CNN2 → Dense (with NCHW flatten).
+// Package chain builds MNIST Welvet stacks: CNN and Bicameral.
 package chain
 
 import (
@@ -10,6 +10,7 @@ import (
 	"github.com/openfluke/welvet/core"
 	"github.com/openfluke/welvet/layers/cnn2"
 	"github.com/openfluke/welvet/layers/dense"
+	"github.com/openfluke/welvet/layers/parallel"
 	"github.com/openfluke/welvet/quant"
 )
 
@@ -22,6 +23,7 @@ type Spec struct {
 	Filters2   int
 	Kernel     int
 	Classes    int
+	Hidden     int // Bicameral mid width
 	Seed       uint64
 }
 
@@ -35,21 +37,29 @@ func DefaultMNIST() Spec {
 		Filters2:   16,
 		Kernel:     3,
 		Classes:    10,
+		Hidden:     64,
 		Seed:       0x71DE0001,
 	}
 }
 
-// Model is CNN2 → CNN2 → flatten → Dense.
+// Model is CNN2 → CNN2 → flatten → (Dense | Bicameral Dense∥Dense → Dense).
 type Model struct {
 	Spec   Spec
+	Arch   permute.ArchKind
 	CNN1   *cnn2.Layer
 	CNN2   *cnn2.Layer
-	Head   *dense.Layer
-	FlatIn int
-	OutH1  int
-	OutW1  int
-	OutH2  int
-	OutW2  int
+	Head   *dense.Layer // CNN arch only
+	// Bicameral: flatten → DenseIn → Parallel(Right∥Left, add) → DenseOut
+	DenseIn  *dense.Layer
+	BranchR  *dense.Layer
+	BranchL  *dense.Layer
+	Para     *parallel.Layer
+	DenseOut *dense.Layer
+	FlatIn   int
+	OutH1    int
+	OutW1    int
+	OutH2    int
+	OutW2    int
 }
 
 // Build constructs a fresh model for one permutation cell.
@@ -83,11 +93,14 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 	}
 	outH2, outW2 := cfg2.OutH(), cfg2.OutW()
 	flat := spec.Filters2 * outH2 * outW2
+	hidden := spec.Hidden
+	if hidden <= 0 {
+		hidden = 64
+	}
 
 	rng := rand.New(rand.NewPCG(spec.Seed, spec.Seed^0x9e3779b97f4a7c15))
 	init1 := randWeights(cfg1.Filters*cfg1.PatchDim(), rng)
 	init2 := randWeights(cfg2.Filters*cfg2.PatchDim(), rng)
-	initH := randWeights(spec.Classes*flat, rng)
 
 	c1, err := cnn2.NewConfigured(cfg1, core.DTypeFloat32, quant.FormatNone, init1)
 	if err != nil {
@@ -97,12 +110,55 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cnn2: %w", err)
 	}
-	head, err := dense.NewConfigured(flat, spec.Classes, core.ActivationLinear, core.DTypeFloat32, quant.FormatNone, initH)
-	if err != nil {
-		return nil, fmt.Errorf("dense: %w", err)
+
+	m := &Model{
+		Spec: spec, Arch: cell.Arch,
+		CNN1: c1, CNN2: c2,
+		FlatIn: flat, OutH1: outH1, OutW1: outW1, OutH2: outH2, OutW2: outW2,
+	}
+	if m.Arch == "" {
+		m.Arch = permute.ArchCNN
 	}
 
-	m := &Model{Spec: spec, CNN1: c1, CNN2: c2, Head: head, FlatIn: flat, OutH1: outH1, OutW1: outW1, OutH2: outH2, OutW2: outW2}
+	switch m.Arch {
+	case permute.ArchBicameral:
+		initIn := randWeights(hidden*flat, rng)
+		initR := randWeights(hidden*hidden, rng)
+		initL := randWeights(hidden*hidden, rng)
+		initOut := randWeights(spec.Classes*hidden, rng)
+		din, err := dense.NewConfigured(flat, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initIn)
+		if err != nil {
+			return nil, fmt.Errorf("dense_in: %w", err)
+		}
+		br, err := dense.NewConfigured(hidden, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initR)
+		if err != nil {
+			return nil, fmt.Errorf("branch_r: %w", err)
+		}
+		bl, err := dense.NewConfigured(hidden, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initL)
+		if err != nil {
+			return nil, fmt.Errorf("branch_l: %w", err)
+		}
+		para, err := parallel.NewFromBranches(parallel.Config{
+			Dim: hidden, OutFeat: hidden, Branches: 2, Combine: parallel.CombineAdd,
+		}, []any{br, bl}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("parallel: %w", err)
+		}
+		dout, err := dense.NewConfigured(hidden, spec.Classes, core.ActivationLinear, core.DTypeFloat32, quant.FormatNone, initOut)
+		if err != nil {
+			return nil, fmt.Errorf("dense_out: %w", err)
+		}
+		m.DenseIn, m.BranchR, m.BranchL, m.Para, m.DenseOut = din, br, bl, para, dout
+	default:
+		initH := randWeights(spec.Classes*flat, rng)
+		head, err := dense.NewConfigured(flat, spec.Classes, core.ActivationLinear, core.DTypeFloat32, quant.FormatNone, initH)
+		if err != nil {
+			return nil, fmt.Errorf("dense: %w", err)
+		}
+		m.Head = head
+		m.Arch = permute.ArchCNN
+	}
+
 	if err := m.applyCell(cell); err != nil {
 		return nil, err
 	}
@@ -122,19 +178,30 @@ func randWeights(n int, rng *rand.Rand) []float32 {
 }
 
 func (m *Model) applyCell(cell permute.Cell) error {
-	be := cell.Backend
-	if cell.UseSIMD {
-		be = core.BackendSIMD
+	be := core.BackendSIMD
+	if cell.Backend != 0 {
+		be = cell.Backend
 	}
-	for _, set := range []struct {
+	type layerExec struct {
 		setD func(core.DType) error
 		pack func(quant.Format) error
 		exec *core.ExecConfig
-	}{
-		{m.CNN1.SetDType, m.CNN1.Pack, &m.CNN1.Exec},
-		{m.CNN2.SetDType, m.CNN2.Pack, &m.CNN2.Exec},
-		{m.Head.SetDType, m.Head.Pack, &m.Head.Exec},
-	} {
+	}
+	var layers []layerExec
+	layers = append(layers,
+		layerExec{m.CNN1.SetDType, m.CNN1.Pack, &m.CNN1.Exec},
+		layerExec{m.CNN2.SetDType, m.CNN2.Pack, &m.CNN2.Exec},
+	)
+	if m.Head != nil {
+		layers = append(layers, layerExec{m.Head.SetDType, m.Head.Pack, &m.Head.Exec})
+	}
+	for _, dl := range []*dense.Layer{m.DenseIn, m.BranchR, m.BranchL, m.DenseOut} {
+		if dl == nil {
+			continue
+		}
+		layers = append(layers, layerExec{dl.SetDType, dl.Pack, &dl.Exec})
+	}
+	for _, set := range layers {
 		set.exec.Backend = be
 		set.exec.MultiCore = true
 		if cell.Format != quant.FormatNone {
@@ -147,11 +214,20 @@ func (m *Model) applyCell(cell permute.Cell) error {
 			}
 		}
 	}
+	if m.Para != nil {
+		m.Para.Exec.Backend = be
+		m.Para.Exec.MultiCore = true
+		m.Para.SyncBranchExec()
+	}
 	return nil
 }
 
 type tape struct {
-	x, pre1, y1, pre2, y2, flat, preH, out *core.Tensor[float32]
+	x, pre1, y1, pre2, y2, flat *core.Tensor[float32]
+	// CNN head
+	preH, out *core.Tensor[float32]
+	// Bicameral
+	preIn, mid, preR, yR, preL, yL, prePara, yPara, preOut *core.Tensor[float32]
 }
 
 // Forward runs the stack; returns logits [B, classes].
@@ -169,11 +245,31 @@ func (m *Model) Forward(x *core.Tensor[float32]) (*core.Tensor[float32], *tape, 
 	}
 	batch := y2.Shape[0]
 	flat := &core.Tensor[float32]{Shape: []int{batch, m.FlatIn}, Data: y2.Data}
+	tp := &tape{x: x, pre1: pre1, y1: y1, pre2: pre2, y2: y2, flat: flat}
+
+	if m.Arch == permute.ArchBicameral {
+		preIn, mid, err := dense.Forward(m.DenseIn, flat)
+		if err != nil {
+			return nil, nil, err
+		}
+		prePara, yPara, err := parallel.Forward(m.Para, mid)
+		if err != nil {
+			return nil, nil, err
+		}
+		preOut, out, err := dense.Forward(m.DenseOut, yPara)
+		if err != nil {
+			return nil, nil, err
+		}
+		tp.preIn, tp.mid, tp.prePara, tp.yPara, tp.preOut, tp.out = preIn, mid, prePara, yPara, preOut, out
+		return out, tp, nil
+	}
+
 	preH, out, err := dense.Forward(m.Head, flat)
 	if err != nil {
 		return nil, nil, err
 	}
-	return out, &tape{x: x, pre1: pre1, y1: y1, pre2: pre2, y2: y2, flat: flat, preH: preH, out: out}, nil
+	tp.preH, tp.out = preH, out
+	return out, tp, nil
 }
 
 // PredictArgmax returns predicted class indices.
@@ -197,4 +293,59 @@ func (m *Model) PredictArgmax(x *core.Tensor[float32]) ([]int, error) {
 		preds[b] = best
 	}
 	return preds, nil
+}
+
+// ServeEval runs Forward once and returns argmax preds + SoftAcc vs one-hot target.
+// SoftAcc is SoftAccOne on the true-class logit vs 1.0 (mean over batch) — same
+// scalar SoftAcc formula as test41, applied to the supervised output channel.
+func (m *Model) ServeEval(x, target *core.Tensor[float32]) (preds []int, softAcc float64, err error) {
+	out, _, err := m.Forward(x)
+	if err != nil {
+		return nil, 0, err
+	}
+	batch := out.Shape[0]
+	classes := out.Shape[1]
+	preds = make([]int, batch)
+	sumSoft := 0.0
+	for b := 0; b < batch; b++ {
+		off := b * classes
+		best := 0
+		bv := out.Data[off]
+		for c := 1; c < classes; c++ {
+			v := out.Data[off+c]
+			if v > bv {
+				bv, best = v, c
+			}
+		}
+		preds[b] = best
+		if target != nil && len(target.Data) >= off+classes {
+			lab := 0
+			for c := 1; c < classes; c++ {
+				if target.Data[off+c] > target.Data[off+lab] {
+					lab = c
+				}
+			}
+			sumSoft += SoftAccOne(out.Data[off+lab], 1.0)
+		}
+	}
+	if batch > 0 {
+		softAcc = sumSoft / float64(batch)
+	}
+	return preds, softAcc, nil
+}
+
+// SoftAccOne is SoftAcc for a single pred/target pair (test41 formula).
+func SoftAccOne(pred, target float32) float64 {
+	p := float64(pred)
+	if math.IsNaN(p) || math.IsInf(p, 0) {
+		return 0
+	}
+	a := 100 * (1 - math.Abs(p-float64(target))/0.10)
+	if a < 0 {
+		return 0
+	}
+	if a > 100 {
+		return 100
+	}
+	return a
 }

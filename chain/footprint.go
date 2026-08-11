@@ -1,11 +1,11 @@
 package chain
 
 import (
+	"github.com/openfluke/welvet/layers/dense"
 	"github.com/openfluke/welvet/weights"
 )
 
-// WeightBytes is the on-disk / resident weight payload for the full stack
-// (CNN1 + CNN2 + Dense) — packed Raw when quantized, else native/dtype bits.
+// WeightBytes is the on-disk / resident weight payload for the full stack.
 func (m *Model) WeightBytes() int64 {
 	if m == nil {
 		return 0
@@ -20,6 +20,11 @@ func (m *Model) WeightBytes() int64 {
 	if m.Head != nil {
 		n += storeBytes(m.Head.Weights)
 	}
+	for _, dl := range []*dense.Layer{m.DenseIn, m.BranchR, m.BranchL, m.DenseOut} {
+		if dl != nil {
+			n += storeBytes(dl.Weights)
+		}
+	}
 	return n
 }
 
@@ -27,20 +32,20 @@ func storeBytes(s *weights.Store) int64 {
 	if s == nil {
 		return 0
 	}
+	n := int64(len(s.Bias) * 8)
 	if s.Packed != nil {
-		n := int64(len(s.Packed.Raw))
+		n += int64(len(s.Packed.Raw))
 		n += int64(len(s.Packed.Scales) * 4)
 		n += int64(len(s.Packed.Mins) * 4)
 		n += int64(len(s.Packed.Meta))
 		return n
 	}
 	if len(s.Native) > 0 {
-		return int64(len(s.Native))
+		return n + int64(len(s.Native))
 	}
-	n := s.Rows * s.Cols
 	bits := s.DType.Bits()
 	if bits <= 0 {
 		bits = 32
 	}
-	return int64((n*bits + 7) / 8)
+	return n + int64((s.Rows*s.Cols*bits+7)/8)
 }

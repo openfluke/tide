@@ -48,7 +48,7 @@ func UpdateBest(b *Best, r Result) {
 		cp := r
 		b.Availability = &cp
 	}
-	if b.Accuracy == nil || s.AvgAccuracy > b.Accuracy.Snapshot.AvgAccuracy {
+	if b.Accuracy == nil || s.SoftAcc > b.Accuracy.Snapshot.SoftAcc {
 		cp := r
 		b.Accuracy = &cp
 	}
@@ -78,8 +78,8 @@ func UpdateBestMobile(b *BestMobile, r Result) {
 		cp := r
 		b.Availability = &cp
 	}
-	if betterMobile(b.Accuracy, s.MobileAccuracy, s.AvgAccuracy, s.WeightBytes, func(x *Result) (float64, float64, int64) {
-		return x.Snapshot.MobileAccuracy, x.Snapshot.AvgAccuracy, x.Snapshot.WeightBytes
+	if betterMobile(b.Accuracy, s.MobileAccuracy, s.SoftAcc, s.WeightBytes, func(x *Result) (float64, float64, int64) {
+		return x.Snapshot.MobileAccuracy, x.Snapshot.SoftAcc, x.Snapshot.WeightBytes
 	}) {
 		cp := r
 		b.Accuracy = &cp

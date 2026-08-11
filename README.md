@@ -1,31 +1,90 @@
 # tide
 
-Realtime **serve + train** framework for Welvet — find which **numerical type × quant × training path** adapts best under live load.
+Realtime **serve + train** framework for Welvet — find which **dtype × quant ×
+training path × arch** adapts best under live load on the **SIMD** backend.
 
-Inspired by loom/lucy dense mid-stream adaptation:
+Aligned with [`test41_w_sine_ada_perm`](../loom/arcagitesting/test41_w_sine_ada_perm)
+Lucy measuring (SoftAcc, duty-cycle Availability, AdaptPct, WeightBytes).
 
-```
-Score = Throughput × Availability% × AvgAccuracy% / 10_000
-```
+---
 
-- **Throughput** — serve inferences / second  
-- **Availability%** — `(duration − blocked_train_time) / duration × 100`  
-- **AvgAccuracy%** — rolling window accuracy while serving  
+## What you are measuring
+
+Three axes at once (same story as test41-w perm):
+
+| Axis | Metrics | Meaning |
+|------|---------|---------|
+| Adaptation quality | SoftAcc, AdaptPct, Stability, Consistency | How well / how fast the net tracks after mid-stream label flips |
+| Duty-cycle availability | Availability, ZeroDowntime | Share of **busy** time spent inferring vs training |
+| Cost | WeightBytes, HeapBytes, MobileScore | How small the model is, and Score per MiB |
+
+### Pareto front
+
+A **Pareto front** is the set of options where improving one goal forces you to
+hurt another (e.g. Score ↔ WeightBytes, SoftAcc ↔ Availability). Dominated
+cells fall off; the interesting winners sit on the undominated edge.
+
+---
+
+## Lucy / test41 score formulas
+
+| Symbol | Formula |
+|--------|---------|
+| SoftAcc | `100 × (1 − \|pred − target\| / 0.10)` on the **true-class logit vs 1.0** (test41 SoftAcc, multi-class channel) |
+| Hard Acc | argmax accuracy % (still recorded as `avg_accuracy`) |
+| Availability | `InferMs / (InferMs + TrainMs) × 100` |
+| AdaptPct | Mean SoftAcc in the first few pulse windows after each phase switch |
+| Throughput (T) | `TotalOutputs / duration_seconds` |
+| Score | `T × Availability × SoftAcc / 10_000` |
+| ZeroDowntime | `SoftAcc × Availability / 100` |
+| MobileScore | `Score / WeightMiB` |
+
+Task (MNIST): classify while serving. Mid-stream flip phases **A → B
+(`label=(label+5)%10`) → A2** force re-adaptation (same role as sine frequency
+switches in test41).
+
+---
+
+## Matrix
+
+| Dimension | Values |
+|-----------|--------|
+| Backend | **SIMD only** |
+| DType | `core.AllDTypes` (full) |
+| Quant | `quant.AllFormats` |
+| Modes | `sgd`, `step_sgd`, `tween`, `tween_chain`, `step_tween`, `step_tween_chain` |
+| Arch | `cnn`, `bicameral` |
+
+**Removed:** `tween_head` / `*_simd` twin modes / CPU-tiled backends.
+
+### Architectures
+
+**cnn** — `CNN2 → CNN2 → Dense → 10`  
+**bicameral** — `CNN2 → CNN2 → Dense → Parallel(Dense∥Dense, add) → Dense → 10`
+
+| Mode | Lucy / test41 analog |
+|------|----------------------|
+| `sgd` | NormalBP |
+| `step_sgd` | StepBP (3 warm forwards) |
+| `tween` | Tween (layerwise gaps) |
+| `tween_chain` | TweenChain |
+| `step_tween` | StepTween |
+| `step_tween_chain` | StepTweenChain |
+
+---
 
 ## Packages
 
 | Package | Role |
 |---------|------|
-| `metrics` | Lucy Score + window rolls |
-| `permute` | dtype × format × train-mode × backend matrix |
+| `metrics` | SoftAcc + duty-cycle Availability + Score |
+| `permute` | dtype × format × mode × arch @ SIMD |
 | `pulse` | live run state for the dashboard |
 | `dash` | HTTP + HTML charts (1s poll) |
 | `runner` | concurrent serve + train pulses |
-| `chain` | CNN2 → CNN2 → flatten → Dense Welvet model |
+| `chain` | CNN / Bicameral Welvet models |
 
 ## Quick start
-
-Used by [`live_mnist`](../live_mnist):
 
 ```bash
 cd ../live_mnist
@@ -33,52 +92,20 @@ go run . -addr :8080 -mode smoke
 # open http://127.0.0.1:8080
 ```
 
-## Train modes
-
-| Mode | Lucy analog |
-|------|-------------|
-| `sgd` / `sgd_simd` | NormalBP |
-| `step_sgd` / `step_sgd_simd` | Step+BP (3 warm forwards) |
-| `tween` / `tween_simd` | Tween (layerwise gaps) |
-| `tween_chain` / `tween_chain_simd` | TweenChain |
-| `step_tween` / `step_tween_simd` | StepTween |
-| `step_tween_chain` / `step_tween_chain_simd` | StepTweenChain |
-| `tween_head` / `tween_head_simd` | head-only gap baseline |
-
-SIMD rows honor `welvet/simd.Enabled()` (AVX2/NEON when linked).
-
-Dashboard `/api/live` includes a **server-side `history`** cache (also `history.json` on disk) so refresh / other machines see the same timeline; scrubber goes back in time.
-
 ## Epoch default
 
-Each permutation trains **one full epoch** over the dataset train split (not a wall-clock slice).  
-Finish the matrix → re-run starts **epoch N+1** (weights continue). Ctrl+C resumes mid-epoch via train offset.
+Each permutation trains **one full epoch** over the dataset train split.  
+Finish the matrix → re-run starts **epoch N+1**. Ctrl+C resumes mid-epoch.
 
 ## Checkpoint / resume
 
-`checkpoint.Store` + runner `CheckpointEvery` (default 1m) persist:
-
-- Lucy scores / completed cells / **best Score · Throughput · Availability · Accuracy**
-- inflight model + train offset so Ctrl+C → restart continues mid-epoch
+`checkpoint.Store` + runner `CheckpointEvery` persist scores, bests, inflight
+weights + train offset.
 
 ## Learning speed
 
-Recorded live per cell (1s serve windows):
-
 | Metric | Meaning |
 |--------|---------|
-| `time_to_acc25_sec` / `time_to_acc50_sec` | Wall seconds until a 1s window first hit ≥25% / ≥50% accuracy |
-| `acc_per_sec` | Final AvgAccuracy ÷ duration |
+| `time_to_acc25_sec` / `time_to_acc50_sec` | Wall seconds until a 1s **hard Acc** window hit ≥25% / ≥50% |
+| `acc_per_sec` | Final SoftAcc ÷ duration |
 | `mobile_acc_per_sec` | Acc/sec ÷ model MiB |
-
-Dashboard has separate learn leaderboards + charts (fastest to 50%, Acc/sec/MiB).
-
-## Memory notes
-
-Only **one** Welvet model is live per permutation cell (~250 KiB weights).  
-RAM blowups on long sweeps were from:
-
-1. Serve goroutine busy-spin allocating MNIST batches while blocked on the train mutex  
-2. Unbounded 1s `Windows` slices retained on every completed cell  
-
-Serve now uses `TryLock` (allocate only when free); window sparklines are capped (~120) and stripped from completed results.
