@@ -98,6 +98,18 @@ func Full() Config {
 	}
 }
 
+// Screen is the cheap first pass: Lucy 6 × cnn × full numeric axis.
+// Promote winners onto bi/tri and extra Welvet modes after this.
+func Screen() Config {
+	f := Full()
+	return Config{
+		DTypes:  f.DTypes,
+		Formats: f.Formats,
+		Modes:   LucyModes(),
+		Arches:  []ArchKind{ArchCNN},
+	}
+}
+
 // KQuant focuses on k-quant packs × Lucy train modes × arches.
 func KQuant() Config {
 	return Config{

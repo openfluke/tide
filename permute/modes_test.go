@@ -29,6 +29,19 @@ func TestAllModesKeepsLucyIDs(t *testing.T) {
 	}
 }
 
+func TestScreenIsCNNLucy(t *testing.T) {
+	cells := Expand(Screen())
+	full := Expand(Full())
+	if len(cells) == 0 || len(cells) >= len(full) {
+		t.Fatalf("screen=%d full=%d", len(cells), len(full))
+	}
+	for _, c := range cells {
+		if c.Arch != ArchCNN {
+			t.Fatalf("screen arch %s", c.Arch)
+		}
+	}
+}
+
 func TestArchTag(t *testing.T) {
 	if g := (Cell{Arch: ArchCNN}).ArchTag(); g != "single×1" {
 		t.Fatalf("cnn: %s", g)

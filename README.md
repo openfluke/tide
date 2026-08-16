@@ -106,7 +106,7 @@ Set `dash.Server.Task` / `Subtitle` so the page names the workload (MNIST, sine,
 
 ## Epoch default
 
-Each permutation trains **one full epoch** over the dataset train split.  
+Each permutation trains **one pass** over the train split (`-train-n`, default 8000 on the MNIST host).  
 Finish the matrix → re-run starts **epoch N+1**. Ctrl+C or dashboard **Resume** continues; **DoneIDs skip finished cells**, so adding new Welvet modes does not replay epoch-1 work.
 
 ## Checkpoint / resume
