@@ -12,22 +12,31 @@ type AxisWinner struct {
 	Winner     string  `json:"winner"`
 	CellID     string  `json:"cell_id"`
 	Score      float64 `json:"score"`
+	SoftAcc    float64 `json:"soft_acc"`
 	Accuracy   float64 `json:"avg_accuracy"`
 	Throughput float64 `json:"throughput"`
 	Avail      float64 `json:"availability"`
 	AccPerSec  float64 `json:"acc_per_sec"`
 	TimeTo50   float64 `json:"time_to_acc50_sec"`
+	WeightKiB  float64 `json:"weight_kib"`
+	Arch       string  `json:"arch,omitempty"`
+	DType      string  `json:"dtype,omitempty"`
+	Format     string  `json:"format,omitempty"`
+	Mode       string  `json:"mode,omitempty"`
 	N          int     `json:"n"` // ok cells considered in this group
 }
 
 // Winners is cross-axis champion tables for the dashboard.
 type Winners struct {
-	BestCellPerMode    []AxisWinner `json:"best_cell_per_mode"`
-	BestDTypePerMode   []AxisWinner `json:"best_dtype_per_mode"`
-	BestFormatPerMode  []AxisWinner `json:"best_format_per_mode"`
-	BestModePerDType   []AxisWinner `json:"best_mode_per_dtype"`
-	BestModePerFormat  []AxisWinner `json:"best_mode_per_format"`
-	BestFormatPerDType []AxisWinner `json:"best_format_per_dtype"`
+	// BestSettingsPerMode is the single highest-Score cell per train mode
+	// (full recipe: arch × dtype × format).
+	BestSettingsPerMode []AxisWinner `json:"best_settings_per_mode"`
+	BestCellPerMode     []AxisWinner `json:"best_cell_per_mode"`
+	BestDTypePerMode    []AxisWinner `json:"best_dtype_per_mode"`
+	BestFormatPerMode   []AxisWinner `json:"best_format_per_mode"`
+	BestModePerDType    []AxisWinner `json:"best_mode_per_dtype"`
+	BestModePerFormat   []AxisWinner `json:"best_mode_per_format"`
+	BestFormatPerDType  []AxisWinner `json:"best_format_per_dtype"`
 }
 
 func betterScore(a, b pulse.Result) bool {
@@ -46,11 +55,17 @@ func toWinner(group, winner string, r pulse.Result, n int) AxisWinner {
 		Winner:     winner,
 		CellID:     r.Cell.ID,
 		Score:      r.Snapshot.Score,
+		SoftAcc:    r.Snapshot.SoftAcc,
 		Accuracy:   r.Snapshot.AvgAccuracy,
 		Throughput: r.Snapshot.Throughput,
 		Avail:      r.Snapshot.Availability,
 		AccPerSec:  r.Snapshot.AccPerSec,
 		TimeTo50:   r.Snapshot.TimeToAcc50Sec,
+		WeightKiB:  float64(r.Snapshot.WeightBytes) / 1024,
+		Arch:       r.Cell.ArchTag(),
+		DType:      r.Cell.DType.String(),
+		Format:     r.Cell.Format.String(),
+		Mode:       string(r.Cell.Mode),
 		N:          n,
 	}
 }
@@ -110,6 +125,9 @@ func computeWinners(live pulse.Live) Winners {
 	dtypeOf := func(r pulse.Result) string { return r.Cell.DType.String() }
 	formatOf := func(r pulse.Result) string { return r.Cell.Format.String() }
 	modeOf := func(r pulse.Result) string { return string(r.Cell.Mode) }
+	modeArchOf := func(r pulse.Result) string {
+		return string(r.Cell.Mode) + " · " + r.Cell.ArchTag()
+	}
 	idOf := func(r pulse.Result) string {
 		if r.Cell.ID != "" {
 			return r.Cell.ID
@@ -118,11 +136,12 @@ func computeWinners(live pulse.Live) Winners {
 	}
 
 	return Winners{
-		BestCellPerMode:    pickBest(ok, modeOf, idOf),
-		BestDTypePerMode:   pickBest(ok, modeOf, dtypeOf),
-		BestFormatPerMode:  pickBest(ok, modeOf, formatOf),
-		BestModePerDType:   pickBest(ok, dtypeOf, modeOf),
-		BestModePerFormat:  pickBest(ok, formatOf, modeOf),
-		BestFormatPerDType: pickBest(ok, dtypeOf, formatOf),
+		BestSettingsPerMode: pickBest(ok, modeOf, idOf),
+		BestCellPerMode:     pickBest(ok, modeArchOf, idOf),
+		BestDTypePerMode:    pickBest(ok, modeOf, dtypeOf),
+		BestFormatPerMode:   pickBest(ok, modeOf, formatOf),
+		BestModePerDType:    pickBest(ok, dtypeOf, modeOf),
+		BestModePerFormat:   pickBest(ok, formatOf, modeOf),
+		BestFormatPerDType:  pickBest(ok, dtypeOf, formatOf),
 	}
 }

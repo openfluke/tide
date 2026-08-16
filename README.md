@@ -3,6 +3,10 @@
 Realtime **serve + train** framework for Welvet — find which **dtype × quant ×
 training path × arch** adapts best under live load on the **SIMD** backend.
 
+Tide is **dataset-agnostic**. A host supplies a `runner.Dataset` and a `chain.Spec`;
+the dashboard, Lucy metrics, permute matrix, and checkpoints stay the same.
+[`live_mnist`](../live_mnist) is one host (MNIST 80/20 classification).
+
 Aligned with [`test41_w_sine_ada_perm`](../loom/arcagitesting/test41_w_sine_ada_perm)
 Lucy measuring (SoftAcc, duty-cycle Availability, AdaptPct, WeightBytes).
 
@@ -39,9 +43,9 @@ cells fall off; the interesting winners sit on the undominated edge.
 | ZeroDowntime | `SoftAcc × Availability / 100` |
 | MobileScore | `Score / WeightMiB` |
 
-Task (MNIST): classify while serving. Mid-stream flip phases **A → B
-(`label=(label+5)%10`) → A2** force re-adaptation (same role as sine frequency
-switches in test41).
+Task (host-defined): classify while serving. MNIST host uses mid-stream flip
+phases **A → B (`label=(label+5)%10`) → A2** to force re-adaptation (same role as
+sine frequency switches in test41).
 
 ---
 
@@ -52,15 +56,18 @@ switches in test41).
 | Backend | **SIMD only** |
 | DType | `core.AllDTypes` (full) |
 | Quant | `quant.AllFormats` |
-| Modes | `sgd`, `step_sgd`, `tween`, `tween_chain`, `step_tween`, `step_tween_chain` |
-| Arch | `cnn`, `bicameral` |
+| Modes | Lucy 6 (`sgd`…`step_tween_chain`) **plus** every other named Welvet TrainMode (Split / Alt / FastProxy / Sparse / Mesh*). Old Lucy tokens stay frozen so checkpoints resume. |
+| Arch | `cnn` (single×1), `bicameral` (×2), `tricameral` (×3) |
 
 **Removed:** `tween_head` / `*_simd` twin modes / CPU-tiled backends.
 
 ### Architectures
 
-**cnn** — `CNN2 → CNN2 → Dense → 10`  
-**bicameral** — `CNN2 → CNN2 → Dense → Parallel(Dense∥Dense, add) → Dense → 10`
+**cnn** — `CNN2 → CNN2 → Dense → 10` (single, cams=1)  
+**bicameral** — `CNN2 → CNN2 → Dense → Parallel(2×Dense, add) → Dense → 10`  
+**tricameral** — same with **3** hemispheres
+
+Credit modes (FastProxy, Sparse, …) run `TrainStackMSE` on the Dense sandwich; CNN stem gets Tween-style local gaps. Mesh* on this bench collapses to the family (no volumetric grid).
 
 | Mode | Lucy / test41 analog |
 |------|----------------------|
@@ -70,6 +77,7 @@ switches in test41).
 | `tween_chain` | TweenChain |
 | `step_tween` | StepTween |
 | `step_tween_chain` | StepTweenChain |
+| `TweenSplit` / `FastProxy` / `Sparse` / … | Welvet `parallel.AllNamedTrainModes()` (new IDs only) |
 
 ---
 
@@ -82,9 +90,11 @@ switches in test41).
 | `pulse` | live run state for the dashboard |
 | `dash` | HTTP + HTML charts (1s poll) |
 | `runner` | concurrent serve + train pulses |
-| `chain` | CNN / Bicameral Welvet models |
+| `chain` | CNN / Bi / Tri Welvet models |
 
 ## Quick start
+
+Any host that builds a `[]permute.Cell`, a `runner.Dataset`, and a `dash.Server`:
 
 ```bash
 cd ../live_mnist
@@ -92,10 +102,12 @@ go run . -addr :8080 -mode smoke
 # open http://127.0.0.1:8080
 ```
 
+Set `dash.Server.Task` / `Subtitle` so the page names the workload (MNIST, sine, …).
+
 ## Epoch default
 
 Each permutation trains **one full epoch** over the dataset train split.  
-Finish the matrix → re-run starts **epoch N+1**. Ctrl+C resumes mid-epoch.
+Finish the matrix → re-run starts **epoch N+1**. Ctrl+C or dashboard **Resume** continues; **DoneIDs skip finished cells**, so adding new Welvet modes does not replay epoch-1 work.
 
 ## Checkpoint / resume
 

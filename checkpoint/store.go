@@ -317,5 +317,8 @@ func PrepareEpoch(p *Progress, cells []permute.Cell) (epoch int, resume *Progres
 		cp.Inflight = nil
 		// Keep Completed/Best/History — new epoch appends more results.
 	}
+	// Growing the matrix (new TrainModes / arches) leaves DoneIDs in place.
+	// AllDone is false until every *current* cell ID is finished, so epoch-1
+	// work is not replayed — only the new IDs run.
 	return cp.Epoch, &cp
 }

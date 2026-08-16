@@ -1,6 +1,7 @@
 package runner
 
-// Dataset supplies serve batches and one sequential train epoch over the 80% split.
+// Dataset supplies serve batches and one sequential train epoch over the train split.
+// The host owns the data (MNIST, sine, …); tide only consumes Sample tensors.
 type Dataset interface {
 	NextServe(phase string) Sample
 	// ResetEpoch prepares a full pass over train data starting at sample offset

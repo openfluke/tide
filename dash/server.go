@@ -16,10 +16,17 @@ import (
 var static embed.FS
 
 // Server serves the live HTML dashboard + JSON pulse.
+// Tide is dataset-agnostic: the host (e.g. live_mnist) supplies Cells + optional Task.
 type Server struct {
 	Tracker *pulse.Tracker
 	Cells   []permute.Cell // full sweep plan (for remaining-by-mode)
 	Addr    string
+	Epoch   int // 1-based; shown on Resume button
+
+	// Task is the host workload name shown in the header (e.g. "MNIST").
+	// Empty keeps the generic "live adaptation" title.
+	Task     string
+	Subtitle string
 
 	startMu sync.Mutex
 	started bool
@@ -111,32 +118,35 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"live":          live,
+			"live": live,
 			// Flat fields kept for older dashboard JS that reads top-level keys.
-			"updated_at":    live.UpdatedAt,
-			"running":       live.Running,
-			"current":       live.Current,
-			"completed":     live.Completed,
-			"leaderboard":   live.Leaderboard,
-			"leaderboard_mobile": live.LeaderboardMobile,
-			"leaderboard_learn": live.LeaderboardLearn,
+			"updated_at":               live.UpdatedAt,
+			"running":                  live.Running,
+			"current":                  live.Current,
+			"completed":                live.Completed,
+			"leaderboard":              live.Leaderboard,
+			"leaderboard_mobile":       live.LeaderboardMobile,
+			"leaderboard_learn":        live.LeaderboardLearn,
 			"leaderboard_learn_mobile": live.LeaderboardLearnMobile,
-			"best":          live.Best,
-			"best_mobile":   live.BestMobile,
-			"best_learn":    live.BestLearn,
-			"best_learn_mobile": live.BestLearnMobile,
-			"history":       live.History,
-			"history_len":   live.HistoryLen,
-			"phase":         live.Phase,
-			"batch_index":   live.BatchIndex,
-			"batch_total":   live.BatchTotal,
-			"cell_index":    live.CellIndex,
-			"cell_total":    live.CellTotal,
-			"message":         live.Message,
-			"mode_progress":   s.modeProgress(live),
-			"winners":         computeWinners(live),
-			"awaiting_start":  !s.Started(),
-			"started":         s.Started(),
+			"best":                     live.Best,
+			"best_mobile":              live.BestMobile,
+			"best_learn":               live.BestLearn,
+			"best_learn_mobile":        live.BestLearnMobile,
+			"history":                  live.History,
+			"history_len":              live.HistoryLen,
+			"phase":                    live.Phase,
+			"batch_index":              live.BatchIndex,
+			"batch_total":              live.BatchTotal,
+			"cell_index":               live.CellIndex,
+			"cell_total":               live.CellTotal,
+			"message":                  live.Message,
+			"mode_progress":            s.modeProgress(live),
+			"winners":                  computeWinners(live),
+			"awaiting_start":           !s.Started(),
+			"started":                  s.Started(),
+			"epoch":                    s.Epoch,
+			"task":                     s.Task,
+			"subtitle":                 s.Subtitle,
 		})
 	})
 	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
@@ -149,9 +159,9 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"started":  true,
-			"already":  already,
-			"message":  "training start signaled",
+			"started": true,
+			"already": already,
+			"message": "training start signaled",
 		})
 	})
 	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {

@@ -14,7 +14,7 @@ import (
 type TrainMode string
 
 const (
-	ModeSGD            TrainMode = "sgd"              // NormalBP
+	ModeSGD            TrainMode = "sgd"              // NormalBP — keep this token; checkpoints key on it
 	ModeStepSGD        TrainMode = "step_sgd"         // StepBP
 	ModeTween          TrainMode = "tween"            // Tween
 	ModeTweenChain     TrainMode = "tween_chain"      // TweenChain
@@ -26,11 +26,13 @@ const (
 type ArchKind string
 
 const (
-	ArchCNN       ArchKind = "cnn"       // CNN2→CNN2→Dense
-	ArchBicameral ArchKind = "bicameral" // CNN2→CNN2→Parallel(Dense∥Dense, add)→Dense
+	ArchCNN        ArchKind = "cnn"        // CNN2→CNN2→Dense (single, cams=1)
+	ArchBicameral  ArchKind = "bicameral"  // Parallel 2×Dense, add (cams=2)
+	ArchTricameral ArchKind = "tricameral" // Parallel 3×Dense, add (cams=3)
 )
 
-// LucyModes is the test41 sequential adaptation suite (SIMD-only; no tween_head).
+// LucyModes is the original test41 sequential suite. Token strings are frozen
+// so epoch-1 checkpoints keep matching after new Welvet modes are appended.
 func LucyModes() []TrainMode {
 	return []TrainMode{
 		ModeSGD, ModeStepSGD,
@@ -39,12 +41,9 @@ func LucyModes() []TrainMode {
 	}
 }
 
-// AllModes aliases LucyModes (tween_head removed).
-func AllModes() []TrainMode { return LucyModes() }
-
-// AllArches is CNN + Bicameral (matches test41 Dense + Bicameral axis).
+// AllArches is CNN (single) + Bi + Tri cameral.
 func AllArches() []ArchKind {
-	return []ArchKind{ArchCNN, ArchBicameral}
+	return []ArchKind{ArchCNN, ArchBicameral, ArchTricameral}
 }
 
 // Cell is one permutation to benchmark.
@@ -54,6 +53,7 @@ type Cell struct {
 	Format  quant.Format `json:"format"`
 	Mode    TrainMode    `json:"mode"`
 	Arch    ArchKind     `json:"arch"`
+	Cams    int          `json:"cams,omitempty"` // 1=single CNN, 2=bi, 3=tri
 	Backend core.Backend `json:"backend"`
 	UseSIMD bool         `json:"use_simd"`
 }
@@ -136,6 +136,7 @@ func Expand(cfg Config) []Cell {
 						Format:  f,
 						Mode:    mode,
 						Arch:    arch,
+						Cams:    CamsOf(arch),
 						Backend: core.BackendSIMD,
 						UseSIMD: simdOK,
 					}

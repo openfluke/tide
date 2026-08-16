@@ -14,8 +14,7 @@ const stepTicks = 3
 // TrainStep runs one training step for the given Lucy-style mode (SIMD-only matrix).
 func (m *Model) TrainStep(x, target *core.Tensor[float32], lr float64, mode permute.TrainMode) (loss float64, err error) {
 	ticks := 1
-	switch mode {
-	case permute.ModeStepSGD, permute.ModeStepTween, permute.ModeStepTweenChain:
+	if mode.IsStepSched() {
 		ticks = stepTicks
 	}
 
@@ -37,8 +36,21 @@ func (m *Model) TrainStep(x, target *core.Tensor[float32], lr float64, mode perm
 		return loss, m.tweenLayerwise(tp, target, lr)
 	case permute.ModeTweenChain, permute.ModeStepTweenChain:
 		return loss, m.tweenChain(tp, target, lr)
-	default:
+	case permute.ModeSGD, permute.ModeStepSGD:
 		return loss, m.sgdFull(tp, target, lr)
+	default:
+		wv, werr := mode.Welvet()
+		if werr != nil {
+			return 0, werr
+		}
+		switch wv {
+		case parallel.ModeMeshBP, parallel.ModeMeshTweenChain:
+			return loss, m.sgdFull(tp, target, lr)
+		case parallel.ModeMeshTween:
+			return loss, m.tweenLayerwise(tp, target, lr)
+		default:
+			return m.trainCredit(target, tp, lr, mode)
+		}
 	}
 }
 
@@ -47,7 +59,7 @@ func (m *Model) sgdFull(tp *tape, target *core.Tensor[float32], lr float64) erro
 	if err != nil {
 		return err
 	}
-	if m.Arch == permute.ArchBicameral {
+	if m.isCameral() {
 		return m.sgdBicameral(tp, gy, lr)
 	}
 	gFlat, dWHead, err := dense.Backward(m.Head, gy, tp.flat, tp.preH)
@@ -105,7 +117,7 @@ func (m *Model) sgdCNNs(tp *tape, gFlat *core.Tensor[float32], lr float64) error
 func (m *Model) headGapUpdate(tp *tape, target *core.Tensor[float32], lr float64) error {
 	batch := tp.out.Shape[0]
 	classes := tp.out.Shape[1]
-	if m.Arch == permute.ArchBicameral {
+	if m.isCameral() {
 		in := m.Spec.Hidden
 		if in <= 0 {
 			in = 64
@@ -160,7 +172,7 @@ func (m *Model) tweenLayerwise(tp *tape, target *core.Tensor[float32], lr float6
 		}
 	}
 	headGap /= float32(batch * classes)
-	if m.Arch == permute.ArchBicameral {
+	if m.isCameral() {
 		// Soft nudge on DenseIn toward mid identity.
 		g := core.NewTensor[float32](tp.mid.Shape...)
 		for i := range g.Data {
@@ -183,7 +195,7 @@ func (m *Model) tweenChain(tp *tape, target *core.Tensor[float32], lr float64) e
 	if err != nil {
 		return err
 	}
-	if m.Arch == permute.ArchBicameral {
+	if m.isCameral() {
 		return m.sgdBicameral(tp, gy, lr)
 	}
 	gFlat, dWHead, err := dense.Backward(m.Head, gy, tp.flat, tp.preH)
@@ -217,4 +229,37 @@ func (m *Model) applyLocalCNNGaps(tp *tape, headGap float32, lr float64) error {
 		return err
 	}
 	return cnn2.ApplyGradSGD(m.CNN1, dW1, lr*0.5)
+}
+
+func (m *Model) trainCredit(target *core.Tensor[float32], tp *tape, lr float64, mode permute.TrainMode) (float64, error) {
+	wv, err := mode.Welvet()
+	if err != nil {
+		return 0, err
+	}
+	stack, err := m.denseSandwich()
+	if err != nil {
+		return 0, err
+	}
+	// Credit assignment on the Dense sandwich (stem / hemispheres / head).
+	// CNN stem is not a Stack child (4D→2D flatten); it gets the same local
+	// gap nudge as Lucy Tween so the stem still moves.
+	loss, err := parallel.TrainStackMSE(stack, tp.flat, target, wv, lr)
+	if err != nil {
+		return loss, err
+	}
+	batch := tp.out.Shape[0]
+	classes := tp.out.Shape[1]
+	var headGap float32
+	for b := 0; b < batch; b++ {
+		for c := 0; c < classes; c++ {
+			headGap += tp.out.Data[b*classes+c] - target.Data[b*classes+c]
+		}
+	}
+	if batch*classes > 0 {
+		headGap /= float32(batch * classes)
+	}
+	if err := m.applyLocalCNNGaps(tp, headGap, lr); err != nil {
+		return loss, err
+	}
+	return loss, nil
 }

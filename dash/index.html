@@ -69,8 +69,81 @@
   canvas { width: 100%; display: block; background: rgba(0,0,0,0.25); }
   #pieChart { height: 180px; }
   #pulseChart { height: 420px; }
-  #rankChart { height: 420px; }
-  #learnTo50Chart, #learnRateChart { height: 320px; }
+  #modePie { height: 180px; }
+  .mode-chip {
+    display: inline-block; font-weight: 700; font-size: 0.72rem;
+    padding: 0.08rem 0.42rem; border-radius: 4px; margin-right: 0.28rem;
+    border: 1px solid transparent; letter-spacing: 0.02em;
+    white-space: nowrap; vertical-align: middle;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  span.fmt {
+    color: var(--warn); font-size: 0.72rem; margin-left: 0.25rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  span.dtype { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .hbar-list { display: flex; flex-direction: column; gap: 0.2rem; }
+  .hbar {
+    display: grid;
+    grid-template-columns: minmax(148px, 210px) 1fr minmax(92px, auto);
+    gap: 0.6rem; align-items: center;
+    padding: 0.38rem 0.35rem;
+    border-radius: 6px;
+  }
+  .hbar.clickable { cursor: pointer; }
+  .hbar.clickable:hover { background: rgba(61,214,198,0.08); }
+  .hbar-lab { min-width: 0; line-height: 1.25; }
+  .hbar-lab .sub {
+    display: block; color: var(--muted); font-size: 0.8rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    margin-top: 0.12rem;
+  }
+  .hbar-track {
+    height: 16px; background: rgba(255,255,255,0.06);
+    border-radius: 4px; overflow: hidden;
+  }
+  .hbar-fill { height: 100%; border-radius: 4px; min-width: 4px; }
+  .hbar-val {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.95rem; font-weight: 650; text-align: right;
+    white-space: nowrap; line-height: 1.2;
+  }
+  .hbar-val small { display: block; font-weight: 400; color: var(--muted); font-size: 0.72rem; margin-top: 0.12rem; }
+  .hbar-stack { display: flex; flex-direction: column; gap: 0.22rem; }
+  .hbar-mini {
+    display: grid; grid-template-columns: 58px 1fr 72px;
+    gap: 0.4rem; align-items: center;
+    font-size: 0.72rem; color: var(--muted);
+  }
+  .hbar-mini .hbar-track { height: 11px; }
+  .hbar-mini .n {
+    text-align: right; font-family: "IBM Plex Mono", ui-monospace, monospace;
+    color: var(--ink); font-size: 0.82rem; font-weight: 600;
+  }
+  .rank-list { display: flex; flex-direction: column; gap: 0.28rem; }
+  .rank-head, .rank-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 230px) 1fr 1fr 1fr 1fr;
+    gap: 0.45rem; align-items: center;
+  }
+  .rank-head {
+    font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.05em; padding: 0 0.35rem 0.2rem;
+  }
+  .rank-row { padding: 0.32rem 0.35rem; border-radius: 6px; }
+  .rank-row.clickable { cursor: pointer; }
+  .rank-row.clickable:hover { background: rgba(61,214,198,0.08); }
+  .rank-row.running { outline: 1px dashed var(--warn); }
+  .rm { display: grid; grid-template-columns: 1fr auto; gap: 0.3rem; align-items: center; min-width: 0; }
+  .rm .hbar-track { height: 13px; }
+  .rm .n {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.78rem;
+    color: var(--muted); min-width: 3.4rem; text-align: right;
+  }
+  section.full { margin: 0 1.5rem 1rem; }
+  .recipe th.num, .recipe td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .recipe td.cellid { max-width: none; }
+  .empty { color: var(--muted); padding: 0.75rem 0.2rem; font-size: 0.9rem; }
   main {
     display: grid;
     grid-template-columns: 1.25fr 1fr;
@@ -86,10 +159,17 @@
   .pie-aside b { color: var(--ink); }
   .pie-aside .eta { color: var(--accent); font-size: 1.05rem; }
   .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 0.35rem; vertical-align: -1px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-  th, td { text-align: left; padding: 0.3rem 0.35rem; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th, td { text-align: left; padding: 0.38rem 0.4rem; border-bottom: 1px solid var(--grid); white-space: nowrap; }
   th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: #121a20; z-index: 1; }
-  td.cellid { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.72rem; white-space: normal; word-break: break-all; max-width: 280px; }
+  td.cellid { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.78rem; white-space: normal; word-break: break-word; max-width: 420px; }
+  span.arch {
+    display: inline-block; font-weight: 700; font-size: 0.68rem;
+    padding: 0.05rem 0.4rem; border-radius: 4px; margin-right: 0.35rem;
+    background: #2a2438; color: var(--warn); white-space: nowrap; vertical-align: middle;
+  }
+  span.arch.single { background: #1a242c; color: var(--muted); }
+  span.mode { color: var(--accent); }
   tr.clickable { cursor: pointer; }
   tr.clickable:hover td { background: rgba(61,214,198,0.08); }
   .modal-bg {
@@ -187,22 +267,27 @@
     background: rgba(0,0,0,0.35); border: 1px solid var(--grid); color: var(--ink);
     padding: 0.35rem 0.5rem; font: inherit; font-size: 0.85rem;
   }
+  @media (max-width: 720px) {
+    .hbar { grid-template-columns: 1fr; }
+    .rank-head { display: none; }
+    .rank-row { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1><span>tide</span> live adaptation</h1>
+  <h1><span>tide</span> <span id="taskTitle">live adaptation</span></h1>
   <div class="meta" id="status">connecting…</div>
 </header>
 <p class="score-eq">Score = Throughput × Availability% × SoftAcc% / 10,000 &nbsp;·&nbsp; Availability = Infer / (Infer+Train)</p>
-<p class="score-eq" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
-  SoftAcc = 100×(1−|pred−target|/0.10) · AdaptPct after phase flips · WeightBytes / MobileScore
+<p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
+  Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
 </p>
 
 <div class="start-banner" id="startBanner">
   <div>
-    <p><b>Training paused</b> — browse metrics, boards, and winners freely.</p>
-    <div class="sub">Nothing trains until you press Start (checkpoint is not written while paused).</div>
+    <p><b id="startTitle">Training paused</b> — browse metrics, boards, and winners freely.</p>
+    <div class="sub" id="startSub">Nothing trains until you press Start. Finished cells are skipped (resume does not redo epoch-1 work).</div>
   </div>
   <button class="startbtn" id="startBtn" type="button">Start training</button>
 </div>
@@ -210,7 +295,7 @@
 <div class="top-row">
   <section>
     <h2>Sweep progress</h2>
-    <p class="hint">Finished vs still queued + ETA. Train modes run in order — <b>step_tween_chain</b> is near the end.</p>
+    <p class="hint">Finished vs still queued + ETA. New Welvet modes (Split / FastProxy / Sparse / Mesh*…) run after the original Lucy six. Finished cell IDs are skipped on resume.</p>
     <canvas id="pieChart" width="240" height="180"></canvas>
     <div class="pie-aside" id="pieAside">—</div>
     <h2 style="margin-top:1rem">Queue by train mode</h2>
@@ -250,8 +335,10 @@
   <section>
     <h2>Models ranked — all metrics</h2>
     <p class="hint">
-      Top models by Score. Each row shows score · accuracy · throughput · availability together
-      (bars scaled within that metric). Full list in tables below.
+      Top models by Score. Label is <b>mode</b> plus <b>dtype · quant · arch</b>
+      (<span class="arch single">cnn</span> single head,
+      <span class="arch">bi×2</span> / <span class="arch">tri×3</span> hemispheres).
+      Bars are scaled within each metric.
     </p>
     <div class="legend">
       <span><i style="background:#3dd6c6"></i>score</span>
@@ -259,7 +346,7 @@
       <span><i style="background:#7aa2f7"></i>thru</span>
       <span><i style="background:#c3a6ff"></i>avail</span>
     </div>
-    <canvas id="rankChart" width="960" height="420"></canvas>
+    <div class="rank-list" id="rankChart"></div>
   </section>
   <section>
     <h2>Best raw</h2>
@@ -277,27 +364,43 @@
   </section>
 </main>
 
+<section class="full">
+  <h2>Best settings per train mode</h2>
+  <p class="hint">Winning <b>recipe</b> for each training path — arch × dtype × quant with the highest Lucy Score among finished <b>ok</b> cells. Click a row for the SoftAcc strip.</p>
+  <div class="table-wrap" style="max-height:420px">
+    <table class="recipe">
+      <thead><tr>
+        <th>Mode</th><th>Arch</th><th>DType</th><th>Format</th>
+        <th class="num">Score</th><th class="num">Soft</th><th class="num">Hard</th>
+        <th class="num">Avail</th><th class="num">t→50%</th><th class="num">Acc/s</th>
+        <th class="num">RAM</th><th class="num">n</th>
+      </tr></thead>
+      <tbody id="winSettingsMode"></tbody>
+    </table>
+  </div>
+</section>
+
 <div class="top-row" style="grid-template-columns: 1fr 1fr;">
   <section>
     <h2>Learn speed — time to 50% acc</h2>
-    <p class="hint">Lower is better. First 1s window that hit ≥50% serve accuracy. Models that never hit 50% are omitted from the bars.</p>
-    <canvas id="learnTo50Chart" width="900" height="320"></canvas>
+    <p class="hint">Faster at the top. Bar length is speed (1/time). First 1s window that hit ≥50% serve accuracy. Cells that never hit 50% are omitted.</p>
+    <div class="hbar-list" id="learnTo50Chart"></div>
   </section>
   <section>
-    <h2>Learn speed — accuracy / second (/MiB)</h2>
-    <p class="hint">Higher is better. Teal = Acc/sec (raw). Purple = Acc/sec/MiB (mobile).</p>
+    <h2>Learn speed — accuracy / second</h2>
+    <p class="hint">Higher is better. Teal = Acc/sec. Purple = Acc/sec per MiB (mobile). One row per model — metrics are stacked, not squeezed side-by-side.</p>
     <div class="legend">
       <span><i style="background:#3dd6c6"></i>acc/sec</span>
       <span><i style="background:#c3a6ff"></i>acc/sec/MiB</span>
     </div>
-    <canvas id="learnRateChart" width="900" height="320"></canvas>
+    <div class="hbar-list" id="learnRateChart"></div>
   </section>
 </div>
 
 <div class="tables">
   <section>
     <h2>Best numerical type per train mode</h2>
-    <p class="hint">Among finished <b>ok</b> cells — highest Lucy Score dtype for each mode.</p>
+    <p class="hint">Highest Lucy Score <b>dtype</b> for each mode (see the recipe table above for the full winning settings).</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
         <thead><tr><th>Mode</th><th>Best dtype</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
@@ -342,8 +445,8 @@
 
 <div class="tables">
   <section>
-    <h2>Best full cell per train mode</h2>
-    <p class="hint">Champion cell id (dtype|format|mode|backend) for each mode.</p>
+    <h2>Best full cell per mode × arch</h2>
+    <p class="hint">Champion cell for each mode at each cameral width (cnn / bi / tri).</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
         <thead><tr><th>Mode</th><th>Score</th><th>Acc</th><th>t→50%</th><th>Acc/s</th><th>n</th><th>Cell</th></tr></thead>
@@ -448,12 +551,9 @@ const modeCanvas = document.getElementById('modePie');
 const modeCtx = modeCanvas.getContext('2d');
 const pulseCanvas = document.getElementById('pulseChart');
 const pulseCtx = pulseCanvas.getContext('2d');
-const rankCanvas = document.getElementById('rankChart');
-const rankCtx = rankCanvas.getContext('2d');
-const learnTo50Canvas = document.getElementById('learnTo50Chart');
-const learnTo50Ctx = learnTo50Canvas.getContext('2d');
-const learnRateCanvas = document.getElementById('learnRateChart');
-const learnRateCtx = learnRateCanvas.getContext('2d');
+const rankChart = document.getElementById('rankChart');
+const learnTo50Chart = document.getElementById('learnTo50Chart');
+const learnRateChart = document.getElementById('learnRateChart');
 const scrub = document.getElementById('scrub');
 const scrubLabel = document.getElementById('scrubLabel');
 const liveBtn = document.getElementById('livebtn');
@@ -551,7 +651,7 @@ function renderModeQueue(modes) {
   const el = document.getElementById('modeQueue');
   if (!el) return;
   if (!Array.isArray(modes) || !modes.length) {
-    el.innerHTML = '<tr><td colspan="6">plan unknown (restart live_mnist with updated tide)</td></tr>';
+    el.innerHTML = '<tr><td colspan="6">plan unknown — host did not pass sweep Cells to the dashboard</td></tr>';
     return;
   }
   el.innerHTML = modes.map(m => {
@@ -559,7 +659,7 @@ function renderModeQueue(modes) {
     const st = m.running ? 'running' : (m.left === 0 ? 'ok' : '');
     const bar = `<div style="height:6px;background:var(--grid);margin-top:2px"><div style="height:6px;width:${pct}%;background:${m.running ? 'var(--warn)' : 'var(--accent)'}"></div></div>`;
     return `<tr class="${st}">
-      <td class="cellid">${m.mode}</td>
+      <td>${modeChip(m.mode)}</td>
       <td>${m.done}</td>
       <td>${m.running || '—'}</td>
       <td><b>${m.left}</b></td>
@@ -589,26 +689,57 @@ function renderWinnerRows(tbodyId, rows, cols) {
     const avail = (w.availability||0).toFixed(1) + '%';
     const t50 = fmtSecShort(w.time_to_acc50_sec);
     const aps = (w.acc_per_sec||0).toFixed(3);
+    const id = w.cell_id || w.winner || '';
     if (tbodyId === 'winCellMode') {
-      return `<tr>
-        <td class="cellid">${w.group}</td>
+      return `<tr class="clickable" data-cell="${escAttr(id)}">
+        <td>${modeChip(w.mode || w.group)} ${archBadge(null, id)}</td>
         <td>${score}</td><td>${acc}</td><td>${t50}</td><td>${aps}</td>
         <td>${w.n||0}</td>
-        <td class="cellid">${w.cell_id||w.winner||''}</td>
+        <td class="cellid">${formatCellHTML(null, id)}</td>
       </tr>`;
     }
-    return `<tr>
-      <td class="cellid">${w.group}</td>
-      <td><b>${w.winner||'—'}</b></td>
+    return `<tr class="clickable" data-cell="${escAttr(id)}">
+      <td>${(w.mode && w.mode === w.group) ? modeChip(w.group) : `<span class="dtype">${w.group||'—'}</span>`}</td>
+      <td>${(w.mode && w.mode === w.winner) ? modeChip(w.winner) : `<b>${w.winner||'—'}</b>`}</td>
       <td>${score}</td><td>${acc}</td><td>${thru}</td><td>${avail}</td>
       <td>${w.n||0}</td>
-      <td class="cellid">${w.cell_id||''}</td>
+      <td class="cellid">${formatCellHTML(null, id)}</td>
     </tr>`;
   }).join('');
+  bindRowClicks(el);
+}
+
+function renderSettingsRows(rows) {
+  const el = document.getElementById('winSettingsMode');
+  if (!el) return;
+  if (!Array.isArray(rows) || !rows.length) {
+    el.innerHTML = '<tr><td colspan="12">no finished ok cells yet</td></tr>';
+    return;
+  }
+  el.innerHTML = rows.map(w => {
+    const id = w.cell_id || '';
+    const fmt = !w.format || w.format === 'none' ? 'native' : w.format;
+    return `<tr class="clickable" data-cell="${escAttr(id)}">
+      <td>${modeChip(w.mode || w.group)}</td>
+      <td>${archBadge(null, id)}</td>
+      <td class="dtype">${w.dtype || '—'}</td>
+      <td><span class="fmt">${fmt}</span></td>
+      <td class="num">${(w.score||0).toFixed(3)}</td>
+      <td class="num">${(w.soft_acc||0).toFixed(1)}%</td>
+      <td class="num">${(w.avg_accuracy||0).toFixed(1)}%</td>
+      <td class="num">${(w.availability||0).toFixed(1)}%</td>
+      <td class="num">${fmtSecShort(w.time_to_acc50_sec)}</td>
+      <td class="num">${(w.acc_per_sec||0).toFixed(3)}</td>
+      <td class="num">${(w.weight_kib||0).toFixed(1)}K</td>
+      <td class="num">${w.n||0}</td>
+    </tr>`;
+  }).join('');
+  bindRowClicks(el);
 }
 
 function renderWinners(w) {
   w = w || {};
+  renderSettingsRows(w.best_settings_per_mode);
   renderWinnerRows('winDTypeMode', w.best_dtype_per_mode, 8);
   renderWinnerRows('winFmtMode', w.best_format_per_mode, 8);
   renderWinnerRows('winModeDType', w.best_mode_per_dtype, 8);
@@ -652,17 +783,13 @@ function drawModePie() {
     const m = modeOf(r.cell?.id);
     counts[m] = (counts[m]||0) + 1;
   });
-  const colors = [
-    '#3dd6c6','#7aa2f7','#e6b35a','#c3a6ff','#e06c75','#8fd19e','#f0a0a0','#9ad0f5',
-    '#d4a574','#6bcb8a','#ff9ecd','#a8b4c0','#5ec8e6','#c9d66b',
-  ];
   // Prefer plan order (mode queue) so every train mode stays visible even when counts tie.
   const plan = (lastLive?.mode_progress || []).map(m => m.mode).filter(Boolean);
   const names = plan.length
     ? plan.filter(m => counts[m] != null).concat(Object.keys(counts).filter(m => !plan.includes(m)))
     : Object.keys(counts).sort((a,b) => counts[b]-counts[a] || a.localeCompare(b));
   const entries = names.map(m => [m, counts[m]]);
-  const slices = entries.map((e,i) => ({ value: e[1], color: colors[i%colors.length] }));
+  const slices = entries.map(e => ({ value: e[1], color: modeColor(e[0]) }));
   if (!slices.length) {
     modeCtx.clearRect(0,0,modeCanvas.width, modeCanvas.height);
     document.getElementById('modeAside').textContent = 'no finished cells yet';
@@ -672,8 +799,8 @@ function drawModePie() {
   const aside = document.getElementById('modeAside');
   aside.style.maxHeight = '280px';
   aside.style.overflow = 'auto';
-  aside.innerHTML = entries.map((e,i) =>
-    `<div><span class="swatch" style="background:${colors[i%colors.length]}"></span>${e[0]} <b>${e[1]}</b></div>`
+  aside.innerHTML = entries.map(e =>
+    `<div>${modeChip(e[0])} <b>${e[1]}</b></div>`
   ).join('');
 }
 
@@ -792,11 +919,90 @@ function drawPulse(viewEnd) {
   }
 }
 
-function shortId(id) {
-  if (!id) return '—';
-  const p = id.split('|');
-  if (p.length >= 3) return p.slice(0, 3).join('|');
-  return id.length > 34 ? id.slice(0, 32) + '…' : id;
+const MODE_PALETTE = {
+  sgd: '#3dd6c6',
+  step_sgd: '#7aa2f7',
+  tween: '#e6b35a',
+  tween_chain: '#c3a6ff',
+  step_tween: '#e06c75',
+  step_tween_chain: '#8fd19e',
+};
+const FALLBACK_PALETTE = [
+  '#9ad0f5','#d4a574','#6bcb8a','#ff9ecd','#a8b4c0','#5ec8e6','#c9d66b','#f0a0a0',
+];
+function hashHue(s) {
+  let h = 2166136261;
+  for (let i = 0; i < (s||'').length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function modeColor(mode) {
+  if (MODE_PALETTE[mode]) return MODE_PALETTE[mode];
+  return FALLBACK_PALETTE[hashHue(mode || '') % FALLBACK_PALETTE.length];
+}
+function modeChip(mode) {
+  const c = modeColor(mode || '');
+  return `<span class="mode-chip" style="color:${c};border-color:${c}66;background:${c}18">${mode || '—'}</span>`;
+}
+function escAttr(s) {
+  return String(s||'').replace(/\\/g,'\\\\').replace(/"/g,'&quot;').replace(/'/g, '&#39;');
+}
+function resultById(id) {
+  if (!id || !lastLive) return null;
+  const pool = [...(lastLive.completed || []), lastLive.current, ...(lastLive.leaderboard || [])].filter(Boolean);
+  return pool.find(r => r.cell?.id === id) || null;
+}
+function bindRowClicks(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-cell]').forEach(el => {
+    el.onclick = () => openCellDetail(resultById(el.getAttribute('data-cell')));
+  });
+}
+
+function parseCell(cell, id) {
+  id = id || cell?.id || '';
+  const p = String(id).split('|');
+  const arch = (cell && cell.arch) || p[3] || 'cnn';
+  let cams = (cell && cell.cams) || 0;
+  if (!cams) {
+    if (arch === 'tricameral') cams = 3;
+    else if (arch === 'bicameral') cams = 2;
+    else cams = 1;
+  }
+  const mode = (cell && cell.mode) || p[2] || '';
+  const dtype = p[0] || '';
+  const format = p[1] || '';
+  const tag = cams <= 1 ? 'cnn' : (cams === 2 ? 'bi×2' : (cams === 3 ? 'tri×3' : (arch + '×' + cams)));
+  return { id, arch, cams, mode, dtype, format, tag };
+}
+function archBadge(cell, id) {
+  const c = parseCell(cell, id);
+  const cls = c.cams <= 1 ? 'arch single' : 'arch';
+  return `<span class="${cls}">${c.tag}</span>`;
+}
+function compactSub(cell, id) {
+  const c = parseCell(cell, id);
+  const bits = [c.dtype];
+  if (c.format && c.format !== 'none') bits.push(c.format);
+  bits.push(c.tag);
+  return bits.join(' · ');
+}
+function shortId(id, cell) {
+  const c = parseCell(cell, id);
+  if (!c.id) return '—';
+  return `${c.mode}  ${compactSub(cell, id)}`;
+}
+function formatCellHTML(cell, id) {
+  const c = parseCell(cell, id);
+  if (!c.id) return '—';
+  const fmt = c.format && c.format !== 'none' ? `<span class="fmt">${c.format}</span>` : '';
+  return `${archBadge(cell, id)}${modeChip(c.mode)}<span class="dtype">${c.dtype}</span>${fmt}`;
+}
+function chartLabelHTML(cell, id) {
+  const c = parseCell(cell, id);
+  return `${modeChip(c.mode)}<span class="sub">${compactSub(cell, id)}</span>`;
 }
 
 function boardRows() {
@@ -822,150 +1028,87 @@ function fmtSec(sec) {
   return (sec/60).toFixed(1) + 'm';
 }
 
-function drawHBars(ctx, canvas, rows, valueFn, color, labelFn) {
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0,0,w,h);
-  if (!rows.length) {
-    ctx.fillStyle = '#8aa0ad';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('no data yet', 20, 30);
-    return;
-  }
-  const maxV = Math.max(...rows.map(valueFn), 1e-9);
-  const labelW = 200;
-  const top = 8;
-  const rowH = (h - top - 4) / rows.length;
-  rows.forEach((row, i) => {
-    const v = valueFn(row);
-    const y = top + i * rowH;
-    const bw = Math.max(2, (w - labelW - 80) * (v / maxV));
-    ctx.fillStyle = color;
-    ctx.fillRect(labelW, y + 4, bw, Math.max(8, rowH - 8));
-    ctx.fillStyle = '#c5d0d6';
-    ctx.font = '11px ui-monospace, monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(shortId(row.cell?.id), labelW - 8, y + rowH * 0.68);
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#8aa0ad';
-    ctx.fillText(labelFn(v, row), labelW + bw + 6, y + rowH * 0.68);
-  });
-}
-
 function drawLearnCharts() {
-  const to50 = boardLearnRows().filter(r => (r.snapshot?.time_to_acc50_sec || 0) > 0).slice(0, 14);
-  // For time chart, shorter is better — invert visual by showing max-v so longer bars = faster? 
-  // Better: bar length = 1/time so taller/longer = faster learner.
-  drawHBars(learnTo50Ctx, learnTo50Canvas, to50,
-    r => 1 / r.snapshot.time_to_acc50_sec,
-    '#e6b35a',
-    (v, r) => fmtSec(r.snapshot.time_to_acc50_sec) + '  (t→25 ' + fmtSec(r.snapshot.time_to_acc25_sec) + ')'
-  );
+  const to50 = boardLearnRows().filter(r => (r.snapshot?.time_to_acc50_sec || 0) > 0).slice(0, 12);
+  if (!to50.length) {
+    learnTo50Chart.innerHTML = '<div class="empty">no cell has hit 50% acc yet</div>';
+  } else {
+    const speeds = to50.map(r => 1 / r.snapshot.time_to_acc50_sec);
+    const maxSp = Math.max(...speeds, 1e-9);
+    learnTo50Chart.innerHTML = to50.map((row, i) => {
+      const s = row.snapshot || {};
+      const id = row.cell?.id || '';
+      const pct = Math.max(6, 100 * speeds[i] / maxSp);
+      const col = modeColor(parseCell(row.cell, id).mode);
+      return `<div class="hbar clickable" data-cell="${escAttr(id)}" title="${escAttr(id)}">
+        <div class="hbar-lab">${chartLabelHTML(row.cell, id)}</div>
+        <div class="hbar-track"><div class="hbar-fill" style="width:${pct}%;background:${col}"></div></div>
+        <div class="hbar-val">${fmtSec(s.time_to_acc50_sec)}<small>t→25 ${fmtSec(s.time_to_acc25_sec)}</small></div>
+      </div>`;
+    }).join('');
+    bindRowClicks(learnTo50Chart);
+  }
 
-  const rate = boardLearnMobileRows().slice(0, 12);
-  const w = learnRateCanvas.width, h = learnRateCanvas.height;
-  learnRateCtx.clearRect(0,0,w,h);
+  const rate = boardLearnMobileRows().slice(0, 10);
   if (!rate.length) {
-    learnRateCtx.fillStyle = '#8aa0ad';
-    learnRateCtx.font = '13px sans-serif';
-    learnRateCtx.fillText('no data yet', 20, 30);
+    learnRateChart.innerHTML = '<div class="empty">no data yet</div>';
     return;
   }
   const maxRaw = Math.max(...rate.map(r => r.snapshot?.acc_per_sec || 0), 1e-9);
   const maxMob = Math.max(...rate.map(r => r.snapshot?.mobile_acc_per_sec || 0), 1e-9);
-  const labelW = 200;
-  const top = 8;
-  const rowH = (h - top - 4) / rate.length;
-  const slot = (w - labelW - 12) / 2;
-  rate.forEach((row, i) => {
+  learnRateChart.innerHTML = rate.map(row => {
     const s = row.snapshot || {};
-    const y = top + i * rowH;
-    learnRateCtx.fillStyle = '#c5d0d6';
-    learnRateCtx.font = '11px ui-monospace, monospace';
-    learnRateCtx.textAlign = 'right';
-    learnRateCtx.fillText(shortId(row.cell?.id), labelW - 8, y + rowH * 0.68);
+    const id = row.cell?.id || '';
     const raw = s.acc_per_sec || 0;
     const mob = s.mobile_acc_per_sec || 0;
-    learnRateCtx.fillStyle = '#3dd6c6';
-    learnRateCtx.fillRect(labelW, y + 4, Math.max(2, (slot - 40) * raw / maxRaw), Math.max(7, rowH/2 - 4));
-    learnRateCtx.fillStyle = '#c3a6ff';
-    learnRateCtx.fillRect(labelW + slot, y + 4, Math.max(2, (slot - 40) * mob / maxMob), Math.max(7, rowH/2 - 4));
-    learnRateCtx.fillStyle = '#8aa0ad';
-    learnRateCtx.font = '9px sans-serif';
-    learnRateCtx.textAlign = 'left';
-    learnRateCtx.fillText(raw.toFixed(3), labelW + Math.max(2, (slot-40)*raw/maxRaw) + 4, y + rowH * 0.55);
-    learnRateCtx.fillText(mob.toFixed(2), labelW + slot + Math.max(2, (slot-40)*mob/maxMob) + 4, y + rowH * 0.55);
-  });
+    return `<div class="hbar clickable" data-cell="${escAttr(id)}" title="${escAttr(id)}" style="grid-template-columns: minmax(148px, 210px) 1fr;">
+      <div class="hbar-lab">${chartLabelHTML(row.cell, id)}</div>
+      <div class="hbar-stack">
+        <div class="hbar-mini">
+          <span>acc/s</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:${Math.max(4, 100*raw/maxRaw)}%;background:#3dd6c6"></div></div>
+          <span class="n">${raw.toFixed(3)}</span>
+        </div>
+        <div class="hbar-mini">
+          <span>/MiB</span>
+          <div class="hbar-track"><div class="hbar-fill" style="width:${Math.max(4, 100*mob/maxMob)}%;background:#c3a6ff"></div></div>
+          <span class="n">${mob.toFixed(2)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  bindRowClicks(learnRateChart);
 }
 
 function drawRank() {
-  const w = rankCanvas.width, h = rankCanvas.height;
-  rankCtx.clearRect(0,0,w,h);
   let rows = boardRows().filter(r => r.status === 'ok' || r.status === 'running');
-  rows = rows.slice().sort((a,b) => (b.snapshot?.score||0) - (a.snapshot?.score||0)).slice(0, 14);
+  rows = rows.slice().sort((a,b) => (b.snapshot?.score||0) - (a.snapshot?.score||0)).slice(0, 12);
   if (!rows.length) {
-    rankCtx.fillStyle = '#8aa0ad';
-    rankCtx.font = '13px sans-serif';
-    rankCtx.fillText('no finished models yet', 20, 30);
+    rankChart.innerHTML = '<div class="empty">no finished models yet</div>';
     return;
   }
-
   const maxScore = Math.max(...rows.map(r => r.snapshot?.score || 0), 1e-9);
   const maxThru = Math.max(...rows.map(r => r.snapshot?.throughput || 0), 1);
-  // acc and avail already 0-100
-
-  const labelW = 200;
-  const padR = 12;
-  const top = 8;
-  const rowH = (h - top - 4) / rows.length;
-  const barArea = w - labelW - padR;
-  const slot = barArea / 4;
-  const colors = ['#3dd6c6', '#e6b35a', '#7aa2f7', '#c3a6ff'];
-
-  rows.forEach((row, i) => {
+  const head = `<div class="rank-head"><span>model</span><span>score</span><span>acc</span><span>thru</span><span>avail</span></div>`;
+  const body = rows.map(row => {
     const s = row.snapshot || {};
-    const y = top + i * rowH;
-    const mid = y + rowH * 0.72;
-
-    rankCtx.fillStyle = row.status === 'running' ? '#e6b35a' : '#c5d0d6';
-    rankCtx.font = '11px ui-monospace, monospace';
-    rankCtx.textAlign = 'right';
-    rankCtx.fillText(shortId(row.cell?.id), labelW - 8, mid);
-
+    const id = row.cell?.id || '';
     const vals = [
-      (s.score || 0) / maxScore,
-      (s.avg_accuracy || 0) / 100,
-      (s.throughput || 0) / maxThru,
-      (s.availability || 0) / 100,
+      { n: (s.score || 0) / maxScore, t: (s.score || 0).toFixed(3), c: '#3dd6c6' },
+      { n: (s.avg_accuracy || 0) / 100, t: (s.avg_accuracy || 0).toFixed(0), c: '#e6b35a' },
+      { n: (s.throughput || 0) / maxThru, t: (s.throughput || 0).toFixed(0), c: '#7aa2f7' },
+      { n: (s.availability || 0) / 100, t: (s.availability || 0).toFixed(1), c: '#c3a6ff' },
     ];
-    const raw = [
-      (s.score || 0).toFixed(3),
-      (s.avg_accuracy || 0).toFixed(0),
-      (s.throughput || 0).toFixed(0),
-      (s.availability || 0).toFixed(1),
-    ];
-
-    vals.forEach((n, j) => {
-      const x0 = labelW + j * slot + 4;
-      const bw = Math.max(2, (slot - 16) * Math.min(1, Math.max(0, n)));
-      const bh = Math.max(8, rowH - 14);
-      rankCtx.fillStyle = colors[j];
-      rankCtx.globalAlpha = 0.9;
-      rankCtx.fillRect(x0, y + 6, bw, bh);
-      rankCtx.globalAlpha = 1;
-      rankCtx.fillStyle = '#8aa0ad';
-      rankCtx.font = '9px sans-serif';
-      rankCtx.textAlign = 'left';
-      rankCtx.fillText(raw[j], x0 + bw + 3, mid);
-    });
-  });
-
-  // column headers
-  rankCtx.fillStyle = '#8aa0ad';
-  rankCtx.font = '10px sans-serif';
-  rankCtx.textAlign = 'left';
-  ['score', 'acc', 'thru', 'avail'].forEach((lab, j) => {
-    rankCtx.fillText(lab, labelW + j * slot + 4, 10);
-  });
+    const metrics = vals.map(v =>
+      `<div class="rm"><div class="hbar-track"><div class="hbar-fill" style="width:${Math.max(4, 100*Math.min(1, Math.max(0, v.n)))}%;background:${v.c}"></div></div><span class="n">${v.t}</span></div>`
+    ).join('');
+    return `<div class="rank-row clickable ${row.status==='running'?'running':''}" data-cell="${escAttr(id)}" title="${escAttr(id)}">
+      <div class="hbar-lab">${chartLabelHTML(row.cell, id)}</div>
+      ${metrics}
+    </div>`;
+  }).join('');
+  rankChart.innerHTML = head + body;
+  bindRowClicks(rankChart);
 }
 
 function showPoint(p) {
@@ -990,16 +1133,17 @@ function showPoint(p) {
     return s;
   }).join('<br/>');
   const champIds = [];
-  if (sc?.cell?.id) champIds.push(`score-champ: ${sc.cell.id}`);
+  if (sc?.cell?.id) champIds.push(['score-champ', sc.cell, sc.cell.id]);
   METRICS.forEach(m => {
     const mc = champForMetric(m);
     if (mc?.cell?.id && (!sc || mc.cell.id !== sc.cell.id)) {
-      champIds.push(`${m.key}-champ: ${mc.cell.id}`);
+      champIds.push([`${m.key}-champ`, mc.cell, mc.cell.id]);
     }
   });
-  cur.innerHTML = `<div><span class="pill">${p.cell_id||'—'}</span> <span class="pill">${p.phase||''}</span> <span class="pill">${p.status||''}</span> ${t}</div>
+  cur.innerHTML = `<div>${formatCellHTML(null, p.cell_id||'—')} <span class="pill">${p.phase||''}</span> <span class="pill">${p.status||''}</span> ${t}</div>
     <div style="margin-top:0.45rem; line-height:1.55">${bits}</div>
-    <div style="margin-top:0.45rem; font-size:0.78rem">${champIds.map(x => `<div class="pill" style="margin:0.15rem 0.15rem 0 0">${x}</div>`).join('')}</div>`;
+    <div style="margin-top:0.45rem; font-size:0.78rem">${champIds.map(([lab, cell, id]) =>
+      `<div class="pill" style="margin:0.15rem 0.15rem 0 0">${lab}: ${formatCellHTML(cell, id)}</div>`).join('')}</div>`;
 }
 
 function setFollow(on) {
@@ -1069,7 +1213,8 @@ function openCellDetail(row) {
   if (!row) return;
   const s = row.snapshot || {};
   const id = row.cell?.id || '—';
-  document.getElementById('cellModalId').textContent = id;
+  document.getElementById('cellModalId').innerHTML = formatCellHTML(row.cell, id) +
+    `<div class="sub" style="margin-top:0.35rem">${id}</div>`;
   const metrics = [
     ['Score', (s.score||0).toFixed(3)],
     ['SoftAcc', (s.soft_acc||0).toFixed(1) + '%'],
@@ -1134,7 +1279,7 @@ function rowHTML(row, i, mobile) {
   const esc = id.replace(/\\/g,'\\\\').replace(/'/g, "\\'");
   if (mobile) {
     return `<tr class="clickable" data-cell="${esc}" title="click for SoftAcc 1s strip">
-      <td>${i+1}</td><td class="cellid">${id}</td>
+      <td>${i+1}</td><td class="cellid">${formatCellHTML(row.cell, id)}</td>
       <td>${(s.mobile_score||0).toFixed(2)}</td>
       <td>${(s.score||0).toFixed(3)}</td>
       <td>${(s.soft_acc||0).toFixed(1)}</td>
@@ -1148,7 +1293,7 @@ function rowHTML(row, i, mobile) {
     </tr>`;
   }
   return `<tr class="clickable" data-cell="${esc}" title="click for SoftAcc 1s strip">
-    <td>${i+1}</td><td class="cellid">${id}</td>
+    <td>${i+1}</td><td class="cellid">${formatCellHTML(row.cell, id)}</td>
     <td>${(s.score||0).toFixed(3)}</td>
     <td>${(s.soft_acc||0).toFixed(1)}</td>
     <td>${(s.avg_accuracy||0).toFixed(1)}</td>
@@ -1170,7 +1315,7 @@ function learnRowHTML(row, i, mobile) {
   const dur = (s.duration || 0) / 1e9; // Go json Duration = ns
   if (mobile) {
     return `<tr>
-      <td>${i+1}</td><td class="cellid">${id}</td>
+      <td>${i+1}</td><td class="cellid">${formatCellHTML(row.cell, id)}</td>
       <td>${(s.mobile_acc_per_sec||0).toFixed(2)}</td>
       <td>${(s.acc_per_sec||0).toFixed(3)}</td>
       <td>${fmtSec(s.time_to_acc50_sec)}</td>
@@ -1180,7 +1325,7 @@ function learnRowHTML(row, i, mobile) {
     </tr>`;
   }
   return `<tr>
-    <td>${i+1}</td><td class="cellid">${id}</td>
+    <td>${i+1}</td><td class="cellid">${formatCellHTML(row.cell, id)}</td>
     <td>${fmtSec(s.time_to_acc25_sec)}</td>
     <td>${fmtSec(s.time_to_acc50_sec)}</td>
     <td>${(s.acc_per_sec||0).toFixed(3)}</td>
@@ -1231,14 +1376,41 @@ async function syncHistoryTip(serverLen, tip) {
   refreshScrub();
 }
 
+function applyTaskMeta(j) {
+  const task = (j && j.task) ? String(j.task).trim() : '';
+  const sub = (j && j.subtitle) ? String(j.subtitle).trim() : '';
+  const titleEl = document.getElementById('taskTitle');
+  const subEl = document.getElementById('taskSub');
+  if (titleEl) titleEl.textContent = task ? (task + ' · live adaptation') : 'live adaptation';
+  document.title = task ? ('tide — ' + task) : 'tide — live adaptation';
+  if (subEl && sub) subEl.textContent = sub;
+}
+
 async function tick() {
   try {
     const r = await fetch('/api/live');
     const j = await r.json();
     lastLive = j;
+    applyTaskMeta(j);
     const awaiting = !!j.awaiting_start;
     const banner = document.getElementById('startBanner');
     if (banner) banner.classList.toggle('show', awaiting);
+    const doneN = (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
+    const totalN = j.cell_total || 0;
+    const epochN = j.epoch || 1;
+    const canResume = doneN > 0;
+    const startBtnLive = document.getElementById('startBtn');
+    const startTitle = document.getElementById('startTitle');
+    const startSub = document.getElementById('startSub');
+    if (awaiting && startBtnLive && !startBtnLive.disabled) {
+      startBtnLive.textContent = canResume
+        ? `Resume epoch ${epochN} — ${doneN}/${totalN} done`
+        : 'Start training';
+    }
+    if (startTitle) startTitle.textContent = canResume ? 'Resume training' : 'Training paused';
+    if (startSub) startSub.textContent = canResume
+      ? `Finished cells keep their epoch-${epochN} scores. Only new modes / arches / leftover IDs will run.`
+      : 'Nothing trains until you press Start. Checkpoint is not written while paused.';
     document.getElementById('status').textContent =
       `${j.message || ''} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${
         awaiting ? 'PAUSED' : (j.running ? 'RUNNING' : 'idle')
@@ -1260,7 +1432,7 @@ async function tick() {
         : key === 'acc' ? (s.avg_accuracy||0).toFixed(1)+'%'
         : key === 'thru' ? (s.throughput||0).toFixed(1)+'/s'
         : (s.availability||0).toFixed(1)+'%';
-      return `<div><span class="pill">${label}</span> ${v} · ${row.cell.id}</div>`;
+      return `<div><span class="pill">${label}</span> ${v} · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
     };
     bestEl.innerHTML = [
       line('score', b.score, 'score'),
@@ -1274,7 +1446,7 @@ async function tick() {
     const mline = (label, row, effKey) => {
       if (!row) return `<div>${label}: —</div>`;
       const s = row.snapshot || {};
-      return `<div><span class="pill">${label}</span> ${(s[effKey]||0).toFixed(2)}/MiB · ${((s.weight_bytes||0)/1024).toFixed(1)} KiB · ${row.cell.id}</div>`;
+      return `<div><span class="pill">${label}</span> ${(s[effKey]||0).toFixed(2)}/MiB · ${((s.weight_bytes||0)/1024).toFixed(1)} KiB · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
     };
     mobEl.innerHTML = [
       mline('score', m.score, 'mobile_score'),
@@ -1287,7 +1459,7 @@ async function tick() {
     const blEl = document.getElementById('bestLearn');
     const learnLine = (label, row, fmt) => {
       if (!row) return `<div>${label}: —</div>`;
-      return `<div><span class="pill">${label}</span> ${fmt(row.snapshot)} · ${row.cell.id}</div>`;
+      return `<div><span class="pill">${label}</span> ${fmt(row.snapshot)} · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
     };
     blEl.innerHTML = [
       learnLine('t→25%', bl.to25, s => fmtSec(s.time_to_acc25_sec)),

@@ -43,7 +43,7 @@ type Config struct {
 // DefaultConfig: 1 epoch per cell over the dataset train split.
 func DefaultConfig(cells []permute.Cell) Config {
 	return Config{
-		Spec:            chain.DefaultMNIST(),
+		Spec:            chain.DefaultMNIST(), // host may override; any Dataset + Spec works
 		Cells:           cells,
 		BatchSize:       4,
 		Epoch:           1,
@@ -163,17 +163,17 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		inf.Epoch = cfg.Epoch
 	}
 	p := &checkpoint.Progress{
-		Epoch:         cfg.Epoch,
-		CellTotal:     len(cfg.Cells),
-		NextCellIndex: nextIdx,
-		DoneIDs:       doneIDs,
-		Completed:     live.Completed,
-		Best:          live.Best,
-		BestMobile:    live.BestMobile,
-		BestLearn:     live.BestLearn,
+		Epoch:           cfg.Epoch,
+		CellTotal:       len(cfg.Cells),
+		NextCellIndex:   nextIdx,
+		DoneIDs:         doneIDs,
+		Completed:       live.Completed,
+		Best:            live.Best,
+		BestMobile:      live.BestMobile,
+		BestLearn:       live.BestLearn,
 		BestLearnMobile: live.BestLearnMobile,
-		History:       live.History,
-		Inflight:      inf,
+		History:         live.History,
+		Inflight:        inf,
 	}
 	if m != nil {
 		if err := cfg.Store.SaveInflightModel(m); err != nil {

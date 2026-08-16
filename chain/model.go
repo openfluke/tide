@@ -1,4 +1,4 @@
-// Package chain builds MNIST Welvet stacks: CNN and Bicameral.
+// Package chain builds Welvet image-class stacks (default 28×28×10 MNIST).
 package chain
 
 import (
@@ -11,6 +11,7 @@ import (
 	"github.com/openfluke/welvet/layers/cnn2"
 	"github.com/openfluke/welvet/layers/dense"
 	"github.com/openfluke/welvet/layers/parallel"
+	"github.com/openfluke/welvet/lucy"
 	"github.com/openfluke/welvet/quant"
 )
 
@@ -23,7 +24,7 @@ type Spec struct {
 	Filters2   int
 	Kernel     int
 	Classes    int
-	Hidden     int // Bicameral mid width
+	Hidden     int // Cameral mid width (Bi/Tri)
 	Seed       uint64
 }
 
@@ -44,17 +45,18 @@ func DefaultMNIST() Spec {
 
 // Model is CNN2 → CNN2 → flatten → (Dense | Bicameral Dense∥Dense → Dense).
 type Model struct {
-	Spec   Spec
-	Arch   permute.ArchKind
-	CNN1   *cnn2.Layer
-	CNN2   *cnn2.Layer
-	Head   *dense.Layer // CNN arch only
-	// Bicameral: flatten → DenseIn → Parallel(Right∥Left, add) → DenseOut
+	Spec Spec
+	Arch permute.ArchKind
+	CNN1 *cnn2.Layer
+	CNN2 *cnn2.Layer
+	Head *dense.Layer // CNN arch only
+	// Cameral: flatten → DenseIn → Parallel(n×Dense, add) → DenseOut
 	DenseIn  *dense.Layer
-	BranchR  *dense.Layer
-	BranchL  *dense.Layer
+	BranchR  *dense.Layer // hemi 0 (checkpoint name branch_r)
+	BranchL  *dense.Layer // hemi 1 (checkpoint name branch_l)
 	Para     *parallel.Layer
 	DenseOut *dense.Layer
+	stack    *parallel.Stack // Dense sandwich for TrainStackMSE (not CNN stem)
 	FlatIn   int
 	OutH1    int
 	OutW1    int
@@ -121,26 +123,36 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 	}
 
 	switch m.Arch {
-	case permute.ArchBicameral:
+	case permute.ArchBicameral, permute.ArchTricameral:
+		n := permute.CamsOf(m.Arch)
+		if n < 2 {
+			n = 2
+		}
 		initIn := randWeights(hidden*flat, rng)
-		initR := randWeights(hidden*hidden, rng)
-		initL := randWeights(hidden*hidden, rng)
 		initOut := randWeights(spec.Classes*hidden, rng)
 		din, err := dense.NewConfigured(flat, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initIn)
 		if err != nil {
 			return nil, fmt.Errorf("dense_in: %w", err)
 		}
-		br, err := dense.NewConfigured(hidden, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initR)
-		if err != nil {
-			return nil, fmt.Errorf("branch_r: %w", err)
-		}
-		bl, err := dense.NewConfigured(hidden, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initL)
-		if err != nil {
-			return nil, fmt.Errorf("branch_l: %w", err)
+		branches := make([]any, n)
+		var br, bl *dense.Layer
+		for i := 0; i < n; i++ {
+			initB := randWeights(hidden*hidden, rng)
+			b, err := dense.NewConfigured(hidden, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initB)
+			if err != nil {
+				return nil, fmt.Errorf("hemi %d: %w", i, err)
+			}
+			branches[i] = b
+			if i == 0 {
+				br = b
+			}
+			if i == 1 {
+				bl = b
+			}
 		}
 		para, err := parallel.NewFromBranches(parallel.Config{
-			Dim: hidden, OutFeat: hidden, Branches: 2, Combine: parallel.CombineAdd,
-		}, []any{br, bl}, nil)
+			Dim: hidden, OutFeat: hidden, Branches: n, Combine: parallel.CombineAdd,
+		}, branches, nil)
 		if err != nil {
 			return nil, fmt.Errorf("parallel: %w", err)
 		}
@@ -195,10 +207,13 @@ func (m *Model) applyCell(cell permute.Cell) error {
 	if m.Head != nil {
 		layers = append(layers, layerExec{m.Head.SetDType, m.Head.Pack, &m.Head.Exec})
 	}
-	for _, dl := range []*dense.Layer{m.DenseIn, m.BranchR, m.BranchL, m.DenseOut} {
-		if dl == nil {
-			continue
-		}
+	if m.DenseIn != nil {
+		layers = append(layers, layerExec{m.DenseIn.SetDType, m.DenseIn.Pack, &m.DenseIn.Exec})
+	}
+	if m.DenseOut != nil {
+		layers = append(layers, layerExec{m.DenseOut.SetDType, m.DenseOut.Pack, &m.DenseOut.Exec})
+	}
+	for _, dl := range m.hemiDenses() {
 		layers = append(layers, layerExec{dl.SetDType, dl.Pack, &dl.Exec})
 	}
 	for _, set := range layers {
@@ -247,7 +262,7 @@ func (m *Model) Forward(x *core.Tensor[float32]) (*core.Tensor[float32], *tape, 
 	flat := &core.Tensor[float32]{Shape: []int{batch, m.FlatIn}, Data: y2.Data}
 	tp := &tape{x: x, pre1: pre1, y1: y1, pre2: pre2, y2: y2, flat: flat}
 
-	if m.Arch == permute.ArchBicameral {
+	if m.Arch == permute.ArchBicameral || m.Arch == permute.ArchTricameral {
 		preIn, mid, err := dense.Forward(m.DenseIn, flat)
 		if err != nil {
 			return nil, nil, err
@@ -340,39 +355,58 @@ func (m *Model) ServeEval(x, target *core.Tensor[float32]) (preds []int, softAcc
 	return preds, softAcc, nil
 }
 
+func (m *Model) isCameral() bool {
+	return m != nil && m.Para != nil
+}
+
+func (m *Model) hemiDenses() []*dense.Layer {
+	if m == nil || m.Para == nil {
+		return nil
+	}
+	out := make([]*dense.Layer, 0, len(m.Para.Branches))
+	for _, ch := range m.Para.Branches {
+		if d, ok := ch.(*dense.Layer); ok {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// denseSandwich is stem→hemispheres→head (no CNN). Credit TrainMode runs here.
+func (m *Model) denseSandwich() (*parallel.Stack, error) {
+	if m == nil {
+		return nil, fmt.Errorf("chain: nil")
+	}
+	if m.stack != nil {
+		return m.stack, nil
+	}
+	var s *parallel.Stack
+	var err error
+	if m.isCameral() {
+		s, err = parallel.NewStack(m.DenseIn, m.Para, m.DenseOut)
+	} else if m.Head != nil {
+		s, err = parallel.NewStack(m.Head)
+	} else {
+		return nil, fmt.Errorf("chain: no dense sandwich")
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.stack = s
+	return s, nil
+}
+
 // SoftAccScaleClass: SoftAcc on probabilities (MNIST). Sine test41 uses 0.10.
-const SoftAccScaleClass = 1.0
+const SoftAccScaleClass = lucy.SoftAccScaleClass
 
 // SoftAccProb is SoftAcc for a probability in [0,1] vs target (usually 1.0).
 func SoftAccProb(pred, target float32) float64 {
-	p := float64(pred)
-	if math.IsNaN(p) || math.IsInf(p, 0) {
-		return 0
-	}
-	a := 100 * (1 - math.Abs(p-float64(target))/SoftAccScaleClass)
-	if a < 0 {
-		return 0
-	}
-	if a > 100 {
-		return 100
-	}
-	return a
+	return lucy.SoftAccProb(pred, target)
 }
 
 // SoftAccOne is SoftAcc for a single pred/target pair (test41 sine formula, scale 0.10).
 func SoftAccOne(pred, target float32) float64 {
-	p := float64(pred)
-	if math.IsNaN(p) || math.IsInf(p, 0) {
-		return 0
-	}
-	a := 100 * (1 - math.Abs(p-float64(target))/0.10)
-	if a < 0 {
-		return 0
-	}
-	if a > 100 {
-		return 100
-	}
-	return a
+	return lucy.SoftAccOne(pred, target)
 }
 
 func softmaxInto(logits, out []float32) {
