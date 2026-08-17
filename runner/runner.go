@@ -34,8 +34,9 @@ type Config struct {
 	PulseEvery      time.Duration
 	CheckpointEvery time.Duration
 	LR              float64
-	FlipAt          float64 // fraction of epoch → phase B
-	FlipBack        float64 // fraction of epoch → phase A2
+	FlipAt          float64       // fraction of epoch (or CellMin) → phase B
+	FlipBack        float64       // fraction of epoch (or CellMin) → phase A2
+	CellMin         time.Duration // 0 = one train epoch then stop (live_mnist). >0 loops train until this wall time.
 	Store           *checkpoint.Store
 	Resume          *checkpoint.Progress
 	Build           BuildFunc // nil → chain.Build(Spec); live_mnist leaves this unset
@@ -331,7 +332,12 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			}
 			off := ds.EpochOffset()
 			frac := 0.0
-			if trainLen > 0 {
+			if cfg.CellMin > 0 {
+				frac = time.Since(start).Seconds() / cfg.CellMin.Seconds()
+				if frac > 1 {
+					frac = 1
+				}
+			} else if trainLen > 0 {
 				frac = float64(off) / float64(trainLen)
 			}
 			p := phaseAtFrac(frac, cfg.FlipAt, cfg.FlipBack)
@@ -340,9 +346,19 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 				prevPhase = p
 			}
 			phase.Store(p)
+			if ps, ok := ds.(interface{ SetPhase(string) }); ok {
+				ps.SetPhase(p)
+			}
 
 			s, ok := ds.NextTrain()
 			if !ok {
+				if cfg.CellMin > 0 && time.Since(start) < cfg.CellMin {
+					ds.ResetEpoch(0)
+					continue
+				}
+				return
+			}
+			if cfg.CellMin > 0 && time.Since(start) >= cfg.CellMin {
 				return
 			}
 			s = remap(s, p)
@@ -435,8 +451,11 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			metrics.Finalize(&snap)
 			lastSnap.Store(snap)
 			tr.Pulse(w, snap, p)
-			tr.SetCellProgress(cellIdx, len(cfg.Cells),
-				fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen))
+			msg := fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen)
+			if cfg.CellMin > 0 {
+				msg = fmt.Sprintf("%s · %s/%s", msg, time.Since(start).Truncate(10*time.Millisecond), cfg.CellMin)
+			}
+			tr.SetCellProgress(cellIdx, len(cfg.Cells), msg)
 		}
 		for {
 			select {
