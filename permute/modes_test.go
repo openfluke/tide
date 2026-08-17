@@ -82,3 +82,24 @@ func TestSprintIsNoneAllArches(t *testing.T) {
 		t.Fatalf("uneven arches %+v", seen)
 	}
 }
+
+func TestParseModes(t *testing.T) {
+	ms, err := ParseModes("sgd,step_sgd,tween")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ms) != 3 || ms[0] != ModeSGD || ms[1] != ModeStepSGD || ms[2] != ModeTween {
+		t.Fatalf("%v", ms)
+	}
+	alias, err := ParseModes("NormalBP")
+	if err != nil || len(alias) != 1 || alias[0] != ModeSGD {
+		t.Fatalf("alias %v %v", alias, err)
+	}
+	if _, err := ParseModes("not-a-mode"); err == nil {
+		t.Fatal("expected unknown mode error")
+	}
+	all, err := ParseModes("all")
+	if err != nil || all != nil {
+		t.Fatalf("all: %v %v", all, err)
+	}
+}

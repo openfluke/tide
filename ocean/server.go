@@ -19,8 +19,10 @@ var static embed.FS
 
 // Peer is one tide dashboard to poll.
 type Peer struct {
-	Name string `json:"name"`
-	URL  string `json:"url"` // origin, e.g. http://127.0.0.1:8080
+	Name  string   `json:"name"`
+	URL   string   `json:"url"` // origin ocean should poll, e.g. http://192.168.1.21:8101
+	Layer string   `json:"layer,omitempty"`
+	Modes []string `json:"modes,omitempty"`
 }
 
 // PeerState is the last successful (or failed) poll of one tide.
@@ -88,16 +90,18 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id":     "ocean",
-			"task":   s.Title,
-			"ocean":  true,
-			"peers":  len(s.Peers),
-			"addr":   s.Addr,
-			"apis":   map[string]string{"ocean": "/api/ocean", "start_all": "/api/start-all", "start": "/api/start", "report": "/api/report.pdf"},
+			"id":    "ocean",
+			"task":  s.Title,
+			"ocean": true,
+			"peers": len(s.peerList()),
+			"addr":  s.Addr,
+			"apis":  map[string]string{"ocean": "/api/ocean", "start_all": "/api/start-all", "start": "/api/start", "register": "/api/register", "peers": "/api/peers", "report": "/api/report.pdf"},
 		})
 	})
 	mux.HandleFunc("/api/report.pdf", s.handleReportPDF)
 	mux.HandleFunc("/api/report", s.handleReportJSON)
+	mux.HandleFunc("/api/register", s.handleRegister)
+	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/start-all", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			http.Error(w, "POST /api/start-all", http.StatusMethodNotAllowed)
@@ -153,9 +157,10 @@ func (s *Server) ListenAndServe() error {
 // Snapshot polls every peer (in parallel) and consolidates winners.
 func (s *Server) Snapshot() Snapshot {
 	s.ensure()
-	states := make([]PeerState, len(s.Peers))
+	peers := s.peerList()
+	states := make([]PeerState, len(peers))
 	var wg sync.WaitGroup
-	for i, p := range s.Peers {
+	for i, p := range peers {
 		wg.Add(1)
 		go func(i int, p Peer) {
 			defer wg.Done()
@@ -214,10 +219,11 @@ func (s *Server) getBoard(origin string) (dash.Board, error) {
 }
 
 func (s *Server) startAll(ctx context.Context) map[string]any {
-	out := make(map[string]any, len(s.Peers))
+	peers := s.peerList()
+	out := make(map[string]any, len(peers))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, p := range s.Peers {
+	for _, p := range peers {
 		wg.Add(1)
 		go func(p Peer) {
 			defer wg.Done()
@@ -240,7 +246,7 @@ func (s *Server) startAll(ctx context.Context) map[string]any {
 }
 
 func (s *Server) startOne(ctx context.Context, name string) error {
-	for _, p := range s.Peers {
+	for _, p := range s.peerList() {
 		if p.Name == name || p.URL == name {
 			return s.postStart(ctx, strings.TrimRight(p.URL, "/"))
 		}

@@ -77,7 +77,7 @@
   <h1><span>ocean</span> linked tides</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Each card is a live tide. Ocean polls <code>/api/board</code> — it does not retrain. Score = T × Availability% × SoftAcc% / 10,000. quick_sprint is every dtype × train mode × single/bi/tri cameral, with a Lucy <b>min wall-clock per cell</b> and a toy that matches the layer (XOR, sine switches, delayed cue, associative recall). The goal is a default recipe: fastest realtime serve+train that still adapts and keeps learning.</p>
+<p class="score-eq">Each card is a live tide. Ocean polls <code>/api/board</code> — it does not retrain. Remote Pis <code>POST /api/register</code> then wait for <b>Start all</b>. Score = T × Availability% × SoftAcc% / 10,000. A worker can pin <code>-modes sgd,step_sgd</code> so three Zeros split the train-mode axis.</p>
 <div class="actions">
   <button type="button" id="startAll">Start all tides</button>
   <button type="button" class="ghost" id="refresh">Refresh now</button>

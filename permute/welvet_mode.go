@@ -84,3 +84,40 @@ func (m TrainMode) IsStepSched() bool {
 		return strings.HasPrefix(s, "step") && !strings.Contains(s, "mesh")
 	}
 }
+
+// ParseModes splits a csv of train-mode tokens (sgd, TweenSplit, Sparse, …).
+// Empty or "all" means no filter. Unknown tokens error.
+func ParseModes(spec string) ([]TrainMode, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" || strings.EqualFold(spec, "all") {
+		return nil, nil
+	}
+	by := map[string]TrainMode{
+		"normalbp": ModeSGD,
+		"stepbp":   ModeStepSGD,
+	}
+	for _, m := range AllModes() {
+		by[strings.ToLower(string(m))] = m
+	}
+	var out []TrainMode
+	seen := map[TrainMode]bool{}
+	for _, tok := range strings.Split(spec, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		m, ok := by[strings.ToLower(tok)]
+		if !ok {
+			return nil, fmt.Errorf("unknown train mode %q", tok)
+		}
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no train modes in %q", spec)
+	}
+	return out, nil
+}
