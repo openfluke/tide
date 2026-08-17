@@ -2,6 +2,7 @@ package dash
 
 import (
 	"github.com/openfluke/tide/pulse"
+	"github.com/openfluke/tide/report"
 )
 
 // APIPaths is the HTTP catalog every tide dashboard exposes.
@@ -20,62 +21,64 @@ func APIPaths() map[string]string {
 
 // Meta is the lightweight identity payload (no leaderboards).
 type Meta struct {
-	ID             string            `json:"id"`
-	Task           string            `json:"task"`
-	Subtitle       string            `json:"subtitle"`
-	Addr           string            `json:"addr"`
-	Epoch          int               `json:"epoch"`
-	Started        bool              `json:"started"`
-	AwaitingStart  bool              `json:"awaiting_start"`
-	CellTotal      int               `json:"cell_total"`
-	Ocean          bool              `json:"ocean"`
-	APIs           map[string]string `json:"apis"`
+	ID            string            `json:"id"`
+	Task          string            `json:"task"`
+	Subtitle      string            `json:"subtitle"`
+	Addr          string            `json:"addr"`
+	Epoch         int               `json:"epoch"`
+	Started       bool              `json:"started"`
+	AwaitingStart bool              `json:"awaiting_start"`
+	CellTotal     int               `json:"cell_total"`
+	Ocean         bool              `json:"ocean"`
+	APIs          map[string]string `json:"apis"`
 }
 
 // Board is the compact live snapshot ocean polls (~1s).
 // Same Lucy boards as /api/live, without the full completed[] dump.
 type Board struct {
-	ID              string            `json:"id"`
-	Task            string            `json:"task"`
-	Subtitle        string            `json:"subtitle"`
-	Addr            string            `json:"addr"`
-	Epoch           int               `json:"epoch"`
-	Started         bool              `json:"started"`
-	AwaitingStart   bool              `json:"awaiting_start"`
-	Running         bool              `json:"running"`
-	Phase           string            `json:"phase"`
-	Message         string            `json:"message"`
-	CellIndex       int               `json:"cell_index"`
-	CellTotal       int               `json:"cell_total"`
-	Ok              int               `json:"ok"`
-	Gap             int               `json:"gap"`
-	Fail            int               `json:"fail"`
-	OkAll           int               `json:"ok_all"`
-	Recorded        int               `json:"recorded"`
-	Plan            int               `json:"plan"`
-	EpochDone       int               `json:"epoch_done"`
-	ProgressPct     float64           `json:"progress_pct"`
-	Current         *pulse.Result     `json:"current,omitempty"`
-	Best            pulse.Best        `json:"best"`
-	BestMobile      pulse.BestMobile  `json:"best_mobile"`
-	BestLearn       pulse.BestLearn   `json:"best_learn"`
-	Winners         Winners           `json:"winners"`
-	ModeProgress    []ModeProgress    `json:"mode_progress"`
-	Leaderboard     []pulse.Result    `json:"leaderboard"`
-	LeaderboardLearn []pulse.Result   `json:"leaderboard_learn"`
-	BestAdapt       *pulse.Result     `json:"best_adapt,omitempty"`
-	BestSoft        *pulse.Result     `json:"best_soft,omitempty"`
-	BestHard        *pulse.Result     `json:"best_hard,omitempty"`
-	BestConsistency *pulse.Result     `json:"best_consistency,omitempty"`
-	BestStability   *pulse.Result     `json:"best_stability,omitempty"`
-	BestAccThru     *pulse.Result     `json:"best_acc_thru,omitempty"`
-	BestRealtime    *pulse.Result     `json:"best_realtime,omitempty"`
-	BestKeep        *pulse.Result     `json:"best_keep,omitempty"`
-	Axes            []LucyAxis        `json:"axes,omitempty"`
-	APIs            map[string]string `json:"apis"`
+	ID               string            `json:"id"`
+	Task             string            `json:"task"`
+	Subtitle         string            `json:"subtitle"`
+	Addr             string            `json:"addr"`
+	Epoch            int               `json:"epoch"`
+	Started          bool              `json:"started"`
+	AwaitingStart    bool              `json:"awaiting_start"`
+	Running          bool              `json:"running"`
+	Phase            string            `json:"phase"`
+	Message          string            `json:"message"`
+	CellIndex        int               `json:"cell_index"`
+	CellTotal        int               `json:"cell_total"`
+	Ok               int               `json:"ok"`
+	Gap              int               `json:"gap"`
+	Fail             int               `json:"fail"`
+	OkAll            int               `json:"ok_all"`
+	Recorded         int               `json:"recorded"`
+	Plan             int               `json:"plan"`
+	EpochDone        int               `json:"epoch_done"`
+	ProgressPct      float64           `json:"progress_pct"`
+	Current          *pulse.Result     `json:"current,omitempty"`
+	Best             pulse.Best        `json:"best"`
+	BestMobile       pulse.BestMobile  `json:"best_mobile"`
+	BestLearn        pulse.BestLearn   `json:"best_learn"`
+	Winners          Winners           `json:"winners"`
+	ModeProgress     []ModeProgress    `json:"mode_progress"`
+	Leaderboard      []pulse.Result    `json:"leaderboard"`
+	LeaderboardLearn []pulse.Result    `json:"leaderboard_learn"`
+	BestAdapt        *pulse.Result     `json:"best_adapt,omitempty"`
+	BestSoft         *pulse.Result     `json:"best_soft,omitempty"`
+	BestHard         *pulse.Result     `json:"best_hard,omitempty"`
+	BestConsistency  *pulse.Result     `json:"best_consistency,omitempty"`
+	BestStability    *pulse.Result     `json:"best_stability,omitempty"`
+	BestAccThru      *pulse.Result     `json:"best_acc_thru,omitempty"`
+	BestRealtime     *pulse.Result     `json:"best_realtime,omitempty"`
+	BestKeep         *pulse.Result     `json:"best_keep,omitempty"`
+	Axes             []LucyAxis        `json:"axes,omitempty"`
+	Heat             report.Heat       `json:"heat,omitempty"`
+	LPD              report.LPD        `json:"lpd,omitempty"`
+	APIs             map[string]string `json:"apis"`
 	// Status is paused | queued | running | done | idle — ocean uses this so
 	// a finished epoch (dashboard kept up) is not shown as "still running".
-	Status          string            `json:"status"`
+	Status string `json:"status"`
 }
 
 func (s *Server) identityID() string {
@@ -149,6 +152,9 @@ func (s *Server) Board() Board {
 	}
 	started := s != nil && s.Started()
 	adapt, soft, hard, cons, stab, accThru, realtime, keep := extraBests(live.Completed)
+	pts := report.PointsFromResults(live.Completed, s.Task)
+	lpd := report.BuildLPD(pts)
+	heat := report.BuildHeat(pts)
 	out := Board{
 		ID:               s.identityID(),
 		Task:             s.Task,
@@ -186,11 +192,32 @@ func (s *Server) Board() Board {
 		BestAccThru:      accThru,
 		BestRealtime:     realtime,
 		BestKeep:         keep,
+		Heat:             heat,
+		LPD:              lpd,
 		APIs:             APIPaths(),
 		Status:           boardStatus(started, live.Running, epochDone, plan),
 	}
 	out.Axes = LucyAxes(out)
+	if ax := lpdAxis(out.LPD); ax.Name != "" {
+		out.Axes = append(out.Axes, ax)
+	}
 	return out
+}
+
+func lpdAxis(l report.LPD) LucyAxis {
+	pick := report.LPDRow{}
+	if len(l.Gold) > 0 {
+		pick = l.Gold[0]
+	} else if len(l.Top) > 0 && l.Top[0].LPD > 0 {
+		pick = l.Top[0]
+	} else {
+		return LucyAxis{}
+	}
+	return LucyAxis{
+		Name: "lpd", Hint: "goldilocks: ≥80% of Score champ quality at ≤20% RAM",
+		Value: pick.LPD, CellID: pick.ID, Mode: pick.Mode, DType: pick.DType, Arch: pick.Arch,
+		Score: pick.Score, SoftAcc: pick.Soft, Thru: pick.Thru, Avail: pick.Avail,
+	}
 }
 
 func countResults(completed []pulse.Result, epoch int) (okE, gapE, failE, okAll, recorded int) {
@@ -246,6 +273,15 @@ func (s *Server) livePayload() map[string]any {
 	if cellTotal == 0 {
 		cellTotal = live.CellTotal
 	}
+	heatLive := b.Heat
+	if n := len(heatLive.Points); n > 240 {
+		step := (n + 239) / 240
+		slim := make([]report.CellPoint, 0, 240)
+		for i := 0; i < n; i += step {
+			slim = append(slim, heatLive.Points[i])
+		}
+		heatLive.Points = slim
+	}
 	return map[string]any{
 		"live": live,
 		// Flat fields kept for older dashboard JS that reads top-level keys.
@@ -287,5 +323,7 @@ func (s *Server) livePayload() map[string]any {
 		"recorded":                 b.Recorded,
 		"progress_pct":             b.ProgressPct,
 		"axes":                     b.Axes,
+		"heat":                     heatLive,
+		"lpd":                      b.LPD,
 	}
 }

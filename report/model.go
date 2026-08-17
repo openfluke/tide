@@ -29,6 +29,9 @@ type TideReport struct {
 	ModeProgress []ModeRow            `json:"mode_progress"`
 	History      []pulse.HistoryPoint `json:"history,omitempty"`
 	Axes         []AxisView           `json:"axes,omitempty"`
+	Cells        []CellPoint          `json:"cells,omitempty"`
+	Heat         Heat                 `json:"heat,omitempty"`
+	LPD          LPD                  `json:"lpd,omitempty"`
 }
 
 // OceanReport is the master consolidation plus per-tide pages.
@@ -60,6 +63,8 @@ type HolisticView struct {
 	TidesTotal   int        `json:"tides_total"`
 	CellsDone    int        `json:"cells_done"`
 	CellsTotal   int        `json:"cells_total"`
+	Heat         Heat       `json:"heat,omitempty"`
+	LPD          LPD        `json:"lpd,omitempty"`
 }
 
 type Vote struct {
@@ -69,19 +74,20 @@ type Vote struct {
 }
 
 type LayerRow struct {
-	Tide     string  `json:"tide"`
-	Mode     string  `json:"mode"`
-	DType    string  `json:"dtype"`
-	Arch     string  `json:"arch"`
-	CellID   string  `json:"cell_id"`
-	Score    float64 `json:"score"`
-	SoftAcc  float64 `json:"soft_acc"`
-	Avail    float64 `json:"availability"`
-	Thru     float64 `json:"throughput"`
-	Adapt    float64 `json:"adapt_pct"`
-	Done     int     `json:"done"`
-	Total    int     `json:"total"`
-	Recorded int     `json:"recorded"`
+	Tide     string     `json:"tide"`
+	Mode     string     `json:"mode"`
+	DType    string     `json:"dtype"`
+	Arch     string     `json:"arch"`
+	CellID   string     `json:"cell_id"`
+	Score    float64    `json:"score"`
+	SoftAcc  float64    `json:"soft_acc"`
+	Acc      float64    `json:"avg_accuracy"`
+	Avail    float64    `json:"availability"`
+	Thru     float64    `json:"throughput"`
+	Adapt    float64    `json:"adapt_pct"`
+	Done     int        `json:"done"`
+	Total    int        `json:"total"`
+	Recorded int        `json:"recorded"`
 	Status   string     `json:"status"`
 	Axes     []AxisView `json:"axes,omitempty"`
 }
@@ -104,6 +110,7 @@ type TopRow struct {
 	CellID  string  `json:"cell_id"`
 	Score   float64 `json:"score"`
 	SoftAcc float64 `json:"soft_acc"`
+	Acc     float64 `json:"avg_accuracy"`
 	Avail   float64 `json:"availability"`
 }
 
@@ -123,8 +130,52 @@ type WinnerRow struct {
 	Arch    string  `json:"arch"`
 	Score   float64 `json:"score"`
 	SoftAcc float64 `json:"soft_acc"`
+	Acc     float64 `json:"avg_accuracy"`
 	Avail   float64 `json:"availability"`
 	N       int     `json:"n"`
+}
+
+// CellPoint is one finished ok cell, slim enough for heatmaps / Pareto / scatter.
+type CellPoint struct {
+	Tide   string  `json:"tide,omitempty"`
+	ID     string  `json:"id"`
+	Mode   string  `json:"mode"`
+	DType  string  `json:"dtype"`
+	Format string  `json:"format"`
+	Arch   string  `json:"arch"`
+	Score  float64 `json:"score"`
+	Soft   float64 `json:"soft_acc"`
+	Acc    float64 `json:"avg_accuracy"`
+	Avail  float64 `json:"availability"`
+	Thru   float64 `json:"throughput"`
+	Adapt  float64 `json:"adapt_pct"`
+	RAMKiB float64 `json:"ram_kib,omitempty"`
+}
+
+// Heat is mean Lucy metrics on the mode × dtype / mode × arch / layer × mode grids.
+type Heat struct {
+	Modes  []string `json:"modes,omitempty"`
+	DTypes []string `json:"dtypes,omitempty"`
+	Arches []string `json:"arches,omitempty"`
+	Layers []string `json:"layers,omitempty"`
+
+	ModeDTypeScore [][]float64 `json:"mode_dtype_score,omitempty"`
+	ModeDTypeSoft  [][]float64 `json:"mode_dtype_soft,omitempty"`
+	ModeDTypeAcc   [][]float64 `json:"mode_dtype_acc,omitempty"`
+	ModeArchScore  [][]float64 `json:"mode_arch_score,omitempty"`
+	ModeArchAcc    [][]float64 `json:"mode_arch_acc,omitempty"`
+	LayerModeScore [][]float64 `json:"layer_mode_score,omitempty"`
+	LayerModeAcc   [][]float64 `json:"layer_mode_acc,omitempty"`
+
+	ModeMeanScore  []float64 `json:"mode_mean_score,omitempty"`
+	ModeMeanSoft   []float64 `json:"mode_mean_soft,omitempty"`
+	ModeMeanAcc    []float64 `json:"mode_mean_acc,omitempty"`
+	DTypeMeanScore []float64 `json:"dtype_mean_score,omitempty"`
+	DTypeMeanAcc   []float64 `json:"dtype_mean_acc,omitempty"`
+	ArchMeanScore  []float64 `json:"arch_mean_score,omitempty"`
+	ArchMeanAcc    []float64 `json:"arch_mean_acc,omitempty"`
+
+	Points []CellPoint `json:"points,omitempty"`
 }
 
 type ModeRow struct {

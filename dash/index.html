@@ -123,7 +123,7 @@
   .rank-list { display: flex; flex-direction: column; gap: 0.28rem; }
   .rank-head, .rank-row {
     display: grid;
-    grid-template-columns: minmax(150px, 230px) 1fr 1fr 1fr 1fr;
+    grid-template-columns: minmax(150px, 230px) 1fr 1fr 1fr 1fr 1fr;
     gap: 0.45rem; align-items: center;
   }
   .rank-head {
@@ -218,6 +218,13 @@
     display: inline-block; padding: 0.15rem 0.45rem;
     border: 1px solid var(--grid); font-size: 0.75rem; color: var(--muted);
   }
+  .lpd-callout {
+    margin: 0 0 0.75rem; padding: 0.65rem 0.85rem;
+    border: 1px solid #b7791f; background: rgba(183,121,31,0.08);
+    font-size: 0.88rem;
+  }
+  .lpd-callout.empty { border-color: var(--grid); background: rgba(0,0,0,0.18); color: var(--muted); }
+  .lpd-callout.trap { border-color: var(--bad); background: rgba(224,108,117,0.08); }
   .scrub {
     display: flex; gap: 0.75rem; align-items: center; margin-top: 0.75rem;
     font-size: 0.85rem; color: var(--muted);
@@ -267,11 +274,12 @@
     background: rgba(0,0,0,0.35); border: 1px solid var(--grid); color: var(--ink);
     padding: 0.35rem 0.5rem; font: inherit; font-size: 0.85rem;
   }
-  @media (max-width: 720px) {
-    .hbar { grid-template-columns: 1fr; }
-    .rank-head { display: none; }
-    .rank-row { grid-template-columns: 1fr; }
-  }
+  table.heat { font-size: 0.72rem; }
+  table.heat th, table.heat td { padding: 0.18rem 0.28rem; text-align: center; }
+  table.heat th:first-child, table.heat td:first-child { text-align: left; font-family: inherit; }
+  .heat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 1100px) { .heat-grid { grid-template-columns: 1fr; } }
+  canvas.scatter { width: 100%; height: 220px; background: rgba(0,0,0,0.25); }
 </style>
 </head>
 <body>
@@ -350,6 +358,81 @@
     <div class="rank-list" id="rankChart"></div>
   </section>
   <section>
+    <h2>Lucy Pareto (LPD) — goldilocks</h2>
+    <p class="hint" id="lpdHint">
+      Q is how close a cell stays to the <b>Score champion</b> (geomean of Score, Soft, Acc, Thru).
+      Gold = Q ≥ 80% <b>and</b> RAM ≤ 20% of that champ — 80% of the best, at 1/5th the memory.
+      LPD is 0 below Q 70% so binary / chance Acc cannot win. Raw Score/MiB is the trap (tiny RAM, dead learner).
+    </p>
+    <div class="legend">
+      <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
+      <span><i style="background:#e6b35a"></i>near Q≥70% RAM≤50%</span>
+      <span><i style="background:#3dd6c6"></i>keep quality, not small</span>
+      <span><i style="background:#e06c75"></i>trap tiny RAM, Q&lt;70%</span>
+    </div>
+    <div id="lpdChamp" class="meta" style="margin-bottom:0.5rem">—</div>
+    <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.</div>
+    <div class="heat-grid">
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Q% vs RAM KiB — gold is top-left</h3>
+        <canvas class="scatter" id="scLpdRam" width="480" height="220"></canvas>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Q% vs shrink — gold is top-right</h3>
+        <canvas class="scatter" id="scLpdShrink" width="480" height="220"></canvas>
+      </div>
+    </div>
+    <div class="table-wrap" style="max-height:420px;margin-top:0.8rem">
+      <table>
+        <thead><tr>
+          <th>Band</th><th>Cell</th><th class="num">Q%</th><th class="num">RAM%</th><th class="num">×smaller</th>
+          <th class="num">LPD</th><th class="num">Score</th><th class="num">Soft</th><th class="num">Acc</th><th class="num">Thru</th><th class="num">KiB</th>
+        </tr></thead>
+        <tbody id="lpdTable"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>Honesty grids (test48)</h2>
+    <p class="hint">Mean Lucy metrics on every finished ok cell. Green is high. Empty = that mode×dtype has not finished yet. Soft is live fit; Acc is argmax / hard accuracy.</p>
+    <div class="heat-grid">
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Mean Score — mode × dtype</h3>
+        <div class="table-wrap" id="heatScore"></div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Mean hard Acc — mode × dtype</h3>
+        <div class="table-wrap" id="heatAcc"></div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Mean SoftAcc — mode × dtype</h3>
+        <div class="table-wrap" id="heatSoft"></div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Mean Score — mode × arch</h3>
+        <div class="table-wrap" id="heatArch"></div>
+      </div>
+    </div>
+    <div class="heat-grid" style="margin-top:1rem">
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Avail vs hard Acc</h3>
+        <canvas class="scatter" id="scAvailAcc" width="480" height="220"></canvas>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">SoftAcc vs Score (Pareto gold)</h3>
+        <canvas class="scatter" id="scSoftScore" width="480" height="220"></canvas>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Hard Acc vs Score</h3>
+        <canvas class="scatter" id="scAccScore" width="480" height="220"></canvas>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">SoftAcc vs hard Acc</h3>
+        <canvas class="scatter" id="scSoftAcc" width="480" height="220"></canvas>
+      </div>
+    </div>
+  </section>
+  <section>
     <h2>Best raw</h2>
     <div id="bests" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Lucy axis champions</h2>
@@ -360,11 +443,13 @@
         <tbody id="lucyAxes"></tbody>
       </table>
     </div>
-    <h2 style="margin-top:1.25rem">Best mobile (metric / MiB)</h2>
+    <h2 style="margin-top:1.25rem">Best mobile (raw Score/MiB — trap)</h2>
+    <p class="hint">Highest Score per MiB. Binary lights this up even at chance Acc. Use the LPD goldilocks board above.</p>
     <div id="mobile" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Best learn (fastest)</h2>
     <div id="bestLearn" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Best learn mobile</h2>
+    <h2 style="margin-top:1.25rem">Best learn mobile (Acc/sec/MiB — trap)</h2>
+    <p class="hint">Same trap unless Acc held. Prefer LPD.</p>
     <div id="bestLearnMobile" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Mode mix (finished)</h2>
     <p class="hint">Train modes already completed.</p>
@@ -412,7 +497,7 @@
     <p class="hint">Highest Lucy Score <b>dtype</b> for each mode (see the recipe table above for the full winning settings).</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
-        <thead><tr><th>Mode</th><th>Best dtype</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <thead><tr><th>Mode</th><th>Best dtype</th><th>Score</th><th>Soft</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
         <tbody id="winDTypeMode"></tbody>
       </table>
     </div>
@@ -422,7 +507,7 @@
     <p class="hint">Highest Score format for each mode (none = native dtype).</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
-        <thead><tr><th>Mode</th><th>Best format</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <thead><tr><th>Mode</th><th>Best format</th><th>Score</th><th>Soft</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
         <tbody id="winFmtMode"></tbody>
       </table>
     </div>
@@ -435,7 +520,7 @@
     <p class="hint">Which training path wins for each dtype.</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
-        <thead><tr><th>Dtype</th><th>Best mode</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <thead><tr><th>Dtype</th><th>Best mode</th><th>Score</th><th>Soft</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
         <tbody id="winModeDType"></tbody>
       </table>
     </div>
@@ -445,7 +530,7 @@
     <p class="hint">Which training path wins for each pack format.</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
-        <thead><tr><th>Format</th><th>Best mode</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <thead><tr><th>Format</th><th>Best mode</th><th>Score</th><th>Soft</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
         <tbody id="winModeFmt"></tbody>
       </table>
     </div>
@@ -458,7 +543,7 @@
     <p class="hint">Champion cell for each mode at each cameral width (single×1 / bi×2 / tri×3). That is head count, not the layer under test.</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
-        <thead><tr><th>Mode</th><th>Score</th><th>Acc</th><th>t→50%</th><th>Acc/s</th><th>n</th><th>Cell</th></tr></thead>
+        <thead><tr><th>Mode</th><th>Score</th><th>Soft</th><th>Acc</th><th>t→50%</th><th>Acc/s</th><th>n</th><th>Cell</th></tr></thead>
         <tbody id="winCellMode"></tbody>
       </table>
     </div>
@@ -468,7 +553,7 @@
     <p class="hint">For FormatNone dtypes this is usually <code>none</code>; packed rows compare quants at float32.</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
-        <thead><tr><th>Dtype</th><th>Best format</th><th>Score</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
+        <thead><tr><th>Dtype</th><th>Best format</th><th>Score</th><th>Soft</th><th>Acc</th><th>Thru</th><th>Avail</th><th>n</th><th>Cell</th></tr></thead>
         <tbody id="winFmtDType"></tbody>
       </table>
     </div>
@@ -493,15 +578,15 @@
     </div>
   </section>
   <section>
-    <h2>All models — mobile Score/MiB</h2>
-    <p class="hint" id="boardMobileCount">0 cells</p>
+    <h2>All models — raw Score/MiB (trap)</h2>
+    <p class="hint" id="boardMobileCount">Score ÷ MiB. Binary wins this even at chance Acc. Use LPD above for goldilocks.</p>
     <div class="table-tools">
       <input id="filterMobile" type="search" placeholder="filter cell id…"/>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>#</th><th>Cell</th><th>Score/MiB</th><th>Score</th><th>SoftAcc</th><th>Adapt</th>
+          <th>#</th><th>Cell</th><th>Band</th><th>Q%</th><th>Score/MiB</th><th>Score</th><th>SoftAcc</th><th>Hard</th><th>Adapt</th>
           <th>Avail</th><th>Tput</th><th>InferMs</th><th>TrainMs</th><th>RAM</th><th>St</th>
         </tr></thead>
         <tbody id="boardMobile"></tbody>
@@ -525,14 +610,14 @@
     </div>
   </section>
   <section>
-    <h2>Learn — Acc/sec/MiB (mobile)</h2>
-    <p class="hint" id="boardLearnMobileCount">0 cells</p>
+    <h2>Learn — Acc/sec/MiB (raw mobile)</h2>
+    <p class="hint" id="boardLearnMobileCount">Same trap as Score/MiB unless Acc held. Prefer LPD.</p>
     <div class="table-tools">
       <input id="filterLearnMobile" type="search" placeholder="filter cell id…"/>
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>#</th><th>Cell</th><th>Acc/s/MiB</th><th>Acc/s</th><th>t→50%</th><th>RAM</th><th>Acc</th><th>St</th></tr></thead>
+        <thead><tr><th>#</th><th>Cell</th><th>Band</th><th>Q%</th><th>Acc/s/MiB</th><th>Acc/s</th><th>t→50%</th><th>RAM</th><th>Acc</th><th>St</th></tr></thead>
         <tbody id="boardLearnMobile"></tbody>
       </table>
     </div>
@@ -693,6 +778,7 @@ function renderWinnerRows(tbodyId, rows, cols) {
   }
   el.innerHTML = rows.map(w => {
     const score = (w.score||0).toFixed(3);
+    const soft = (w.soft_acc||0).toFixed(1) + '%';
     const acc = (w.avg_accuracy||0).toFixed(1) + '%';
     const thru = (w.throughput||0).toFixed(1);
     const avail = (w.availability||0).toFixed(1) + '%';
@@ -702,7 +788,7 @@ function renderWinnerRows(tbodyId, rows, cols) {
     if (tbodyId === 'winCellMode') {
       return `<tr class="clickable" data-cell="${escAttr(id)}">
         <td>${modeChip(w.mode || w.group)} ${archBadge(null, id)}</td>
-        <td>${score}</td><td>${acc}</td><td>${t50}</td><td>${aps}</td>
+        <td>${score}</td><td>${soft}</td><td>${acc}</td><td>${t50}</td><td>${aps}</td>
         <td>${w.n||0}</td>
         <td class="cellid">${formatCellHTML(null, id)}</td>
       </tr>`;
@@ -710,7 +796,7 @@ function renderWinnerRows(tbodyId, rows, cols) {
     return `<tr class="clickable" data-cell="${escAttr(id)}">
       <td>${(w.mode && w.mode === w.group) ? modeChip(w.group) : `<span class="dtype">${w.group||'—'}</span>`}</td>
       <td>${(w.mode && w.mode === w.winner) ? modeChip(w.winner) : `<b>${w.winner||'—'}</b>`}</td>
-      <td>${score}</td><td>${acc}</td><td>${thru}</td><td>${avail}</td>
+      <td>${score}</td><td>${soft}</td><td>${acc}</td><td>${thru}</td><td>${avail}</td>
       <td>${w.n||0}</td>
       <td class="cellid">${formatCellHTML(null, id)}</td>
     </tr>`;
@@ -749,12 +835,12 @@ function renderSettingsRows(rows) {
 function renderWinners(w) {
   w = w || {};
   renderSettingsRows(w.best_settings_per_mode);
-  renderWinnerRows('winDTypeMode', w.best_dtype_per_mode, 8);
-  renderWinnerRows('winFmtMode', w.best_format_per_mode, 8);
-  renderWinnerRows('winModeDType', w.best_mode_per_dtype, 8);
-  renderWinnerRows('winModeFmt', w.best_mode_per_format, 8);
-  renderWinnerRows('winCellMode', w.best_cell_per_mode, 7);
-  renderWinnerRows('winFmtDType', w.best_format_per_dtype, 8);
+  renderWinnerRows('winDTypeMode', w.best_dtype_per_mode, 9);
+  renderWinnerRows('winFmtMode', w.best_format_per_mode, 9);
+  renderWinnerRows('winModeDType', w.best_mode_per_dtype, 9);
+  renderWinnerRows('winModeFmt', w.best_mode_per_format, 9);
+  renderWinnerRows('winCellMode', w.best_cell_per_mode, 8);
+  renderWinnerRows('winFmtDType', w.best_format_per_dtype, 9);
 }
 
 function drawProgressPie() {
@@ -1110,12 +1196,13 @@ function drawRank() {
   }
   const maxScore = Math.max(...rows.map(r => r.snapshot?.score || 0), 1e-9);
   const maxThru = Math.max(...rows.map(r => r.snapshot?.throughput || 0), 1);
-  const head = `<div class="rank-head"><span>model</span><span>score</span><span>acc</span><span>thru</span><span>avail</span></div>`;
+  const head = `<div class="rank-head"><span>model</span><span>score</span><span>soft</span><span>acc</span><span>thru</span><span>avail</span></div>`;
   const body = rows.map(row => {
     const s = row.snapshot || {};
     const id = row.cell?.id || '';
     const vals = [
       { n: (s.score || 0) / maxScore, t: (s.score || 0).toFixed(3), c: '#3dd6c6' },
+      { n: (s.soft_acc || 0) / 100, t: (s.soft_acc || 0).toFixed(0), c: '#9be7c8' },
       { n: (s.avg_accuracy || 0) / 100, t: (s.avg_accuracy || 0).toFixed(0), c: '#e6b35a' },
       { n: (s.throughput || 0) / maxThru, t: (s.throughput || 0).toFixed(0), c: '#7aa2f7' },
       { n: (s.availability || 0) / 100, t: (s.availability || 0).toFixed(1), c: '#c3a6ff' },
@@ -1236,7 +1323,7 @@ function openCellDetail(row) {
   const s = row.snapshot || {};
   const id = row.cell?.id || '—';
   document.getElementById('cellModalId').innerHTML = formatCellHTML(row.cell, id) +
-    `<div class="sub" style="margin-top:0.35rem">${id}</div>`;
+    `<div class="sub" style="margin-top:0.35rem">${prettyCellId(id)}</div>`;
   const metrics = [
     ['Score', (s.score||0).toFixed(3)],
     ['SoftAcc', (s.soft_acc||0).toFixed(1) + '%'],
@@ -1295,16 +1382,34 @@ function closeCellDetail() {
   document.getElementById('cellModal').classList.remove('open');
 }
 
+function lpdIndex() {
+  const l = (lastLive && lastLive.lpd) || {};
+  const m = {};
+  (l.top||[]).concat(l.gold||[], l.near||[], l.trap||[]).forEach(r => {
+    if (r.id) m[prettyCellId(r.id)] = r;
+  });
+  return m;
+}
+function lpdBandOf(id) {
+  return lpdIndex()[prettyCellId(id||'')] || null;
+}
+
 function rowHTML(row, i, mobile) {
   const s = row.snapshot || {};
   const id = row.cell?.id || '';
   const esc = id.replace(/\\/g,'\\\\').replace(/'/g, "\\'");
   if (mobile) {
-    return `<tr class="clickable" data-cell="${esc}" title="click for SoftAcc 1s strip">
+    const lp = lpdBandOf(id);
+    const band = lp ? (lp.band||'—') : '—';
+    const q = lp ? ((lp.q||0)*100).toFixed(0) : '—';
+    return `<tr class="clickable" data-cell="${esc}" title="click for SoftAcc 1s strip" style="color:${lp ? bandColor(band) : ''}">
       <td>${i+1}</td><td class="cellid">${formatCellHTML(row.cell, id)}</td>
+      <td>${band}</td>
+      <td class="num">${q}</td>
       <td>${(s.mobile_score||0).toFixed(2)}</td>
       <td>${(s.score||0).toFixed(3)}</td>
       <td>${(s.soft_acc||0).toFixed(1)}</td>
+      <td>${(s.avg_accuracy||0).toFixed(1)}</td>
       <td>${(s.adapt_pct||0).toFixed(1)}</td>
       <td>${(s.availability||0).toFixed(1)}</td>
       <td>${(s.throughput||0).toFixed(1)}</td>
@@ -1336,8 +1441,13 @@ function learnRowHTML(row, i, mobile) {
   const id = row.cell?.id || '';
   const dur = (s.duration || 0) / 1e9; // Go json Duration = ns
   if (mobile) {
-    return `<tr>
+    const lp = lpdBandOf(id);
+    const band = lp ? (lp.band||'—') : '—';
+    const q = lp ? ((lp.q||0)*100).toFixed(0) : '—';
+    return `<tr style="color:${lp ? bandColor(band) : ''}">
       <td>${i+1}</td><td class="cellid">${formatCellHTML(row.cell, id)}</td>
+      <td>${band}</td>
+      <td class="num">${q}</td>
       <td>${(s.mobile_acc_per_sec||0).toFixed(2)}</td>
       <td>${(s.acc_per_sec||0).toFixed(3)}</td>
       <td>${fmtSec(s.time_to_acc50_sec)}</td>
@@ -1408,6 +1518,226 @@ function applyTaskMeta(j) {
   if (subEl && sub) subEl.textContent = sub;
 }
 
+function heatRGB(t) {
+  if (t < 0.5) {
+    const u = t * 2;
+    return [Math.round(197 + (231-197)*u), Math.round(48 + (179-48)*u), Math.round(48 + (90-48)*u)];
+  }
+  const u = (t - 0.5) * 2;
+  return [Math.round(231 + (45-231)*u), Math.round(179 + (166-179)*u), Math.round(90 + (150-90)*u)];
+}
+function heatTable(elId, rows, cols, grid) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!rows || !cols || !grid || !rows.length || !cols.length) {
+    el.innerHTML = '<p class="hint">no finished cells yet</p>';
+    return;
+  }
+  let min = Infinity, max = -Infinity;
+  grid.forEach(r => r.forEach(v => { if (v) { if (v < min) min = v; if (v > max) max = v; } }));
+  if (!isFinite(min)) { min = 0; max = 1; }
+  if (max <= min) max = min + 1;
+  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    html += `<tr><th>${r}</th>`;
+    cols.forEach((_, j) => {
+      const v = (grid[i] && grid[i][j]) || 0;
+      if (!v) { html += '<td></td>'; return; }
+      const t = (v - min) / (max - min);
+      const [cr,cg,cb] = heatRGB(t);
+      const ink = (cr*3+cg*5+cb*2) > 1400 ? '#1a2024' : '#f4f7f8';
+      html += `<td style="background:rgb(${cr},${cg},${cb});color:${ink}">${v.toFixed(0)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+function okPoints() {
+  const done = (lastLive && lastLive.completed || []).filter(r => r.status === 'ok');
+  if (done.length) {
+    return done.map(r => ({
+      mode: r.cell && r.cell.mode,
+      dtype: r.cell && r.cell.dtype,
+      arch: parseCell(r.cell, r.cell && r.cell.id).tag,
+      score: r.snapshot && r.snapshot.score,
+      soft_acc: r.snapshot && r.snapshot.soft_acc,
+      avg_accuracy: r.snapshot && r.snapshot.avg_accuracy,
+      availability: r.snapshot && r.snapshot.availability,
+    }));
+  }
+  return (lastLive && lastLive.heat && lastLive.heat.points) || [];
+}
+function drawScatter(canvasId, pts, xk, yk) {
+  const c = document.getElementById(canvasId);
+  if (!c || !c.getContext) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!pts.length) return;
+  const xs = pts.map(p => +p[xk] || 0), ys = pts.map(p => +p[yk] || 0);
+  let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+  if (xmax <= xmin) xmax = xmin + 1;
+  if (ymax <= ymin) ymax = ymin + 1;
+  const pad = 18;
+  const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
+  const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
+  ctx.strokeStyle = '#1d3342';
+  ctx.strokeRect(pad, pad, w-pad*2, h-pad*2);
+  pts.forEach((p, i) => {
+    const arch = String(p.arch || '');
+    ctx.fillStyle = /tri/i.test(arch) ? '#a882dc' : /bi/i.test(arch) ? '#4ea3ff' : '#3dd6c6';
+    ctx.fillRect(X(xs[i])-1.5, Y(ys[i])-1.5, 3, 3);
+  });
+  const front = paretoJS(pts, xk, yk);
+  ctx.strokeStyle = '#b7791f';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  front.forEach((p, i) => {
+    const x = X(+p[xk]||0), y = Y(+p[yk]||0);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+function paretoJS(pts, xk, yk) {
+  const all = pts.slice().sort((a,b) => (+a[xk]||0) - (+b[xk]||0));
+  const out = [];
+  let best = -Infinity;
+  all.forEach(p => {
+    const y = +p[yk] || 0;
+    if (y >= best) { best = y; out.push(p); }
+  });
+  return out;
+}
+function bandColor(b) {
+  if (b === 'gold') return '#b7791f';
+  if (b === 'near') return '#e6b35a';
+  if (b === 'trap') return '#e06c75';
+  if (b === 'keep') return '#3dd6c6';
+  return '#8aa0ad';
+}
+function lpdMerged(l) {
+  const seen = new Set();
+  const out = [];
+  (l.gold||[]).concat(l.near||[], l.trap||[], l.top||[]).forEach(r => {
+    const k = (r.tide||'') + '|' + (r.id||'');
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(r);
+  });
+  return out;
+}
+function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
+  const c = document.getElementById(canvasId);
+  if (!c || !c.getContext) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!rows || !rows.length) return;
+  const xs = rows.map(p => +p[xk] || 0), ys = rows.map(p => +p[yk] || 0);
+  let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+  if (xmax <= xmin) xmax = xmin + 1;
+  if (ymax <= ymin) ymax = ymin + 1;
+  if (ymin > 0) ymin = 0;
+  if (ymax < 100 && yk === 'qpct') ymax = 100;
+  const pad = 22;
+  const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
+  const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
+  ctx.strokeStyle = '#1d3342';
+  ctx.strokeRect(pad, pad, w-pad*2, h-pad*2);
+  if (hline != null && vline != null) {
+    ctx.fillStyle = 'rgba(183,121,31,0.12)';
+    const y1 = pad, y2 = Math.min(h-pad, Math.max(pad, Y(hline)));
+    if (goldSide === 'left') {
+      const x2 = Math.min(w-pad, Math.max(pad, X(vline)));
+      ctx.fillRect(pad, y1, x2 - pad, y2 - y1);
+    } else if (goldSide === 'right') {
+      const x1 = Math.min(w-pad, Math.max(pad, X(vline)));
+      ctx.fillRect(x1, y1, w-pad - x1, y2 - y1);
+    }
+  }
+  if (vline != null && vline >= xmin && vline <= xmax) {
+    ctx.strokeStyle = 'rgba(183,121,31,0.7)';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(X(vline), pad); ctx.lineTo(X(vline), h-pad); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (hline != null && hline >= ymin && hline <= ymax) {
+    ctx.strokeStyle = 'rgba(183,121,31,0.7)';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(pad, Y(hline)); ctx.lineTo(w-pad, Y(hline)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  rows.forEach((p, i) => {
+    ctx.fillStyle = bandColor(p.band);
+    const s = p.gold ? 5 : 3;
+    ctx.fillRect(X(xs[i])-s/2, Y(ys[i])-s/2, s, s);
+  });
+}
+function drawLPD() {
+  const l = (lastLive && lastLive.lpd) || {};
+  const champEl = document.getElementById('lpdChamp');
+  const goldEl = document.getElementById('lpdGold');
+  const tb = document.getElementById('lpdTable');
+  const gold = l.gold || [];
+  const near = l.near || [];
+  const trap = l.trap || [];
+  if (champEl) {
+    const c = l.champ || {};
+    champEl.innerHTML = c.id
+      ? `<span class="pill">champ</span> ${prettyCellId(c.id)} · Score ${(c.score||0).toFixed(1)} · Soft ${(c.soft_acc||0).toFixed(0)} · Acc ${(c.avg_accuracy||0).toFixed(0)} · Thru ${(c.throughput||0).toFixed(0)} · ${(c.ram_kib||0).toFixed(1)} KiB
+         · <span class="pill">gold ${gold.length}</span> <span class="pill">near ${near.length}</span> <span class="pill">trap ${trap.length}</span>`
+      : 'Need finished ok cells.';
+  }
+  if (goldEl) {
+    if (gold.length) {
+      goldEl.className = 'lpd-callout';
+      goldEl.innerHTML = '<b>Gold</b> — ' + gold.slice(0, 8).map(r =>
+        `${prettyCellId(r.id)} · Q ${((r.q||0)*100).toFixed(0)}% · ${((r.ram_frac||0)*100).toFixed(0)}% RAM · ${ (r.shrink||0).toFixed(1)}× smaller`
+      ).join('<br>');
+    } else {
+      goldEl.className = 'lpd-callout empty';
+      goldEl.textContent = 'No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.';
+    }
+  }
+  const rows = l.top || [];
+  if (tb) {
+    tb.innerHTML = rows.length ? rows.map(r => `<tr class="clickable" data-cell="${escAttr(r.id||'')}" style="color:${bandColor(r.band)}">
+      <td>${r.band||'—'}</td>
+      <td class="cellid">${formatCellHTML(null, r.id)}</td>
+      <td class="num">${((r.q||0)*100).toFixed(0)}</td>
+      <td class="num">${((r.ram_frac||0)*100).toFixed(0)}</td>
+      <td class="num">${(r.shrink||0).toFixed(1)}×</td>
+      <td class="num">${(r.lpd||0).toFixed(2)}</td>
+      <td class="num">${(r.score||0).toFixed(1)}</td>
+      <td class="num">${(r.soft_acc||0).toFixed(0)}</td>
+      <td class="num">${(r.avg_accuracy||0).toFixed(0)}</td>
+      <td class="num">${(r.throughput||0).toFixed(0)}</td>
+      <td class="num">${(r.ram_kib||0).toFixed(1)}</td>
+    </tr>`).join('') : '<tr><td colspan="11">no finished ok cells yet</td></tr>';
+    bindRowClicks(tb);
+  }
+  const pts = lpdMerged(l).map(r => ({
+    band: r.band, gold: r.gold,
+    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100,
+  }));
+  const champRam = (l.champ && l.champ.ram_kib) || 0;
+  drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
+  drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
+}
+function drawLucyCharts() {
+  const h = (lastLive && lastLive.heat) || {};
+  heatTable('heatScore', h.modes, h.dtypes, h.mode_dtype_score);
+  heatTable('heatAcc', h.modes, h.dtypes, h.mode_dtype_acc);
+  heatTable('heatSoft', h.modes, h.dtypes, h.mode_dtype_soft);
+  heatTable('heatArch', h.modes, h.arches, h.mode_arch_score);
+  const pts = okPoints();
+  drawScatter('scAvailAcc', pts, 'availability', 'avg_accuracy');
+  drawScatter('scSoftScore', pts, 'soft_acc', 'score');
+  drawScatter('scAccScore', pts, 'avg_accuracy', 'score');
+  drawScatter('scSoftAcc', pts, 'soft_acc', 'avg_accuracy');
+}
+
 async function tick() {
   try {
     const r = await fetch('/api/live');
@@ -1470,8 +1800,8 @@ async function tick() {
         <td class="num">${(a.value||0).toFixed(2)}</td>
         <td>${a.mode||'—'}</td>
         <td>${a.dtype||'—'}</td>
-        <td>${a.arch||'—'}</td>
-        <td>${a.cell_id||''}</td>
+        <td>${(a.arch||'—').replace(/^cnn$/i,'single')}</td>
+        <td>${prettyCellId(a.cell_id||'')}</td>
       </tr>`).join('') : '<tr><td colspan="6">—</td></tr>';
     }
 
@@ -1509,6 +1839,8 @@ async function tick() {
     renderBoards();
     drawRank();
     drawLearnCharts();
+    drawLucyCharts();
+    drawLPD();
   } catch (e) {
     document.getElementById('status').textContent = 'waiting for /api/live…';
   }

@@ -11,10 +11,23 @@ import (
 
 func (s *Server) Report() report.TideReport {
 	var hist []pulse.HistoryPoint
+	var live pulse.Live
 	if s != nil && s.Tracker != nil {
 		hist = s.Tracker.History()
+		live = s.Tracker.SnapshotLive()
 	}
-	return s.Board().ToReport(hist)
+	r := s.Board().ToReport(hist)
+	r.Cells = report.PointsFromResults(live.Completed, s.Task)
+	r.Heat = report.BuildHeat(r.Cells)
+	r.LPD = report.BuildLPD(r.Cells)
+	if len(live.Leaderboard) > 0 {
+		lb := live.Leaderboard
+		if len(lb) > 40 {
+			lb = lb[:40]
+		}
+		r.Leaderboard = append([]pulse.Result(nil), lb...)
+	}
+	return r
 }
 
 func (s *Server) handleReportJSON(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +84,8 @@ func (b Board) ToReport(history []pulse.HistoryPoint) report.TideReport {
 		ModeProgress: modes,
 		History:      append([]pulse.HistoryPoint(nil), history...),
 		Axes:         axesView(b.Task, b.Axes),
+		Heat:         b.Heat,
+		LPD:          b.LPD,
 	}
 }
 
@@ -78,8 +93,8 @@ func axesView(tide string, xs []LucyAxis) []report.AxisView {
 	out := make([]report.AxisView, 0, len(xs))
 	for _, a := range xs {
 		out = append(out, report.AxisView{
-			Name: a.Name, Hint: a.Hint, Tide: tide, CellID: a.CellID,
-			Mode: a.Mode, DType: a.DType, Arch: a.Arch, Value: a.Value,
+			Name: a.Name, Hint: a.Hint, Tide: tide, CellID: report.PrettyCell(a.CellID),
+			Mode: a.Mode, DType: a.DType, Arch: report.PrettyArch(a.Arch), Value: a.Value,
 			SoftAcc: a.SoftAcc, Thru: a.Thru,
 		})
 	}
@@ -91,9 +106,9 @@ func winnersView(w Winners) report.WinnersView {
 		out := make([]report.WinnerRow, 0, len(xs))
 		for _, a := range xs {
 			out = append(out, report.WinnerRow{
-				Group: a.Group, Winner: a.Winner, CellID: a.CellID,
-				Mode: a.Mode, DType: a.DType, Format: a.Format, Arch: a.Arch,
-				Score: a.Score, SoftAcc: a.SoftAcc, Avail: a.Avail, N: a.N,
+				Group: a.Group, Winner: a.Winner, CellID: report.PrettyCell(a.CellID),
+				Mode: a.Mode, DType: a.DType, Format: a.Format, Arch: report.PrettyArch(a.Arch),
+				Score: a.Score, SoftAcc: a.SoftAcc, Acc: a.Accuracy, Avail: a.Avail, N: a.N,
 			})
 		}
 		return out

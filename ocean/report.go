@@ -55,6 +55,8 @@ func (s *Server) BuildReport() report.OceanReport {
 			TidesTotal:   snap.Holistic.TidesTotal,
 			CellsDone:    snap.Holistic.CellsDone,
 			CellsTotal:   snap.Holistic.CellsTotal,
+			Heat:         snap.Holistic.Heat,
+			LPD:          snap.Holistic.LPD,
 		},
 	}
 	for _, v := range snap.Holistic.ModeVotes {
@@ -68,23 +70,24 @@ func (s *Server) BuildReport() report.OceanReport {
 	}
 	for _, a := range snap.Holistic.Axes {
 		out.Holistic.Axes = append(out.Holistic.Axes, report.AxisView{
-			Name: a.Name, Hint: a.Hint, Tide: a.Tide, CellID: a.CellID,
-			Mode: a.Mode, DType: a.DType, Arch: a.Arch, Value: a.Value,
+			Name: a.Name, Hint: a.Hint, Tide: a.Tide, CellID: report.PrettyCell(a.CellID),
+			Mode: a.Mode, DType: a.DType, Arch: report.PrettyArch(a.Arch), Value: a.Value,
 			SoftAcc: a.SoftAcc, Thru: a.Thru,
 		})
 	}
 	for _, l := range snap.Holistic.Layers {
 		out.Holistic.Layers = append(out.Holistic.Layers, report.LayerRow{
-			Tide: l.Tide, Mode: l.Mode, DType: l.DType, Arch: l.Arch, CellID: l.CellID,
-			Score: l.Score, SoftAcc: l.SoftAcc, Thru: l.Thru, Avail: l.Avail, Adapt: l.Adapt,
+			Tide: l.Tide, Mode: l.Mode, DType: l.DType, Arch: report.PrettyArch(l.Arch), CellID: report.PrettyCell(l.CellID),
+			Score: l.Score, SoftAcc: l.SoftAcc, Acc: l.Accuracy, Thru: l.Thru, Avail: l.Avail, Adapt: l.Adapt,
 			Done: l.Done, Total: l.Total, Recorded: l.Recorded,
 			Axes: axisViews(l.Axes),
 		})
 	}
 	for _, t := range snap.Holistic.CombinedTop {
 		out.Holistic.CombinedTop = append(out.Holistic.CombinedTop, report.TopRow{
-			Tide: t.Tide, CellID: t.Result.Cell.ID,
+			Tide: t.Tide, CellID: report.PrettyCell(t.Result.Cell.ID),
 			Score: t.Result.Snapshot.Score, SoftAcc: t.Result.Snapshot.SoftAcc,
+			Acc:   t.Result.Snapshot.AvgAccuracy,
 			Avail: t.Result.Snapshot.Availability,
 		})
 	}
@@ -150,8 +153,8 @@ func axisViews(xs []AxisChamp) []report.AxisView {
 	out := make([]report.AxisView, 0, len(xs))
 	for _, a := range xs {
 		out = append(out, report.AxisView{
-			Name: a.Name, Hint: a.Hint, Tide: a.Tide, CellID: a.CellID,
-			Mode: a.Mode, DType: a.DType, Arch: a.Arch, Value: a.Value,
+			Name: a.Name, Hint: a.Hint, Tide: a.Tide, CellID: report.PrettyCell(a.CellID),
+			Mode: a.Mode, DType: a.DType, Arch: report.PrettyArch(a.Arch), Value: a.Value,
 			SoftAcc: a.SoftAcc, Thru: a.Thru,
 		})
 	}

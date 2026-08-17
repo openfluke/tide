@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"testing"
 	"time"
+
+	"github.com/openfluke/tide/permute"
+	"github.com/openfluke/tide/pulse"
+	"github.com/openfluke/welvet/lucy"
 )
 
 func TestPDFTideEmpty(t *testing.T) {
@@ -41,7 +45,6 @@ func TestPDFLatinNoMojibake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Helvetica WinAnsi: UTF-8 em dash/middot/times become â€” / Â· / Ã—.
 	for name, seq := range map[string][]byte{
 		"emdash": []byte{0xe2, 0x80, 0x94},
 		"endash": []byte{0xe2, 0x80, 0x93},
@@ -54,6 +57,36 @@ func TestPDFLatinNoMojibake(t *testing.T) {
 	}
 	if !bytes.Contains(b, []byte("tide - mha")) {
 		t.Fatal("expected ascii title in pdf info")
+	}
+}
+
+func TestPDFPrettyCellNoClip(t *testing.T) {
+	id := "float32|none|TweenSplitHeadProxy|cnn|simd"
+	cell := permute.Cell{ID: id, Mode: "TweenSplitHeadProxy", Arch: "cnn"}
+	b, err := PDFTide(TideReport{
+		Task: "mha",
+		Leaderboard: []pulse.Result{{
+			Cell: cell,
+			Snapshot: lucy.Snapshot{
+				Score: 12, SoftAcc: 25, AvgAccuracy: 26, Throughput: 100, Availability: 40,
+			},
+		}},
+		Cells: []CellPoint{{
+			ID: PrettyCell(id), Mode: "TweenSplitHeadProxy", DType: "float32", Arch: "single",
+			Score: 12, Soft: 25, Acc: 26, Avail: 40,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("|cnn|")) {
+		t.Fatal("pdf still contains |cnn|")
+	}
+	if !bytes.Contains(b, []byte("TweenSplitHeadProxy")) {
+		t.Fatal("cell id was clipped; missing TweenSplitHeadProxy")
+	}
+	if !bytes.Contains(b, []byte("single")) {
+		t.Fatal("expected single in pdf")
 	}
 }
 

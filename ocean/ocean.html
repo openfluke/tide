@@ -70,6 +70,20 @@
   .votes { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chip { background: #13232d; border: 1px solid var(--grid); padding: 0.2rem 0.5rem; font-size: 0.78rem; }
   .chip b { color: var(--accent); }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.5rem; }
+  .legend i { display: inline-block; width: 10px; height: 10px; margin-right: 0.3rem; vertical-align: -1px; }
+  .lpd-callout {
+    margin: 0 0 0.75rem; padding: 0.65rem 0.85rem;
+    border: 1px solid #b7791f; background: rgba(183,121,31,0.08);
+    font-size: 0.88rem;
+  }
+  .lpd-callout.empty { border-color: var(--grid); background: rgba(0,0,0,0.18); color: var(--muted); }
+  table.heat { font-size: 0.72rem; }
+  table.heat th, table.heat td { padding: 0.18rem 0.28rem; text-align: center; }
+  table.heat th:first-child, table.heat td:first-child { text-align: left; }
+  .heat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem; }
+  @media (max-width: 1100px) { .heat-grid { grid-template-columns: 1fr; } }
+  canvas.scatter { width: 100%; height: 220px; background: rgba(0,0,0,0.25); }
 </style>
 </head>
 <body>
@@ -77,7 +91,7 @@
   <h1><span>ocean</span> linked tides</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Each card is a live tide. Ocean polls <code>/api/board</code> — it does not retrain. Remote Pis <code>POST /api/register</code> then wait for <b>Start all</b>. Score = T × Availability% × SoftAcc% / 10,000. A worker can pin <code>-modes sgd,step_sgd</code> so three Zeros split the train-mode axis.</p>
+<p class="score-eq">Each card is a live tide. Ocean polls <code>/api/board</code> — it does not retrain. Remote Pis <code>POST /api/register</code> then wait for <b>Start all</b>. Score = T × Availability% × SoftAcc% / 10,000. <b>LPD gold</b> is ≥80% of that Score champ at ≤20% of its RAM — that is the recipe, not raw Score/MiB (binary trap). A worker can pin <code>-modes sgd,step_sgd</code> so three Zeros split the train-mode axis.</p>
 <div class="actions">
   <button type="button" id="startAll">Start all tides</button>
   <button type="button" class="ghost" id="refresh">Refresh now</button>
@@ -97,6 +111,31 @@
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
+  <h2>Lucy Pareto (LPD) — goldilocks</h2>
+  <p class="hint">Q = geomean of Score/Soft/Acc/Thru vs the ocean Score champion. Gold = Q ≥ 80% and RAM ≤ 20% of that champ. LPD is 0 if Q &lt; 70% — that is why binary Score/MiB is a trap. Gold is the recipe that still learns, at a fraction of the memory.</p>
+  <div class="legend">
+    <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
+    <span><i style="background:#e6b35a"></i>near Q≥70% RAM≤50%</span>
+    <span><i style="background:#3dd6c6"></i>keep quality, not small</span>
+    <span><i style="background:#e06c75"></i>trap tiny RAM, Q&lt;70%</span>
+  </div>
+  <div id="lpdChamp" class="tiny" style="margin-bottom:0.5rem">—</div>
+  <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.</div>
+  <div class="heat-grid">
+    <div>
+      <h3>Q% vs RAM KiB — gold is top-left</h3>
+      <canvas class="scatter" id="scLpdRam" width="480" height="220"></canvas>
+    </div>
+    <div>
+      <h3>Q% vs shrink — gold is top-right</h3>
+      <canvas class="scatter" id="scLpdShrink" width="480" height="220"></canvas>
+    </div>
+  </div>
+  <div style="overflow-x:auto;margin-top:0.7rem"><table id="lpdTable"><thead><tr>
+    <th>band</th><th>tide</th><th>cell</th><th>Q%</th><th>RAM%</th><th>×smaller</th><th>LPD</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>KiB</th>
+  </tr></thead><tbody></tbody></table></div>
+</section>
+<section>
   <h2>Per-layer Lucy axes</h2>
   <p class="hint">Same Lucy axes, but the champion is picked inside each tide. Open a layer name to see its live dashboard.</p>
   <div id="layerAxes"></div>
@@ -108,14 +147,54 @@
 <section>
   <h2>Per-layer best (mode × dtype × arch)</h2>
   <div style="overflow-x:auto"><table id="layers"><thead><tr>
-    <th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>score</th><th>soft</th><th>thru</th><th>adapt</th><th>done</th>
+    <th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>adapt</th><th>done</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
   <h2>Combined leaderboard</h2>
   <div style="overflow-x:auto"><table id="board"><thead><tr>
-    <th>tide</th><th>cell</th><th>score</th><th>soft</th><th>avail</th>
+    <th>tide</th><th>cell</th><th>score</th><th>soft</th><th>acc</th><th>avail</th>
   </tr></thead><tbody></tbody></table></div>
+</section>
+<section>
+  <h2>Honesty grids (test48)</h2>
+  <p class="hint">Mean Lucy metrics across registered tides. Soft is live fit; Acc is hard / argmax accuracy. Gold line on scatters is the Pareto front.</p>
+  <div class="heat-grid">
+    <div>
+      <h3>Mean Score — mode × dtype</h3>
+      <div id="heatScore" style="overflow-x:auto"></div>
+    </div>
+    <div>
+      <h3>Mean hard Acc — mode × dtype</h3>
+      <div id="heatAcc" style="overflow-x:auto"></div>
+    </div>
+    <div>
+      <h3>Mean SoftAcc — mode × dtype</h3>
+      <div id="heatSoft" style="overflow-x:auto"></div>
+    </div>
+    <div>
+      <h3>Mean Score — layer × mode</h3>
+      <div id="heatLayer" style="overflow-x:auto"></div>
+    </div>
+  </div>
+  <div class="heat-grid">
+    <div>
+      <h3>Avail vs hard Acc</h3>
+      <canvas class="scatter" id="scAvailAcc" width="480" height="220"></canvas>
+    </div>
+    <div>
+      <h3>SoftAcc vs Score</h3>
+      <canvas class="scatter" id="scSoftScore" width="480" height="220"></canvas>
+    </div>
+    <div>
+      <h3>Hard Acc vs Score</h3>
+      <canvas class="scatter" id="scAccScore" width="480" height="220"></canvas>
+    </div>
+    <div>
+      <h3>SoftAcc vs hard Acc</h3>
+      <canvas class="scatter" id="scSoftAcc" width="480" height="220"></canvas>
+    </div>
+  </div>
 </section>
 <script>
 const $ = id => document.getElementById(id);
@@ -123,6 +202,11 @@ function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
 function fmt(n, d=2) { return (n||0).toFixed(d); }
 function prettyCell(id) {
   return String(id||'').replace(/\|cnn\|/g, '|single|');
+}
+function prettyArch(a) {
+  a = String(a||'');
+  if (/^cnn$/i.test(a) || /^cnnx1$/i.test(a)) return 'single';
+  return a.replace(/cnn×/gi, 'single×').replace(/cnnx/gi, 'singlex');
 }
 // Ocean polls 127.0.0.1 on the host; rewrite so remote browsers hit the same
 // hostname they used for ocean, keeping each tide's port.
@@ -145,15 +229,17 @@ function render(j) {
   $('kpis').innerHTML = [
     ['best mode', h.best_mode || '—'],
     ['best dtype', h.best_dtype || '—'],
-    ['best arch', h.best_arch || '—'],
-    ['default recipe', `${h.default_mode||'—'} · ${h.default_dtype||'—'} · ${h.default_arch||'—'}`],
+    ['best arch', prettyArch(h.best_arch) || '—'],
+    ['default recipe', `${h.default_mode||'—'} · ${h.default_dtype||'—'} · ${prettyArch(h.default_arch)||'—'}`],
     ['tides up', `${h.tides_up||0} / ${h.tides_total||0}`],
     ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
+    ['LPD gold', (h.lpd && h.lpd.gold && h.lpd.gold.length) ? `${h.lpd.gold.length} · ${prettyCell(h.lpd.gold[0].id)}` : 'none yet'],
+    ['LPD champ RAM', h.lpd && h.lpd.champ && h.lpd.champ.id ? `${(h.lpd.champ.ram_kib||0).toFixed(1)} KiB` : '—'],
   ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
   const chips = (votes, label) => {
     if (!votes || !votes.length) return `<p class="hint">No ${label} votes yet — wait for finished cells.</p>`;
     return `<div class="hint">${label}</div><div class="votes">` +
-      votes.slice(0, 12).map(v => `<span class="chip"><b>${v.key}</b> ×${v.count} · mean ${fmt(v.mean_score)}</span>`).join('') +
+      votes.slice(0, 12).map(v => `<span class="chip"><b>${prettyArch(v.key)}</b> ×${v.count} · mean ${fmt(v.mean_score)}</span>`).join('') +
       `</div>`;
   };
   $('votes').innerHTML = chips(h.mode_votes, 'train mode') + chips(h.dtype_votes, 'dtype') + chips(h.arch_votes, 'arch');
@@ -164,7 +250,7 @@ function render(j) {
     <td>${a.tide||'—'}</td>
     <td>${a.mode||'—'}</td>
     <td>${a.dtype||'—'}</td>
-    <td>${a.arch||'—'}</td>
+    <td>${prettyArch(a.arch||'—')}</td>
     <td>${prettyCell(a.cell_id||'')}</td>
   </tr>`).join('') || '<tr><td colspan="7" class="tiny">No axis winners yet.</td></tr>';
   $('layerAxes').innerHTML = (h.layers||[]).map(l => {
@@ -173,7 +259,7 @@ function render(j) {
       <td class="ok">${fmt(a.value)}</td>
       <td>${a.mode||'—'}</td>
       <td>${a.dtype||'—'}</td>
-      <td>${a.arch||'—'}</td>
+      <td>${prettyArch(a.arch||'—')}</td>
       <td>${prettyCell(a.cell_id||'')}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="tiny">no finished cells yet</td></tr>';
     return `<h3><a href="${publicURL(l.url)||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
@@ -205,9 +291,10 @@ function render(j) {
   const lt = $('layers').querySelector('tbody');
   lt.innerHTML = (h.layers||[]).map(l => `<tr>
     <td><a href="${publicURL(l.url)}" target="_blank">${l.tide}</a></td>
-    <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td><td>${l.arch||'—'}</td>
+    <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td><td>${prettyArch(l.arch||'—')}</td>
     <td class="ok">${fmt(l.score)}</td>
     <td>${fmt(l.soft_acc,1)}</td>
+    <td>${fmt(l.avg_accuracy,1)}</td>
     <td>${fmt(l.throughput,0)}</td>
     <td>${fmt(l.adapt_pct,1)}</td>
     <td>${l.done||0}/${l.total||0}${l.recorded && l.recorded > l.total ? ` (${l.recorded} rec)` : ''}</td>
@@ -220,9 +307,12 @@ function render(j) {
       <td>${r.tide}</td><td>${prettyCell(id)}</td>
       <td class="ok">${fmt(s.score)}</td>
       <td>${fmt(s.soft_acc,1)}</td>
+      <td>${fmt(s.avg_accuracy,1)}</td>
       <td>${fmt(s.availability,1)}</td>
     </tr>`;
   }).join('');
+  drawLucyCharts(h);
+  drawLPD(h);
 }
 async function tick() {
   try {
@@ -240,6 +330,204 @@ $('startAll').onclick = async () => {
 };
 $('refresh').onclick = tick;
 $('pdfBtn').onclick = () => { window.location = '/api/report.pdf'; };
+function heatRGB(t) {
+  if (t < 0.5) {
+    const u = t * 2;
+    return [Math.round(197 + (231-197)*u), Math.round(48 + (179-48)*u), Math.round(48 + (90-48)*u)];
+  }
+  const u = (t - 0.5) * 2;
+  return [Math.round(231 + (45-231)*u), Math.round(179 + (166-179)*u), Math.round(90 + (150-90)*u)];
+}
+function heatTable(elId, rows, cols, grid) {
+  const el = $(elId);
+  if (!el) return;
+  if (!rows || !cols || !grid || !rows.length) {
+    el.innerHTML = '<p class="hint">no finished cells yet</p>';
+    return;
+  }
+  let min = Infinity, max = -Infinity;
+  grid.forEach(r => (r||[]).forEach(v => { if (v) { if (v < min) min = v; if (v > max) max = v; } }));
+  if (!isFinite(min)) { min = 0; max = 1; }
+  if (max <= min) max = min + 1;
+  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    html += `<tr><th>${r}</th>`;
+    cols.forEach((_, j) => {
+      const v = (grid[i] && grid[i][j]) || 0;
+      if (!v) { html += '<td></td>'; return; }
+      const t = (v - min) / (max - min);
+      const [cr,cg,cb] = heatRGB(t);
+      const ink = (cr*3+cg*5+cb*2) > 1400 ? '#1a2024' : '#f4f7f8';
+      html += `<td style="background:rgb(${cr},${cg},${cb});color:${ink}">${v.toFixed(0)}</td>`;
+    });
+    html += '</tr>';
+  });
+  el.innerHTML = html + '</tbody></table>';
+}
+function drawScatter(canvasId, pts, xk, yk) {
+  const c = $(canvasId);
+  if (!c || !c.getContext) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!pts.length) return;
+  const xs = pts.map(p => +p[xk] || 0), ys = pts.map(p => +p[yk] || 0);
+  let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+  if (xmax <= xmin) xmax = xmin + 1;
+  if (ymax <= ymin) ymax = ymin + 1;
+  const pad = 18;
+  const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
+  const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
+  ctx.strokeStyle = '#1d3342';
+  ctx.strokeRect(pad, pad, w-pad*2, h-pad*2);
+  pts.forEach((p, i) => {
+    const arch = String(p.arch || '');
+    ctx.fillStyle = /tri/i.test(arch) ? '#a882dc' : /bi/i.test(arch) ? '#4ea3ff' : '#3dd6c6';
+    ctx.fillRect(X(xs[i])-1.5, Y(ys[i])-1.5, 3, 3);
+  });
+  const front = pts.slice().sort((a,b) => (+a[xk]||0) - (+b[xk]||0));
+  let best = -Infinity;
+  const gold = [];
+  front.forEach(p => {
+    const y = +p[yk] || 0;
+    if (y >= best) { best = y; gold.push(p); }
+  });
+  ctx.strokeStyle = '#b7791f';
+  ctx.beginPath();
+  gold.forEach((p, i) => {
+    const x = X(+p[xk]||0), y = Y(+p[yk]||0);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+function drawLucyCharts(h) {
+  const heat = h.heat || {};
+  heatTable('heatScore', heat.modes, heat.dtypes, heat.mode_dtype_score);
+  heatTable('heatAcc', heat.modes, heat.dtypes, heat.mode_dtype_acc);
+  heatTable('heatSoft', heat.modes, heat.dtypes, heat.mode_dtype_soft);
+  heatTable('heatLayer', heat.layers, heat.modes, heat.layer_mode_score);
+  const pts = heat.points || [];
+  drawScatter('scAvailAcc', pts, 'availability', 'avg_accuracy');
+  drawScatter('scSoftScore', pts, 'soft_acc', 'score');
+  drawScatter('scAccScore', pts, 'avg_accuracy', 'score');
+  drawScatter('scSoftAcc', pts, 'soft_acc', 'avg_accuracy');
+}
+function bandColor(b) {
+  if (b === 'gold') return '#b7791f';
+  if (b === 'near') return '#e6b35a';
+  if (b === 'trap') return '#e06c75';
+  if (b === 'keep') return '#3dd6c6';
+  return '#8aa0ad';
+}
+function lpdMerged(l) {
+  const seen = new Set();
+  const out = [];
+  (l.gold||[]).concat(l.near||[], l.trap||[], l.top||[]).forEach(r => {
+    const k = (r.tide||'') + '|' + (r.id||'');
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(r);
+  });
+  return out;
+}
+function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
+  const c = $(canvasId);
+  if (!c || !c.getContext) return;
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!rows || !rows.length) return;
+  const xs = rows.map(p => +p[xk] || 0), ys = rows.map(p => +p[yk] || 0);
+  let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+  if (xmax <= xmin) xmax = xmin + 1;
+  if (ymax <= ymin) ymax = ymin + 1;
+  if (ymin > 0) ymin = 0;
+  if (ymax < 100 && yk === 'qpct') ymax = 100;
+  const pad = 22;
+  const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
+  const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
+  ctx.strokeStyle = '#1d3342';
+  ctx.strokeRect(pad, pad, w-pad*2, h-pad*2);
+  if (hline != null && vline != null) {
+    ctx.fillStyle = 'rgba(183,121,31,0.12)';
+    const y1 = pad, y2 = Math.min(h-pad, Math.max(pad, Y(hline)));
+    if (goldSide === 'left') {
+      const x2 = Math.min(w-pad, Math.max(pad, X(vline)));
+      ctx.fillRect(pad, y1, x2 - pad, y2 - y1);
+    } else if (goldSide === 'right') {
+      const x1 = Math.min(w-pad, Math.max(pad, X(vline)));
+      ctx.fillRect(x1, y1, w-pad - x1, y2 - y1);
+    }
+  }
+  if (vline != null && vline >= xmin && vline <= xmax) {
+    ctx.strokeStyle = 'rgba(183,121,31,0.7)';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(X(vline), pad); ctx.lineTo(X(vline), h-pad); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (hline != null && hline >= ymin && hline <= ymax) {
+    ctx.strokeStyle = 'rgba(183,121,31,0.7)';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(pad, Y(hline)); ctx.lineTo(w-pad, Y(hline)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  rows.forEach((p, i) => {
+    ctx.fillStyle = bandColor(p.band);
+    const s = p.gold ? 5 : 3;
+    ctx.fillRect(X(xs[i])-s/2, Y(ys[i])-s/2, s, s);
+  });
+}
+function drawLPD(h) {
+  const l = (h && h.lpd) || {};
+  const champEl = $('lpdChamp');
+  const goldEl = $('lpdGold');
+  const tb = $('lpdTable') && $('lpdTable').querySelector('tbody');
+  const gold = l.gold || [];
+  const near = l.near || [];
+  const trap = l.trap || [];
+  if (champEl) {
+    const c = l.champ || {};
+    champEl.innerHTML = c.id
+      ? `<span class="chip"><b>champ</b></span> ${prettyCell(c.id)} · Score ${fmt(c.score,1)} · Soft ${fmt(c.soft_acc,0)} · Acc ${fmt(c.avg_accuracy,0)} · Thru ${fmt(c.throughput,0)} · ${fmt(c.ram_kib,1)} KiB
+         · gold ${gold.length} · near ${near.length} · trap ${trap.length}`
+      : 'Need finished ok cells.';
+  }
+  if (goldEl) {
+    if (gold.length) {
+      goldEl.className = 'lpd-callout';
+      goldEl.innerHTML = '<b>Gold</b> — ' + gold.slice(0, 8).map(r =>
+        `${r.tide||'—'} · ${prettyCell(r.id)} · Q ${((r.q||0)*100).toFixed(0)}% · ${((r.ram_frac||0)*100).toFixed(0)}% RAM · ${(r.shrink||0).toFixed(1)}× smaller`
+      ).join('<br>');
+    } else {
+      goldEl.className = 'lpd-callout empty';
+      goldEl.textContent = 'No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.';
+    }
+  }
+  const rows = l.top || [];
+  if (tb) {
+    tb.innerHTML = rows.length ? rows.map(r => `<tr style="color:${bandColor(r.band)}">
+      <td>${r.band||'—'}</td>
+      <td>${r.tide||'—'}</td>
+      <td>${prettyCell(r.id||'')}</td>
+      <td>${((r.q||0)*100).toFixed(0)}</td>
+      <td>${((r.ram_frac||0)*100).toFixed(0)}</td>
+      <td>${(r.shrink||0).toFixed(1)}×</td>
+      <td>${fmt(r.lpd)}</td>
+      <td>${fmt(r.score,1)}</td>
+      <td>${fmt(r.soft_acc,0)}</td>
+      <td>${fmt(r.avg_accuracy,0)}</td>
+      <td>${fmt(r.throughput,0)}</td>
+      <td>${fmt(r.ram_kib,1)}</td>
+    </tr>`).join('') : '<tr><td colspan="12">no finished ok cells yet</td></tr>';
+  }
+  const pts = lpdMerged(l).map(r => ({
+    band: r.band, gold: r.gold,
+    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100,
+  }));
+  const champRam = (l.champ && l.champ.ram_kib) || 0;
+  drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
+  drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
+}
 setInterval(tick, 1000);
 tick();
 </script>

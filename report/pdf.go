@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/phpdave11/gofpdf"
@@ -17,8 +18,12 @@ func PDFTide(r TideReport) ([]byte, error) {
 	p.axisTable("Lucy axis champions (this tide)", r.Axes)
 	p.winners(r.Winners)
 	p.leaderboard("Leaderboard (Lucy Score)", r.Leaderboard)
+	p.leaderboardBy("Leaderboard (SoftAcc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.SoftAcc })
+	p.leaderboardBy("Leaderboard (hard Acc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.AvgAccuracy })
 	p.bars("Top scores", scoresOf(r.Leaderboard))
 	p.bars("Best settings per mode", winnerScores(r.Winners.BestSettingsPerMode, func(w WinnerRow) string { return w.Mode }))
+	p.lucyCharts(r.Cells, r.Heat)
+	p.lpdBoard(r.LPD)
 	p.spark("Live pulse (Score)", r.History, func(h pulse.HistoryPoint) float64 { return h.Score })
 	p.spark("Live pulse (SoftAcc)", r.History, func(h pulse.HistoryPoint) float64 { return h.Accuracy })
 	p.spark("Live pulse (Availability)", r.History, func(h pulse.HistoryPoint) float64 { return h.Availability })
@@ -45,6 +50,8 @@ func PDFOcean(o OceanReport) ([]byte, error) {
 	}
 	p.topTable(o.Holistic.CombinedTop)
 	p.bars("Score by layer", layerScores(o.Holistic.Layers))
+	p.lucyCharts(nil, o.Holistic.Heat)
+	p.lpdBoard(o.Holistic.LPD)
 	for _, t := range o.Tides {
 		p.pdf.AddPage()
 		p.coverTide(t)
@@ -53,6 +60,8 @@ func PDFOcean(o OceanReport) ([]byte, error) {
 		p.winners(t.Winners)
 		p.leaderboard("Leaderboard — "+nz(t.Task, t.ID), t.Leaderboard)
 		p.bars("Top scores — "+nz(t.Task, t.ID), scoresOf(t.Leaderboard))
+		p.lucyCharts(t.Cells, t.Heat)
+		p.lpdBoard(t.LPD)
 		p.spark("Pulse Score — "+nz(t.Task, t.ID), t.History, func(h pulse.HistoryPoint) float64 { return h.Score })
 		p.spark("Pulse SoftAcc — "+nz(t.Task, t.ID), t.History, func(h pulse.HistoryPoint) float64 { return h.Accuracy })
 		p.spark("Pulse Availability — "+nz(t.Task, t.ID), t.History, func(h pulse.HistoryPoint) float64 { return h.Availability })
@@ -69,6 +78,7 @@ type doc struct {
 func newDoc(title string) *doc {
 	title = latin(title)
 	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.SetCompression(false)
 	pdf.SetTitle(title, false)
 	pdf.SetAuthor("tide / ocean Lucy report", false)
 	pdf.SetFooterFunc(func() {
@@ -106,28 +116,39 @@ func (d *doc) coverOcean(o OceanReport) {
 	h := o.Holistic
 	d.body(fmt.Sprintf("Generated %s. Tides up %d / %d. This-epoch cells %d / %d.",
 		o.Generated.Format("2006-01-02 15:04:05"), h.TidesUp, h.TidesTotal, h.CellsDone, h.CellsTotal))
-	d.body(fmt.Sprintf("Holistic best train mode: %s     best dtype: %s     best arch: %s", nz(h.BestMode, "-"), nz(h.BestDType, "-"), nz(h.BestArch, "-")))
+	d.body(fmt.Sprintf("Holistic best train mode: %s     best dtype: %s     best arch: %s", nz(h.BestMode, "-"), nz(h.BestDType, "-"), nz(PrettyArch(h.BestArch), "-")))
 	d.body(fmt.Sprintf("Suggested default (most Lucy-axis wins): %s | %s | %s  (%d axes)",
-		nz(h.DefaultMode, "-"), nz(h.DefaultDType, "-"), nz(h.DefaultArch, "-"), h.DefaultWins))
+		nz(h.DefaultMode, "-"), nz(h.DefaultDType, "-"), nz(PrettyArch(h.DefaultArch), "-"), h.DefaultWins))
+	if h.LPD.Champ.ID != "" {
+		gold := "none yet"
+		if len(h.LPD.Gold) > 0 {
+			gold = fmt.Sprintf("%d  e.g. %s", len(h.LPD.Gold), PrettyCell(h.LPD.Gold[0].ID))
+		}
+		d.body(fmt.Sprintf("LPD goldilocks vs Score champ %s (%.1f KiB). Gold cells (Q>=80%% at <=20%% RAM): %s",
+			PrettyCell(h.LPD.Champ.ID), h.LPD.Champ.RAMKiB, gold))
+	}
 	d.gap(3)
 }
 
 func (d *doc) bests(r TideReport) {
 	d.h2("Lucy champions (this tide)")
-	type row struct{ axis, id string; score, soft, thru, avail float64 }
+	type row struct {
+		axis, id                      string
+		score, soft, acc, thru, avail float64
+	}
 	var rows []row
 	add := func(axis string, res *pulse.Result) {
 		if res == nil {
 			return
 		}
-		rows = append(rows, row{axis, res.Cell.ID, res.Snapshot.Score, res.Snapshot.SoftAcc, res.Snapshot.Throughput, res.Snapshot.Availability})
+		rows = append(rows, row{axis, res.Cell.ID, res.Snapshot.Score, res.Snapshot.SoftAcc, res.Snapshot.AvgAccuracy, res.Snapshot.Throughput, res.Snapshot.Availability})
 	}
 	add("score", r.Best.Score)
 	add("throughput", r.Best.Throughput)
 	add("availability", r.Best.Availability)
 	add("accuracy", r.Best.Accuracy)
 	if r.BestMobile.Score != nil {
-		add("mobile score", r.BestMobile.Score)
+		add("mobile score (trap)", r.BestMobile.Score)
 	}
 	if r.BestLearn.To50 != nil {
 		add("t->50%", r.BestLearn.To50)
@@ -135,52 +156,58 @@ func (d *doc) bests(r TideReport) {
 	if r.BestLearn.AccPerSec != nil {
 		add("acc/sec", r.BestLearn.AccPerSec)
 	}
-	d.table([]string{"Axis", "Cell", "Score", "Soft", "Thru", "Avail"}, func(k int) []string {
+	d.table([]string{"Axis", "Cell", "Score", "Soft", "Acc", "Thru", "Avail"}, func(k int) []string {
 		if k >= len(rows) {
 			return nil
 		}
 		r := rows[k]
-		return []string{r.axis, clip(r.id, 42), fmt.Sprintf("%.2f", r.score), fmt.Sprintf("%.1f", r.soft), fmt.Sprintf("%.1f", r.thru), fmt.Sprintf("%.1f", r.avail)}
+		return []string{r.axis, PrettyCell(r.id), fmt.Sprintf("%.2f", r.score), fmt.Sprintf("%.1f", r.soft), fmt.Sprintf("%.1f", r.acc), fmt.Sprintf("%.1f", r.thru), fmt.Sprintf("%.1f", r.avail)}
 	})
 }
 
 func (d *doc) winners(w WinnersView) {
 	d.h2("Best settings per train mode")
-	d.table([]string{"Mode", "DType", "Format", "Score", "Soft", "Avail", "n"}, func(k int) []string {
+	d.table([]string{"Mode", "DType", "Format", "Score", "Soft", "Acc", "Avail", "n"}, func(k int) []string {
 		if k >= len(w.BestSettingsPerMode) || k >= 23 {
 			return nil
 		}
 		a := w.BestSettingsPerMode[k]
-		return []string{clip(a.Mode, 22), a.DType, a.Format, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Avail), fmt.Sprintf("%d", a.N)}
+		return []string{a.Mode, a.DType, a.Format, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Acc), fmt.Sprintf("%.1f", a.Avail), fmt.Sprintf("%d", a.N)}
 	})
 	d.h2("Best dtype per mode")
-	d.table([]string{"Mode", "Winner dtype", "Score", "Soft"}, func(k int) []string {
+	d.table([]string{"Mode", "Winner dtype", "Score", "Soft", "Acc"}, func(k int) []string {
 		if k >= len(w.BestDTypePerMode) || k >= 23 {
 			return nil
 		}
 		a := w.BestDTypePerMode[k]
-		return []string{clip(a.Mode, 22), a.Winner, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc)}
+		return []string{a.Mode, a.Winner, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Acc)}
 	})
 	d.h2("Best mode per dtype")
-	d.table([]string{"DType", "Winner mode", "Score", "Soft"}, func(k int) []string {
+	d.table([]string{"DType", "Winner mode", "Score", "Soft", "Acc"}, func(k int) []string {
 		if k >= len(w.BestModePerDType) || k >= 34 {
 			return nil
 		}
 		a := w.BestModePerDType[k]
-		return []string{a.Group, clip(a.Winner, 22), fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc)}
+		return []string{a.Group, a.Winner, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Acc)}
 	})
 }
 
 func (d *doc) leaderboard(title string, rows []pulse.Result) {
+	d.leaderboardBy(title, rows, func(r pulse.Result) float64 { return r.Snapshot.Score })
+}
+
+func (d *doc) leaderboardBy(title string, rows []pulse.Result, key func(pulse.Result) float64) {
+	cp := append([]pulse.Result(nil), rows...)
+	sort.SliceStable(cp, func(i, j int) bool { return key(cp[i]) > key(cp[j]) })
 	d.h2(title)
-	d.table([]string{"#", "Cell", "Score", "Soft", "Hard", "Thru", "Avail"}, func(k int) []string {
-		if k >= len(rows) || k >= 15 {
+	d.table([]string{"#", "Cell", "Score", "Soft", "Acc", "Thru", "Avail"}, func(k int) []string {
+		if k >= len(cp) || k >= 20 {
 			return nil
 		}
-		r := rows[k]
+		r := cp[k]
 		s := r.Snapshot
 		return []string{
-			fmt.Sprintf("%d", k+1), clip(r.Cell.ID, 40),
+			fmt.Sprintf("%d", k+1), PrettyCell(r.Cell.ID),
 			fmt.Sprintf("%.1f", s.Score), fmt.Sprintf("%.1f", s.SoftAcc),
 			fmt.Sprintf("%.1f", s.AvgAccuracy), fmt.Sprintf("%.1f", s.Throughput),
 			fmt.Sprintf("%.1f", s.Availability),
@@ -206,7 +233,7 @@ func (d *doc) votes(title string, vs []Vote) {
 			return nil
 		}
 		v := vs[k]
-		return []string{clip(v.Key, 28), itoa(v.Count), fmt.Sprintf("%.2f", v.Mean)}
+		return []string{PrettyArch(v.Key), itoa(v.Count), fmt.Sprintf("%.2f", v.Mean)}
 	})
 }
 
@@ -228,7 +255,7 @@ func (d *doc) axisTable(title string, rows []AxisView) {
 				return nil
 			}
 			r := rows[k]
-			return []string{clip(r.Name, 14), clip(r.Tide, 12), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
+			return []string{clip(r.Name, 14), clip(r.Tide, 12), clip(r.Mode, 16), r.DType, PrettyArch(r.Arch), fmt.Sprintf("%.2f", r.Value)}
 		})
 		return
 	}
@@ -237,29 +264,29 @@ func (d *doc) axisTable(title string, rows []AxisView) {
 			return nil
 		}
 		r := rows[k]
-		return []string{clip(r.Name, 14), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
+		return []string{clip(r.Name, 14), clip(r.Mode, 16), r.DType, PrettyArch(r.Arch), fmt.Sprintf("%.2f", r.Value)}
 	})
 }
 
 func (d *doc) layerTable(rows []LayerRow) {
 	d.h2("Per-layer best (mode x dtype x arch)")
-	d.table([]string{"Tide", "Mode", "DType", "Arch", "Score", "Soft"}, func(k int) []string {
+	d.table([]string{"Tide", "Mode", "DType", "Arch", "Score", "Soft", "Acc"}, func(k int) []string {
 		if k >= len(rows) {
 			return nil
 		}
 		r := rows[k]
-		return []string{r.Tide, clip(r.Mode, 16), r.DType, clip(r.Arch, 12), fmt.Sprintf("%.1f", r.Score), fmt.Sprintf("%.1f", r.SoftAcc)}
+		return []string{r.Tide, r.Mode, r.DType, PrettyArch(r.Arch), fmt.Sprintf("%.1f", r.Score), fmt.Sprintf("%.1f", r.SoftAcc), fmt.Sprintf("%.1f", r.Acc)}
 	})
 }
 
 func (d *doc) topTable(rows []TopRow) {
 	d.h2("Combined leaderboard")
-	d.table([]string{"Tide", "Cell", "Score", "Soft", "Avail"}, func(k int) []string {
+	d.table([]string{"Tide", "Cell", "Score", "Soft", "Acc", "Avail"}, func(k int) []string {
 		if k >= len(rows) || k >= 20 {
 			return nil
 		}
 		r := rows[k]
-		return []string{r.Tide, clip(r.CellID, 40), fmt.Sprintf("%.1f", r.Score), fmt.Sprintf("%.1f", r.SoftAcc), fmt.Sprintf("%.1f", r.Avail)}
+		return []string{r.Tide, PrettyCell(r.CellID), fmt.Sprintf("%.1f", r.Score), fmt.Sprintf("%.1f", r.SoftAcc), fmt.Sprintf("%.1f", r.Acc), fmt.Sprintf("%.1f", r.Avail)}
 	})
 }
 
@@ -274,7 +301,7 @@ func scoresOf(rows []pulse.Result) []kv {
 		if i >= 16 {
 			break
 		}
-		out = append(out, kv{clip(r.Cell.ID, 36), r.Snapshot.Score})
+		out = append(out, kv{PrettyCell(r.Cell.ID), r.Snapshot.Score})
 	}
 	return out
 }
@@ -293,7 +320,7 @@ func winnerScores(rows []WinnerRow, label func(WinnerRow) string) []kv {
 		if i >= 16 {
 			break
 		}
-		out = append(out, kv{clip(label(r), 36), r.Score})
+		out = append(out, kv{label(r), r.Score})
 	}
 	return out
 }
@@ -301,7 +328,7 @@ func winnerScores(rows []WinnerRow, label func(WinnerRow) string) []kv {
 func voteBars(vs []Vote) []kv {
 	out := make([]kv, 0, len(vs))
 	for _, v := range vs {
-		out = append(out, kv{clip(v.Key, 28), v.Mean})
+		out = append(out, kv{PrettyArch(v.Key), v.Mean})
 	}
 	return out
 }
@@ -325,17 +352,17 @@ func (d *doc) bars(title string, items []kv) {
 	}
 	for _, it := range items {
 		y := d.pdf.GetY()
-		d.pdf.SetFont("Helvetica", "", 7)
+		d.pdf.SetFont("Helvetica", "", 6)
 		d.pdf.SetTextColor(40, 50, 55)
 		d.pdf.SetXY(left, y)
-		d.pdf.CellFormat(52, barH, latin(it.Label), "", 0, "L", false, 0, "")
+		d.pdf.CellFormat(92, barH, latin(it.Label), "", 0, "L", false, 0, "")
 		w := 0.0
 		if max > 0 {
-			w = (colW - 70) * it.Val / max
+			w = (colW - 110) * it.Val / max
 		}
 		d.pdf.SetFillColor(61, 214, 198)
-		d.pdf.Rect(left+54, y+0.7, w, barH-1.4, "F")
-		d.pdf.SetXY(left+56+w, y)
+		d.pdf.Rect(left+94, y+0.7, w, barH-1.4, "F")
+		d.pdf.SetXY(left+96+w, y)
 		d.pdf.CellFormat(30, barH, fmt.Sprintf("%.1f", it.Val), "", 1, "L", false, 0, "")
 	}
 	d.gap(3)
@@ -414,31 +441,48 @@ func (d *doc) table(headers []string, row func(int) []string) {
 	cols := len(headers)
 	widths := make([]float64, cols)
 	left := 174.0
-	for i := range widths {
-		if i == 1 && cols > 3 {
-			widths[i] = left * 0.38
-		} else if i == 0 {
-			widths[i] = left * 0.18
-		} else {
-			widths[i] = left * (1 - 0.18 - 0.38) / float64(cols-2)
-			if cols <= 3 {
-				widths[i] = left / float64(cols)
+	cellCol := -1
+	for i, h := range headers {
+		if strings.EqualFold(h, "cell") {
+			cellCol = i
+		}
+	}
+	if cellCol >= 0 && cols > 3 {
+		rest := left * 0.52
+		for i := range widths {
+			if i == cellCol {
+				widths[i] = left * 0.48
+			} else {
+				widths[i] = rest / float64(cols-1)
+			}
+		}
+	} else {
+		for i := range widths {
+			if i == 1 && cols > 3 {
+				widths[i] = left * 0.38
+			} else if i == 0 {
+				widths[i] = left * 0.18
+			} else {
+				widths[i] = left * (1 - 0.18 - 0.38) / float64(cols-2)
+				if cols <= 3 {
+					widths[i] = left / float64(cols)
+				}
+			}
+		}
+		if cols <= 3 {
+			for i := range widths {
+				widths[i] = 174 / float64(cols)
 			}
 		}
 	}
-	if cols <= 3 {
-		for i := range widths {
-			widths[i] = 174 / float64(cols)
-		}
-	}
-	d.pdf.SetFont("Helvetica", "B", 7)
+	d.pdf.SetFont("Helvetica", "B", 6)
 	d.pdf.SetFillColor(22, 40, 48)
 	d.pdf.SetTextColor(230, 240, 242)
 	for i, h := range headers {
 		d.pdf.CellFormat(widths[i], 6, latin(h), "1", 0, "L", true, 0, "")
 	}
 	d.pdf.Ln(-1)
-	d.pdf.SetFont("Helvetica", "", 7)
+	d.pdf.SetFont("Helvetica", "", 6)
 	d.pdf.SetTextColor(30, 40, 45)
 	for i := 0; ; i++ {
 		r := row(i)
@@ -447,14 +491,14 @@ func (d *doc) table(headers []string, row func(int) []string) {
 		}
 		if d.pdf.GetY() > 275 {
 			d.pdf.AddPage()
-			d.pdf.SetFont("Helvetica", "B", 7)
+			d.pdf.SetFont("Helvetica", "B", 6)
 			d.pdf.SetFillColor(22, 40, 48)
 			d.pdf.SetTextColor(230, 240, 242)
 			for j, h := range headers {
 				d.pdf.CellFormat(widths[j], 6, latin(h), "1", 0, "L", true, 0, "")
 			}
 			d.pdf.Ln(-1)
-			d.pdf.SetFont("Helvetica", "", 7)
+			d.pdf.SetFont("Helvetica", "", 6)
 			d.pdf.SetTextColor(30, 40, 45)
 		}
 		fill := i%2 == 1

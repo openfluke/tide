@@ -3,6 +3,7 @@ package dash
 import (
 	"github.com/openfluke/tide/metrics"
 	"github.com/openfluke/tide/pulse"
+	"github.com/openfluke/tide/report"
 )
 
 func extraBests(completed []pulse.Result) (adapt, soft, hard, cons, stab, accThru, realtime, keep *pulse.Result) {
@@ -116,7 +117,7 @@ func LucyAxes(b Board) []LucyAxis {
 		{"time_to_50", "seconds to 50% window acc (lower better)", func(b Board) *pulse.Result { return b.BestLearn.To50 }, func(s metrics.Snapshot) float64 { return s.TimeToAcc50Sec }, true},
 		{"consistency", "share of windows above SoftAcc threshold", func(b Board) *pulse.Result { return b.BestConsistency }, func(s metrics.Snapshot) float64 { return s.Consistency }, false},
 		{"stability", "low SoftAcc variance after switches", func(b Board) *pulse.Result { return b.BestStability }, func(s metrics.Snapshot) float64 { return s.Stability }, false},
-		{"mobile_score", "Score per MiB", func(b Board) *pulse.Result { return b.BestMobile.Score }, func(s metrics.Snapshot) float64 { return s.MobileScore }, false},
+		{"mobile_score", "raw Score/MiB (binary trap — use LPD)", func(b Board) *pulse.Result { return b.BestMobile.Score }, func(s metrics.Snapshot) float64 { return s.MobileScore }, false},
 	}
 	out := make([]LucyAxis, 0, len(specs))
 	for _, sp := range specs {
@@ -131,8 +132,8 @@ func LucyAxes(b Board) []LucyAxis {
 		s := r.Snapshot
 		out = append(out, LucyAxis{
 			Name: sp.name, Hint: sp.hint, Value: v, LowerBetter: sp.lower,
-			CellID: r.Cell.ID, Mode: string(r.Cell.Mode), DType: r.Cell.DType.String(),
-			Format: r.Cell.Format.String(), Arch: r.Cell.ArchTag(),
+			CellID: report.PrettyCell(r.Cell.ID), Mode: string(r.Cell.Mode), DType: r.Cell.DType.String(),
+			Format: r.Cell.Format.String(), Arch: report.PrettyArch(r.Cell.ArchTag()),
 			Score: s.Score, SoftAcc: s.SoftAcc, Thru: s.Throughput, Avail: s.Availability, Adapt: s.AdaptPct,
 		})
 	}

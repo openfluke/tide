@@ -6,33 +6,34 @@ import (
 
 	"github.com/openfluke/tide/dash"
 	"github.com/openfluke/tide/pulse"
+	"github.com/openfluke/tide/report"
 )
 
 // LayerWinner is the best Score cell on one tide (usually one layer).
 type LayerWinner struct {
-	Tide     string  `json:"tide"`
-	URL      string  `json:"url"`
-	Mode     string  `json:"mode"`
-	DType    string  `json:"dtype"`
-	Format   string  `json:"format"`
-	Arch     string  `json:"arch,omitempty"`
-	CellID   string  `json:"cell_id"`
-	Score    float64 `json:"score"`
-	SoftAcc  float64 `json:"soft_acc"`
-	Accuracy float64 `json:"avg_accuracy"`
-	Thru     float64 `json:"throughput"`
-	Avail    float64 `json:"availability"`
-	Adapt    float64 `json:"adapt_pct"`
-	AccPerSec float64 `json:"acc_per_sec"`
-	Keep     float64 `json:"keep_learn"`
-	Axes     []AxisChamp `json:"axes,omitempty"`
-	Ok       int     `json:"ok"`
-	Gap      int     `json:"gap"`
-	Fail     int     `json:"fail"`
-	Done     int     `json:"done"`
-	Total    int     `json:"total"`
-	Recorded int     `json:"recorded,omitempty"`
-	Plan     int     `json:"plan,omitempty"`
+	Tide      string      `json:"tide"`
+	URL       string      `json:"url"`
+	Mode      string      `json:"mode"`
+	DType     string      `json:"dtype"`
+	Format    string      `json:"format"`
+	Arch      string      `json:"arch,omitempty"`
+	CellID    string      `json:"cell_id"`
+	Score     float64     `json:"score"`
+	SoftAcc   float64     `json:"soft_acc"`
+	Accuracy  float64     `json:"avg_accuracy"`
+	Thru      float64     `json:"throughput"`
+	Avail     float64     `json:"availability"`
+	Adapt     float64     `json:"adapt_pct"`
+	AccPerSec float64     `json:"acc_per_sec"`
+	Keep      float64     `json:"keep_learn"`
+	Axes      []AxisChamp `json:"axes,omitempty"`
+	Ok        int         `json:"ok"`
+	Gap       int         `json:"gap"`
+	Fail      int         `json:"fail"`
+	Done      int         `json:"done"`
+	Total     int         `json:"total"`
+	Recorded  int         `json:"recorded,omitempty"`
+	Plan      int         `json:"plan,omitempty"`
 }
 
 // Vote is a plurality count with mean Score of the layers that picked this key.
@@ -51,43 +52,45 @@ type Tagged struct {
 
 // AxisChamp is the ocean-wide winner on one Lucy axis.
 type AxisChamp struct {
-	Name    string  `json:"name"`
-	Hint    string  `json:"hint"`
-	Tide    string  `json:"tide"`
-	URL     string  `json:"url"`
-	CellID  string  `json:"cell_id"`
-	Mode    string  `json:"mode"`
-	DType   string  `json:"dtype"`
-	Format  string  `json:"format"`
-	Arch    string  `json:"arch"`
-	Value   float64 `json:"value"`
-	LowerBetter bool `json:"lower_better,omitempty"`
-	Score   float64 `json:"score"`
-	SoftAcc float64 `json:"soft_acc"`
-	Thru    float64 `json:"throughput"`
-	Avail   float64 `json:"availability"`
-	Adapt   float64 `json:"adapt_pct"`
+	Name        string  `json:"name"`
+	Hint        string  `json:"hint"`
+	Tide        string  `json:"tide"`
+	URL         string  `json:"url"`
+	CellID      string  `json:"cell_id"`
+	Mode        string  `json:"mode"`
+	DType       string  `json:"dtype"`
+	Format      string  `json:"format"`
+	Arch        string  `json:"arch"`
+	Value       float64 `json:"value"`
+	LowerBetter bool    `json:"lower_better,omitempty"`
+	Score       float64 `json:"score"`
+	SoftAcc     float64 `json:"soft_acc"`
+	Thru        float64 `json:"throughput"`
+	Avail       float64 `json:"availability"`
+	Adapt       float64 `json:"adapt_pct"`
 }
 
 // Holistic is the master consolidation across all linked tides.
 type Holistic struct {
-	BestMode      string        `json:"best_mode"`
-	BestDType     string        `json:"best_dtype"`
-	BestArch      string        `json:"best_arch"`
-	ModeVotes     []Vote        `json:"mode_votes"`
-	DTypeVotes    []Vote        `json:"dtype_votes"`
-	ArchVotes     []Vote        `json:"arch_votes"`
-	Layers        []LayerWinner `json:"layers"`
-	CombinedTop   []Tagged      `json:"combined_top"`
-	Axes          []AxisChamp   `json:"axes"`
-	DefaultMode   string        `json:"default_mode"`
-	DefaultDType  string        `json:"default_dtype"`
-	DefaultArch   string        `json:"default_arch"`
-	DefaultWins   int           `json:"default_wins"`
-	TidesUp       int           `json:"tides_up"`
-	TidesTotal    int           `json:"tides_total"`
-	CellsDone     int           `json:"cells_done"`
-	CellsTotal    int           `json:"cells_total"`
+	BestMode     string        `json:"best_mode"`
+	BestDType    string        `json:"best_dtype"`
+	BestArch     string        `json:"best_arch"`
+	ModeVotes    []Vote        `json:"mode_votes"`
+	DTypeVotes   []Vote        `json:"dtype_votes"`
+	ArchVotes    []Vote        `json:"arch_votes"`
+	Layers       []LayerWinner `json:"layers"`
+	CombinedTop  []Tagged      `json:"combined_top"`
+	Axes         []AxisChamp   `json:"axes"`
+	DefaultMode  string        `json:"default_mode"`
+	DefaultDType string        `json:"default_dtype"`
+	DefaultArch  string        `json:"default_arch"`
+	DefaultWins  int           `json:"default_wins"`
+	TidesUp      int           `json:"tides_up"`
+	TidesTotal   int           `json:"tides_total"`
+	CellsDone    int           `json:"cells_done"`
+	CellsTotal   int           `json:"cells_total"`
+	Heat         report.Heat   `json:"heat,omitempty"`
+	LPD          report.LPD    `json:"lpd,omitempty"`
 }
 
 func consolidate(peers []PeerState) Holistic {
@@ -163,7 +166,66 @@ func consolidate(peers []PeerState) Holistic {
 	}
 	h.Axes = oceanAxes(peers)
 	h.DefaultMode, h.DefaultDType, h.DefaultArch, h.DefaultWins = defaultRecipe(h.Axes)
+	pts := collectOceanPoints(peers, top)
+	h.Heat = report.BuildHeat(pts)
+	h.LPD = report.BuildLPD(pts)
+	h.BestArch = report.PrettyArch(h.BestArch)
+	h.DefaultArch = report.PrettyArch(h.DefaultArch)
 	return h
+}
+
+func collectOceanPoints(peers []PeerState, top []Tagged) []report.CellPoint {
+	seen := map[string]bool{}
+	var pts []report.CellPoint
+	add := func(pt report.CellPoint) {
+		pt.ID = report.PrettyCell(pt.ID)
+		pt.Arch = report.PrettyArch(pt.Arch)
+		if pt.ID == "" {
+			return
+		}
+		k := pt.Tide + "\x00" + pt.ID
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		pts = append(pts, pt)
+	}
+	for _, p := range peers {
+		if !p.OK {
+			continue
+		}
+		for _, pt := range p.Board.Heat.Points {
+			if pt.Tide == "" {
+				pt.Tide = p.Name
+			}
+			add(pt)
+		}
+		rows := append([]report.LPDRow{}, p.Board.LPD.Gold...)
+		rows = append(rows, p.Board.LPD.Near...)
+		rows = append(rows, p.Board.LPD.Trap...)
+		rows = append(rows, p.Board.LPD.Top...)
+		for _, r := range rows {
+			pt := r.Point()
+			if pt.Tide == "" {
+				pt.Tide = p.Name
+			}
+			add(pt)
+		}
+	}
+	if len(pts) == 0 {
+		for _, t := range top {
+			add(report.CellPoint{
+				Tide: t.Tide, ID: t.Result.Cell.ID,
+				Mode: string(t.Result.Cell.Mode), DType: t.Result.Cell.DType.String(),
+				Arch:  t.Result.Cell.ArchTag(),
+				Score: t.Result.Snapshot.Score, Soft: t.Result.Snapshot.SoftAcc,
+				Acc: t.Result.Snapshot.AvgAccuracy, Avail: t.Result.Snapshot.Availability,
+				Thru: t.Result.Snapshot.Throughput, Adapt: t.Result.Snapshot.AdaptPct,
+				RAMKiB: float64(t.Result.Snapshot.WeightBytes) / 1024,
+			})
+		}
+	}
+	return pts
 }
 
 func fillLayer(w *LayerWinner, r *pulse.Result) {
@@ -173,8 +235,8 @@ func fillLayer(w *LayerWinner, r *pulse.Result) {
 	w.Mode = string(r.Cell.Mode)
 	w.DType = r.Cell.DType.String()
 	w.Format = r.Cell.Format.String()
-	w.Arch = r.Cell.ArchTag()
-	w.CellID = r.Cell.ID
+	w.Arch = report.PrettyArch(r.Cell.ArchTag())
+	w.CellID = report.PrettyCell(r.Cell.ID)
 	s := r.Snapshot
 	w.Score = s.Score
 	w.SoftAcc = s.SoftAcc
@@ -195,7 +257,7 @@ func champsFromBoard(p PeerState) []AxisChamp {
 	for _, a := range src {
 		out = append(out, AxisChamp{
 			Name: a.Name, Hint: a.Hint, Tide: p.Name, URL: p.URL,
-			CellID: a.CellID, Mode: a.Mode, DType: a.DType, Format: a.Format, Arch: a.Arch,
+			CellID: report.PrettyCell(a.CellID), Mode: a.Mode, DType: a.DType, Format: a.Format, Arch: report.PrettyArch(a.Arch),
 			Value: a.Value, LowerBetter: a.LowerBetter,
 			Score: a.Score, SoftAcc: a.SoftAcc, Thru: a.Thru, Avail: a.Avail, Adapt: a.Adapt,
 		})
