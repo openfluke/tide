@@ -124,6 +124,21 @@ function fmt(n, d=2) { return (n||0).toFixed(d); }
 function prettyCell(id) {
   return String(id||'').replace(/\|cnn\|/g, '|single×1|');
 }
+// Ocean polls 127.0.0.1 on the host; rewrite so remote browsers hit the same
+// hostname they used for ocean, keeping each tide's port.
+function publicURL(u) {
+  if (!u) return u;
+  try {
+    const x = new URL(u, location.origin);
+    const loop = ['127.0.0.1', 'localhost', '::1', '0.0.0.0', '[::1]', '[::]'];
+    if (loop.includes(x.hostname)) {
+      x.hostname = location.hostname;
+    }
+    return x.toString().replace(/\/$/, '');
+  } catch {
+    return u;
+  }
+}
 function render(j) {
   const h = j.holistic || {};
   $('status').textContent = `${j.title||'ocean'} · ${h.tides_up||0}/${h.tides_total||0} up · ${h.cells_done||0}/${h.cells_total||0} cells · ${new Date(j.updated_at).toLocaleTimeString()}`;
@@ -161,7 +176,7 @@ function render(j) {
       <td>${a.arch||'—'}</td>
       <td>${prettyCell(a.cell_id||'')}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="tiny">no finished cells yet</td></tr>';
-    return `<h3><a href="${l.url||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
+    return `<h3><a href="${publicURL(l.url)||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
       <div style="overflow-x:auto"><table>
         <thead><tr><th>axis</th><th>value</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -178,18 +193,18 @@ function render(j) {
     const st = p.ok ? (b.status || (b.awaiting_start ? 'paused' : (b.running ? 'running' : 'idle'))) : 'down';
     const cls = !p.ok ? 'down' : (st === 'done' ? 'done' : (st === 'running' ? 'run' : (st === 'queued' ? 'queued' : '')));
     return `<article class="card ${cls}">
-      <h3><a href="${p.url}" target="_blank" rel="noopener">${p.name}</a></h3>
+      <h3><a href="${publicURL(p.url)}" target="_blank" rel="noopener">${p.name}</a></h3>
       <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms</div>
       <div class="bar"><i style="width:${pctBar}%"></i></div>
       <div class="tiny">epoch ${b.epoch||1} · ${done}/${tot}${rec > tot ? ` · ${rec} recorded` : ''} · ${b.ok||0} ok · ${b.gap||0} gap · ${b.fail||0} fail</div>
       <div class="tiny">now ${cur}</div>
       <div class="tiny">best ${best}</div>
-      <div class="tiny"><a href="${p.url}" target="_blank" rel="noopener">open tide dashboard</a></div>
+      <div class="tiny"><a href="${publicURL(p.url)}" target="_blank" rel="noopener">open tide dashboard</a></div>
     </article>`;
   }).join('') || '<p class="hint">No peers configured.</p>';
   const lt = $('layers').querySelector('tbody');
   lt.innerHTML = (h.layers||[]).map(l => `<tr>
-    <td><a href="${l.url}" target="_blank">${l.tide}</a></td>
+    <td><a href="${publicURL(l.url)}" target="_blank">${l.tide}</a></td>
     <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td><td>${l.arch||'—'}</td>
     <td class="ok">${fmt(l.score)}</td>
     <td>${fmt(l.soft_acc,1)}</td>

@@ -82,7 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/ocean", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(s.Snapshot())
+		_ = json.NewEncoder(w).Encode(publicizeSnapshot(s.Snapshot(), viewerHost(r)))
 	})
 	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
