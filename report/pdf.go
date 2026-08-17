@@ -67,6 +67,7 @@ type doc struct {
 }
 
 func newDoc(title string) *doc {
+	title = latin(title)
 	pdf := gofpdf.New("P", "mm", "A4", "")
 	pdf.SetTitle(title, false)
 	pdf.SetAuthor("tide / ocean Lucy report", false)
@@ -74,7 +75,7 @@ func newDoc(title string) *doc {
 		pdf.SetY(-12)
 		pdf.SetFont("Helvetica", "I", 8)
 		pdf.SetTextColor(120, 130, 140)
-		pdf.CellFormat(0, 8, fmt.Sprintf("%s  ·  page %d", title, pdf.PageNo()), "", 0, "C", false, 0, "")
+		pdf.CellFormat(0, 8, fmt.Sprintf("%s  -  page %d", title, pdf.PageNo()), "", 0, "C", false, 0, "")
 	})
 	pdf.AddPage()
 	return &doc{pdf: pdf}
@@ -105,9 +106,9 @@ func (d *doc) coverOcean(o OceanReport) {
 	h := o.Holistic
 	d.body(fmt.Sprintf("Generated %s. Tides up %d / %d. This-epoch cells %d / %d.",
 		o.Generated.Format("2006-01-02 15:04:05"), h.TidesUp, h.TidesTotal, h.CellsDone, h.CellsTotal))
-	d.body(fmt.Sprintf("Holistic best train mode: %s     best dtype: %s     best arch: %s", nz(h.BestMode, "—"), nz(h.BestDType, "—"), nz(h.BestArch, "—")))
+	d.body(fmt.Sprintf("Holistic best train mode: %s     best dtype: %s     best arch: %s", nz(h.BestMode, "-"), nz(h.BestDType, "-"), nz(h.BestArch, "-")))
 	d.body(fmt.Sprintf("Suggested default (most Lucy-axis wins): %s | %s | %s  (%d axes)",
-		nz(h.DefaultMode, "—"), nz(h.DefaultDType, "—"), nz(h.DefaultArch, "—"), h.DefaultWins))
+		nz(h.DefaultMode, "-"), nz(h.DefaultDType, "-"), nz(h.DefaultArch, "-"), h.DefaultWins))
 	d.gap(3)
 }
 
@@ -213,13 +214,30 @@ func (d *doc) axisTable(title string, rows []AxisView) {
 	if len(rows) == 0 {
 		return
 	}
+	tides := map[string]bool{}
+	for _, r := range rows {
+		if t := strings.TrimSpace(r.Tide); t != "" {
+			tides[t] = true
+		}
+	}
+	showTide := len(tides) > 1
 	d.h2(title)
-	d.table([]string{"Axis", "Tide", "Mode", "DType", "Arch", "Value"}, func(k int) []string {
+	if showTide {
+		d.table([]string{"Axis", "Tide", "Mode", "DType", "Arch", "Value"}, func(k int) []string {
+			if k >= len(rows) {
+				return nil
+			}
+			r := rows[k]
+			return []string{clip(r.Name, 14), clip(r.Tide, 12), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
+		})
+		return
+	}
+	d.table([]string{"Axis", "Mode", "DType", "Arch", "Value"}, func(k int) []string {
 		if k >= len(rows) {
 			return nil
 		}
 		r := rows[k]
-		return []string{clip(r.Name, 14), clip(nz(r.Tide, "—"), 12), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
+		return []string{clip(r.Name, 14), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
 	})
 }
 
@@ -310,7 +328,7 @@ func (d *doc) bars(title string, items []kv) {
 		d.pdf.SetFont("Helvetica", "", 7)
 		d.pdf.SetTextColor(40, 50, 55)
 		d.pdf.SetXY(left, y)
-		d.pdf.CellFormat(52, barH, it.Label, "", 0, "L", false, 0, "")
+		d.pdf.CellFormat(52, barH, latin(it.Label), "", 0, "L", false, 0, "")
 		w := 0.0
 		if max > 0 {
 			w = (colW - 70) * it.Val / max
@@ -366,7 +384,7 @@ func (d *doc) spark(title string, hist []pulse.HistoryPoint, val func(pulse.Hist
 func (d *doc) h1(s string) {
 	d.pdf.SetFont("Helvetica", "B", 16)
 	d.pdf.SetTextColor(20, 40, 48)
-	d.pdf.CellFormat(0, 9, s, "", 1, "L", false, 0, "")
+	d.pdf.CellFormat(0, 9, latin(s), "", 1, "L", false, 0, "")
 }
 
 func (d *doc) h2(s string) {
@@ -375,19 +393,19 @@ func (d *doc) h2(s string) {
 	}
 	d.pdf.SetFont("Helvetica", "B", 11)
 	d.pdf.SetTextColor(30, 90, 95)
-	d.pdf.CellFormat(0, 7, s, "", 1, "L", false, 0, "")
+	d.pdf.CellFormat(0, 7, latin(s), "", 1, "L", false, 0, "")
 }
 
 func (d *doc) muted(s string) {
 	d.pdf.SetFont("Helvetica", "", 8)
 	d.pdf.SetTextColor(110, 120, 130)
-	d.pdf.MultiCell(0, 4, s, "", "L", false)
+	d.pdf.MultiCell(0, 4, latin(s), "", "L", false)
 }
 
 func (d *doc) body(s string) {
 	d.pdf.SetFont("Helvetica", "", 9)
 	d.pdf.SetTextColor(40, 50, 55)
-	d.pdf.MultiCell(0, 4.5, s, "", "L", false)
+	d.pdf.MultiCell(0, 4.5, latin(s), "", "L", false)
 }
 
 func (d *doc) gap(mm float64) { d.pdf.Ln(mm) }
@@ -417,7 +435,7 @@ func (d *doc) table(headers []string, row func(int) []string) {
 	d.pdf.SetFillColor(22, 40, 48)
 	d.pdf.SetTextColor(230, 240, 242)
 	for i, h := range headers {
-		d.pdf.CellFormat(widths[i], 6, h, "1", 0, "L", true, 0, "")
+		d.pdf.CellFormat(widths[i], 6, latin(h), "1", 0, "L", true, 0, "")
 	}
 	d.pdf.Ln(-1)
 	d.pdf.SetFont("Helvetica", "", 7)
@@ -433,7 +451,7 @@ func (d *doc) table(headers []string, row func(int) []string) {
 			d.pdf.SetFillColor(22, 40, 48)
 			d.pdf.SetTextColor(230, 240, 242)
 			for j, h := range headers {
-				d.pdf.CellFormat(widths[j], 6, h, "1", 0, "L", true, 0, "")
+				d.pdf.CellFormat(widths[j], 6, latin(h), "1", 0, "L", true, 0, "")
 			}
 			d.pdf.Ln(-1)
 			d.pdf.SetFont("Helvetica", "", 7)
@@ -444,7 +462,7 @@ func (d *doc) table(headers []string, row func(int) []string) {
 			d.pdf.SetFillColor(236, 242, 244)
 		}
 		for j := 0; j < cols && j < len(r); j++ {
-			d.pdf.CellFormat(widths[j], 5, r[j], "1", 0, "L", fill, 0, "")
+			d.pdf.CellFormat(widths[j], 5, latin(r[j]), "1", 0, "L", fill, 0, "")
 		}
 		d.pdf.Ln(-1)
 	}
@@ -459,11 +477,37 @@ func nz(s, def string) string {
 }
 
 func clip(s string, n int) string {
-	s = strings.ReplaceAll(s, "×", "x")
+	s = latin(s)
 	if len(s) <= n {
 		return s
 	}
 	return s[:n-1] + "~"
+}
+
+// latin maps punctuation Helvetica cannot encode (em dash, middle dot, times)
+// so PDFs do not print mojibake like "â€”" or "Ã—".
+func latin(s string) string {
+	if s == "" {
+		return s
+	}
+	r := strings.NewReplacer(
+		"\u2014", "-",
+		"\u2013", "-",
+		"\u2212", "-",
+		"\u00b7", " - ",
+		"\u2022", "*",
+		"\u00d7", "x",
+		"\u2192", "->",
+		"\u2265", ">=",
+		"\u2264", "<=",
+		"\u2018", "'",
+		"\u2019", "'",
+		"\u201c", "\"",
+		"\u201d", "\"",
+		"\u2026", "...",
+		"\u00a0", " ",
+	)
+	return r.Replace(s)
 }
 
 func itoa(n int) string { return fmt.Sprintf("%d", n) }
