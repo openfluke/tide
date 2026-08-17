@@ -352,6 +352,14 @@
   <section>
     <h2>Best raw</h2>
     <div id="bests" class="meta">—</div>
+    <h2 style="margin-top:1.25rem">Lucy axis champions</h2>
+    <p class="hint">This tide’s winner on each Lucy metric (score, acc, throughput, realtime, adapt, keep-learning, …).</p>
+    <div class="table-wrap" style="max-height:360px">
+      <table>
+        <thead><tr><th>Axis</th><th class="num">Value</th><th>Mode</th><th>DType</th><th>Arch</th><th>Cell</th></tr></thead>
+        <tbody id="lucyAxes"></tbody>
+      </table>
+    </div>
     <h2 style="margin-top:1.25rem">Best mobile (metric / MiB)</h2>
     <div id="mobile" class="meta">—</div>
     <h2 style="margin-top:1.25rem">Best learn (fastest)</h2>
@@ -1447,6 +1455,18 @@ async function tick() {
       line('availability', b.availability, 'avail'),
       line('accuracy', b.accuracy, 'acc'),
     ].join('');
+    const axEl = document.getElementById('lucyAxes');
+    if (axEl) {
+      const axes = j.axes || [];
+      axEl.innerHTML = axes.length ? axes.map(a => `<tr>
+        <td>${a.name||''}</td>
+        <td class="num">${(a.value||0).toFixed(2)}</td>
+        <td>${a.mode||'—'}</td>
+        <td>${a.dtype||'—'}</td>
+        <td>${a.arch||'—'}</td>
+        <td>${a.cell_id||''}</td>
+      </tr>`).join('') : '<tr><td colspan="6">—</td></tr>';
+    }
 
     const mobEl = document.getElementById('mobile');
     const m = j.best_mobile || {};

@@ -78,6 +78,7 @@ func (s *Server) BuildReport() report.OceanReport {
 			Tide: l.Tide, Mode: l.Mode, DType: l.DType, Arch: l.Arch, CellID: l.CellID,
 			Score: l.Score, SoftAcc: l.SoftAcc, Thru: l.Thru, Avail: l.Avail, Adapt: l.Adapt,
 			Done: l.Done, Total: l.Total, Recorded: l.Recorded,
+			Axes: axisViews(l.Axes),
 		})
 	}
 	for _, t := range snap.Holistic.CombinedTop {
@@ -143,4 +144,16 @@ func (s *Server) fetchTideReport(origin string) (report.TideReport, error) {
 		return zero, err
 	}
 	return tr, nil
+}
+
+func axisViews(xs []AxisChamp) []report.AxisView {
+	out := make([]report.AxisView, 0, len(xs))
+	for _, a := range xs {
+		out = append(out, report.AxisView{
+			Name: a.Name, Hint: a.Hint, Tide: a.Tide, CellID: a.CellID,
+			Mode: a.Mode, DType: a.DType, Arch: a.Arch, Value: a.Value,
+			SoftAcc: a.SoftAcc, Thru: a.Thru,
+		})
+	}
+	return out
 }

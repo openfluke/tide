@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/openfluke/tide/dash"
-	"github.com/openfluke/tide/metrics"
 	"github.com/openfluke/tide/pulse"
 )
 
@@ -26,6 +25,7 @@ type LayerWinner struct {
 	Adapt    float64 `json:"adapt_pct"`
 	AccPerSec float64 `json:"acc_per_sec"`
 	Keep     float64 `json:"keep_learn"`
+	Axes     []AxisChamp `json:"axes,omitempty"`
 	Ok       int     `json:"ok"`
 	Gap      int     `json:"gap"`
 	Fail     int     `json:"fail"`
@@ -61,6 +61,7 @@ type AxisChamp struct {
 	Format  string  `json:"format"`
 	Arch    string  `json:"arch"`
 	Value   float64 `json:"value"`
+	LowerBetter bool `json:"lower_better,omitempty"`
 	Score   float64 `json:"score"`
 	SoftAcc float64 `json:"soft_acc"`
 	Thru    float64 `json:"throughput"`
@@ -125,6 +126,7 @@ func consolidate(peers []PeerState) Holistic {
 			w.Score, w.SoftAcc, w.Accuracy = best.Score, best.SoftAcc, best.Accuracy
 			w.Thru, w.Avail = best.Throughput, best.Avail
 		}
+		w.Axes = champsFromBoard(p)
 		layers = append(layers, w)
 		for _, r := range b.Leaderboard {
 			if r.Status != "ok" {
@@ -184,81 +186,58 @@ func fillLayer(w *LayerWinner, r *pulse.Result) {
 	w.Keep = dash.KeepLearn(s)
 }
 
-func oceanAxes(peers []PeerState) []AxisChamp {
-	type spec struct {
-		name, hint string
-		get        func(dash.Board) *pulse.Result
-		val        func(metrics.Snapshot) float64
-		higher     bool
+func champsFromBoard(p PeerState) []AxisChamp {
+	src := p.Board.Axes
+	if len(src) == 0 {
+		src = dash.LucyAxes(p.Board)
 	}
-	specs := []spec{
-		{"score", "T x Avail x SoftAcc / 10,000", func(b dash.Board) *pulse.Result { return b.Best.Score }, func(s metrics.Snapshot) float64 { return s.Score }, true},
-		{"soft_acc", "class-mass SoftAcc (adaptation quality)", func(b dash.Board) *pulse.Result { return b.BestSoft }, func(s metrics.Snapshot) float64 { return s.SoftAcc }, true},
-		{"hard_acc", "argmax accuracy", func(b dash.Board) *pulse.Result { return b.BestHard }, func(s metrics.Snapshot) float64 { return s.AvgAccuracy }, true},
-		{"throughput", "outputs / second (fast realtime)", func(b dash.Board) *pulse.Result { return b.Best.Throughput }, func(s metrics.Snapshot) float64 { return s.Throughput }, true},
-		{"availability", "infer / (infer+train) duty cycle", func(b dash.Board) *pulse.Result { return b.Best.Availability }, func(s metrics.Snapshot) float64 { return s.Availability }, true},
-		{"acc_thru", "SoftAcc x Throughput / 100", func(b dash.Board) *pulse.Result { return b.BestAccThru }, dash.AccThru, true},
-		{"realtime", "Throughput x Availability / 100", func(b dash.Board) *pulse.Result { return b.BestRealtime }, dash.Realtime, true},
-		{"adapt", "AdaptPct after phase switches", func(b dash.Board) *pulse.Result { return b.BestAdapt }, func(s metrics.Snapshot) float64 { return s.AdaptPct }, true},
-		{"keep_learn", "late SoftAcc still rising (not plateau)", func(b dash.Board) *pulse.Result { return b.BestKeep }, dash.KeepLearn, true},
-		{"acc_per_sec", "SoftAcc gained per wall second", func(b dash.Board) *pulse.Result {
-			if b.BestLearn.AccPerSec != nil {
-				return b.BestLearn.AccPerSec
-			}
-			return nil
-		}, func(s metrics.Snapshot) float64 { return s.AccPerSec }, true},
-		{"time_to_50", "seconds to 50% window acc (lower better)", func(b dash.Board) *pulse.Result {
-			if b.BestLearn.To50 != nil {
-				return b.BestLearn.To50
-			}
-			return nil
-		}, func(s metrics.Snapshot) float64 { return s.TimeToAcc50Sec }, false},
-		{"consistency", "share of windows above SoftAcc threshold", func(b dash.Board) *pulse.Result { return b.BestConsistency }, func(s metrics.Snapshot) float64 { return s.Consistency }, true},
-		{"stability", "low SoftAcc variance after switches", func(b dash.Board) *pulse.Result { return b.BestStability }, func(s metrics.Snapshot) float64 { return s.Stability }, true},
-		{"mobile_score", "Score per MiB", func(b dash.Board) *pulse.Result { return b.BestMobile.Score }, func(s metrics.Snapshot) float64 { return s.MobileScore }, true},
-	}
-	out := make([]AxisChamp, 0, len(specs))
-	for _, sp := range specs {
-		if c, ok := pickAxis(peers, sp.name, sp.hint, sp.get, sp.val, sp.higher); ok {
-			out = append(out, c)
-		}
+	out := make([]AxisChamp, 0, len(src))
+	for _, a := range src {
+		out = append(out, AxisChamp{
+			Name: a.Name, Hint: a.Hint, Tide: p.Name, URL: p.URL,
+			CellID: a.CellID, Mode: a.Mode, DType: a.DType, Format: a.Format, Arch: a.Arch,
+			Value: a.Value, LowerBetter: a.LowerBetter,
+			Score: a.Score, SoftAcc: a.SoftAcc, Thru: a.Thru, Avail: a.Avail, Adapt: a.Adapt,
+		})
 	}
 	return out
 }
 
-func pickAxis(peers []PeerState, name, hint string, get func(dash.Board) *pulse.Result, val func(metrics.Snapshot) float64, higher bool) (AxisChamp, bool) {
-	var best AxisChamp
-	found := false
+func oceanAxes(peers []PeerState) []AxisChamp {
+	byName := map[string]AxisChamp{}
+	lower := map[string]bool{}
+	var order []string
 	for _, p := range peers {
 		if !p.OK {
 			continue
 		}
-		r := get(p.Board)
-		if r == nil {
-			continue
-		}
-		v := val(r.Snapshot)
-		if v <= 0 {
-			continue
-		}
-		if !found || (higher && v > best.Value) || (!higher && v < best.Value) {
-			found = true
-			best = champOf(name, hint, p, r, v)
+		for _, a := range champsFromBoard(p) {
+			if a.Value <= 0 {
+				continue
+			}
+			if a.LowerBetter {
+				lower[a.Name] = true
+			}
+			prev, ok := byName[a.Name]
+			win := !ok
+			if ok && lower[a.Name] {
+				win = a.Value < prev.Value
+			} else if ok {
+				win = a.Value > prev.Value
+			}
+			if win {
+				if !ok {
+					order = append(order, a.Name)
+				}
+				byName[a.Name] = a
+			}
 		}
 	}
-	return best, found
-}
-
-func champOf(name, hint string, p PeerState, r *pulse.Result, value float64) AxisChamp {
-	s := r.Snapshot
-	return AxisChamp{
-		Name: name, Hint: hint,
-		Tide: p.Name, URL: p.URL, CellID: r.Cell.ID,
-		Mode: string(r.Cell.Mode), DType: r.Cell.DType.String(),
-		Format: r.Cell.Format.String(), Arch: r.Cell.ArchTag(),
-		Value: value, Score: s.Score, SoftAcc: s.SoftAcc,
-		Thru: s.Throughput, Avail: s.Availability, Adapt: s.AdaptPct,
+	out := make([]AxisChamp, 0, len(order))
+	for _, name := range order {
+		out = append(out, byName[name])
 	}
+	return out
 }
 
 func defaultRecipe(axes []AxisChamp) (mode, dtype, arch string, wins int) {

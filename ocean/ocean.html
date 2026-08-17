@@ -48,7 +48,8 @@
   .kpi b { display: block; font-size: 1.25rem; color: var(--accent); font-family: "IBM Plex Mono", ui-monospace, monospace; }
   .kpi span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
   section { background: rgba(0,0,0,0.22); border: 1px solid var(--grid); padding: 1rem; margin: 0 1.5rem 1rem; }
-  h2 { margin: 0 0 0.55rem; font-size: 0.95rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  h3 { margin: 0.85rem 0 0.35rem; font-size: 0.95rem; }
+  h3 a { color: var(--tide); text-decoration: none; }
   .hint { font-size: 0.75rem; color: var(--muted); margin: 0 0 0.65rem; }
   .tides { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; }
   .card { background: rgba(0,0,0,0.25); border: 1px solid var(--grid); padding: 0.8rem; }
@@ -94,6 +95,11 @@
   <div style="overflow-x:auto"><table id="axes"><thead><tr>
     <th>axis</th><th>value</th><th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th>
   </tr></thead><tbody></tbody></table></div>
+</section>
+<section>
+  <h2>Per-layer Lucy axes</h2>
+  <p class="hint">Same Lucy axes, but the champion is picked inside each tide. Open a layer name to see its live dashboard.</p>
+  <div id="layerAxes"></div>
 </section>
 <section>
   <h2>Tides</h2>
@@ -143,6 +149,21 @@ function render(j) {
     <td>${a.arch||'—'}</td>
     <td>${a.cell_id||''}</td>
   </tr>`).join('') || '<tr><td colspan="7" class="tiny">No axis winners yet.</td></tr>';
+  $('layerAxes').innerHTML = (h.layers||[]).map(l => {
+    const rows = (l.axes||[]).map(a => `<tr>
+      <td>${a.name}</td>
+      <td class="ok">${fmt(a.value)}</td>
+      <td>${a.mode||'—'}</td>
+      <td>${a.dtype||'—'}</td>
+      <td>${a.arch||'—'}</td>
+      <td>${a.cell_id||''}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="tiny">no finished cells yet</td></tr>';
+    return `<h3><a href="${l.url||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>axis</th><th>value</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }).join('') || '<p class="hint">No layers up yet.</p>';
   $('tides').innerHTML = (j.peers||[]).map(p => {
     const b = p.board || {};
     const tot = b.plan || b.cell_total || 0;

@@ -71,6 +71,13 @@ func TestConsolidateVotesModeAndDType(t *testing.T) {
 	if len(h.Axes) == 0 {
 		t.Fatal("expected score axis")
 	}
+	dense := h.Layers[0]
+	if dense.Tide != "dense" || len(dense.Axes) == 0 {
+		t.Fatalf("dense layer axes %+v", dense.Axes)
+	}
+	if dense.Axes[0].Name != "score" || dense.Axes[0].Tide != "dense" {
+		t.Fatalf("dense axis %+v", dense.Axes[0])
+	}
 }
 
 func TestConsolidateUsesEpochPlan(t *testing.T) {

@@ -14,6 +14,7 @@ func PDFTide(r TideReport) ([]byte, error) {
 	p := newDoc("tide — " + nz(r.Task, r.ID))
 	p.coverTide(r)
 	p.bests(r)
+	p.axisTable("Lucy axis champions (this tide)", r.Axes)
 	p.winners(r.Winners)
 	p.leaderboard("Leaderboard (Lucy Score)", r.Leaderboard)
 	p.bars("Top scores", scoresOf(r.Leaderboard))
@@ -32,16 +33,23 @@ func PDFOcean(o OceanReport) ([]byte, error) {
 	p.votes("Train mode votes", o.Holistic.ModeVotes)
 	p.votes("DType votes", o.Holistic.DTypeVotes)
 	p.votes("Arch votes", o.Holistic.ArchVotes)
-	p.axisTable(o.Holistic.Axes)
+	p.axisTable("Lucy axis champions (ocean-wide)", o.Holistic.Axes)
 	p.bars("Train mode mean Score", voteBars(o.Holistic.ModeVotes))
 	p.bars("DType mean Score", voteBars(o.Holistic.DTypeVotes))
 	p.layerTable(o.Holistic.Layers)
+	for _, l := range o.Holistic.Layers {
+		if len(l.Axes) == 0 {
+			continue
+		}
+		p.axisTable("Lucy axes — "+l.Tide, l.Axes)
+	}
 	p.topTable(o.Holistic.CombinedTop)
 	p.bars("Score by layer", layerScores(o.Holistic.Layers))
 	for _, t := range o.Tides {
 		p.pdf.AddPage()
 		p.coverTide(t)
 		p.bests(t)
+		p.axisTable("Lucy axes — "+nz(t.Task, t.ID), t.Axes)
 		p.winners(t.Winners)
 		p.leaderboard("Leaderboard — "+nz(t.Task, t.ID), t.Leaderboard)
 		p.bars("Top scores — "+nz(t.Task, t.ID), scoresOf(t.Leaderboard))
@@ -201,14 +209,17 @@ func (d *doc) votes(title string, vs []Vote) {
 	})
 }
 
-func (d *doc) axisTable(rows []AxisView) {
-	d.h2("Lucy axis champions (ocean-wide)")
+func (d *doc) axisTable(title string, rows []AxisView) {
+	if len(rows) == 0 {
+		return
+	}
+	d.h2(title)
 	d.table([]string{"Axis", "Tide", "Mode", "DType", "Arch", "Value"}, func(k int) []string {
 		if k >= len(rows) {
 			return nil
 		}
 		r := rows[k]
-		return []string{clip(r.Name, 14), clip(r.Tide, 12), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
+		return []string{clip(r.Name, 14), clip(nz(r.Tide, "—"), 12), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
 	})
 }
 

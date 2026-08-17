@@ -28,6 +28,7 @@ type TideReport struct {
 	Leaderboard  []pulse.Result       `json:"leaderboard"`
 	ModeProgress []ModeRow            `json:"mode_progress"`
 	History      []pulse.HistoryPoint `json:"history,omitempty"`
+	Axes         []AxisView           `json:"axes,omitempty"`
 }
 
 // OceanReport is the master consolidation plus per-tide pages.
@@ -81,7 +82,8 @@ type LayerRow struct {
 	Done     int     `json:"done"`
 	Total    int     `json:"total"`
 	Recorded int     `json:"recorded"`
-	Status   string  `json:"status"`
+	Status   string     `json:"status"`
+	Axes     []AxisView `json:"axes,omitempty"`
 }
 
 type AxisView struct {

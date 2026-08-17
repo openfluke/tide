@@ -70,7 +70,20 @@ func (b Board) ToReport(history []pulse.HistoryPoint) report.TideReport {
 		Leaderboard:  append([]pulse.Result(nil), b.Leaderboard...),
 		ModeProgress: modes,
 		History:      append([]pulse.HistoryPoint(nil), history...),
+		Axes:         axesView(b.Axes),
 	}
+}
+
+func axesView(xs []LucyAxis) []report.AxisView {
+	out := make([]report.AxisView, 0, len(xs))
+	for _, a := range xs {
+		out = append(out, report.AxisView{
+			Name: a.Name, Hint: a.Hint, CellID: a.CellID,
+			Mode: a.Mode, DType: a.DType, Arch: a.Arch, Value: a.Value,
+			SoftAcc: a.SoftAcc, Thru: a.Thru,
+		})
+	}
+	return out
 }
 
 func winnersView(w Winners) report.WinnersView {

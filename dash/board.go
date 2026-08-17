@@ -71,6 +71,7 @@ type Board struct {
 	BestAccThru     *pulse.Result     `json:"best_acc_thru,omitempty"`
 	BestRealtime    *pulse.Result     `json:"best_realtime,omitempty"`
 	BestKeep        *pulse.Result     `json:"best_keep,omitempty"`
+	Axes            []LucyAxis        `json:"axes,omitempty"`
 	APIs            map[string]string `json:"apis"`
 	// Status is paused | queued | running | done | idle — ocean uses this so
 	// a finished epoch (dashboard kept up) is not shown as "still running".
@@ -148,7 +149,7 @@ func (s *Server) Board() Board {
 	}
 	started := s != nil && s.Started()
 	adapt, soft, hard, cons, stab, accThru, realtime, keep := extraBests(live.Completed)
-	return Board{
+	out := Board{
 		ID:               s.identityID(),
 		Task:             s.Task,
 		Subtitle:         s.Subtitle,
@@ -188,6 +189,8 @@ func (s *Server) Board() Board {
 		APIs:             APIPaths(),
 		Status:           boardStatus(started, live.Running, epochDone, plan),
 	}
+	out.Axes = LucyAxes(out)
+	return out
 }
 
 func countResults(completed []pulse.Result, epoch int) (okE, gapE, failE, okAll, recorded int) {
@@ -283,5 +286,6 @@ func (s *Server) livePayload() map[string]any {
 		"ok_all":                   b.OkAll,
 		"recorded":                 b.Recorded,
 		"progress_pct":             b.ProgressPct,
+		"axes":                     b.Axes,
 	}
 }
