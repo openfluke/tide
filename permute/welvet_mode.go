@@ -26,9 +26,9 @@ func AllModes() []TrainMode {
 	return out
 }
 
-// CamsOf is 1 for a single CNN head, 2 for bicameral, 3 for tricameral.
+// CamsOf is 1 for single, 2 for bicameral, 3 for tricameral.
 func CamsOf(arch ArchKind) int {
-	switch arch {
+	switch CanonicalArch(arch) {
 	case ArchTricameral:
 		return 3
 	case ArchBicameral:

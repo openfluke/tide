@@ -106,20 +106,24 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	if cfg.Resume != nil && cfg.Resume.Inflight != nil {
 		inf := cfg.Resume.Inflight
 		cellIdx = inf.CellIndex
+		inf.Cell.Arch = permute.CanonicalArch(inf.Cell.Arch)
+		inf.Cell.ID = permute.NormalizeCellID(inf.Cell.ID)
 		tr.SetMeta(0, len(batches), cellIdx, cellTotal,
 			fmt.Sprintf("epoch %d resume %s @%d/%d", cfg.Epoch, inf.Cell.ID, inf.TrainOffset, ds.TrainLen()))
 		err := runCellEpoch(ctx, cfg, ds, tr, inf.Cell, cellIdx, true, inf)
 		if err != nil && ctx.Err() != nil {
 			return err
 		}
-		done[inf.Cell.ID] = true
+		for _, a := range permute.IDAliases(inf.Cell.ID) {
+			done[a] = true
+		}
 		cellIdx = inf.CellIndex + 1
 		_ = persistProgress(cfg, tr, cellIdx, nil, nil)
 	}
 
 	for bi, batch := range batches {
 		for _, cell := range batch {
-			if done[cell.ID] {
+			if permute.IDDone(done, cell.ID) {
 				cellIdx++
 				continue
 			}

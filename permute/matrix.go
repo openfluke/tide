@@ -4,6 +4,7 @@ package permute
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/openfluke/welvet/core"
 	"github.com/openfluke/welvet/quant"
@@ -22,11 +23,13 @@ const (
 	ModeStepTweenChain TrainMode = "step_tween_chain" // StepTweenChain
 )
 
-// ArchKind selects the network topology for a cell.
+// ArchKind is cameral topology (1 / 2 / 3 heads). It is not a layer type —
+// live_mnist uses a CNN stem, live_gpt uses MHA; both are "single" at cams=1.
 type ArchKind string
 
 const (
-	ArchCNN        ArchKind = "cnn"        // CNN2→CNN2→Dense (single, cams=1)
+	ArchSingle     ArchKind = "single"     // 1 cam
+	ArchCNN        ArchKind = ArchSingle   // frozen alias; old cell IDs used "cnn"
 	ArchBicameral  ArchKind = "bicameral"  // Parallel 2×Dense, add (cams=2)
 	ArchTricameral ArchKind = "tricameral" // Parallel 3×Dense, add (cams=3)
 )
@@ -41,9 +44,9 @@ func LucyModes() []TrainMode {
 	}
 }
 
-// AllArches is CNN (single) + Bi + Tri cameral.
+// AllArches is single + Bi + Tri cameral.
 func AllArches() []ArchKind {
-	return []ArchKind{ArchCNN, ArchBicameral, ArchTricameral}
+	return []ArchKind{ArchSingle, ArchBicameral, ArchTricameral}
 }
 
 // Cell is one permutation to benchmark.
@@ -53,13 +56,64 @@ type Cell struct {
 	Format  quant.Format `json:"format"`
 	Mode    TrainMode    `json:"mode"`
 	Arch    ArchKind     `json:"arch"`
-	Cams    int          `json:"cams,omitempty"` // 1=single CNN, 2=bi, 3=tri
+	Cams    int          `json:"cams,omitempty"` // 1=single, 2=bi, 3=tri
 	Backend core.Backend `json:"backend"`
 	UseSIMD bool         `json:"use_simd"`
 }
 
 func (c Cell) String() string {
-	return fmt.Sprintf("%s|%s|%s|%s|simd", c.DType, c.Format, c.Mode, c.Arch)
+	return fmt.Sprintf("%s|%s|%s|%s|simd", c.DType, c.Format, c.Mode, CanonicalArch(c.Arch))
+}
+
+// CanonicalArch maps legacy "cnn" (and empty) onto single.
+func CanonicalArch(a ArchKind) ArchKind {
+	switch strings.ToLower(strings.TrimSpace(string(a))) {
+	case "", "cnn", "single", "1":
+		return ArchSingle
+	case "bicameral", "bi", "2":
+		return ArchBicameral
+	case "tricameral", "tri", "3":
+		return ArchTricameral
+	default:
+		return a
+	}
+}
+
+// NormalizeCellID rewrites legacy |cnn| tokens so checkpoints resume after the
+// arch axis was renamed to single.
+func NormalizeCellID(id string) string {
+	return strings.ReplaceAll(id, "|cnn|", "|single|")
+}
+
+// IDAliases is the current ID plus the pre-rename form (cnn ↔ single).
+func IDAliases(id string) []string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	n := NormalizeCellID(id)
+	legacy := strings.ReplaceAll(n, "|single|", "|cnn|")
+	out := []string{n}
+	if legacy != n {
+		out = append(out, legacy)
+	}
+	if id != n && id != legacy {
+		out = append(out, id)
+	}
+	return out
+}
+
+// IDDone reports whether any alias of id is in done.
+func IDDone(done map[string]bool, id string) bool {
+	if done == nil {
+		return false
+	}
+	for _, a := range IDAliases(id) {
+		if done[a] {
+			return true
+		}
+	}
+	return false
 }
 
 // Config controls which axes expand.
@@ -110,7 +164,7 @@ func Sprint() Config {
 	}
 }
 
-// Screen is the cheap first pass: Lucy 6 × cnn × full numeric axis.
+// Screen is the cheap first pass: Lucy 6 × single × full numeric axis.
 // Promote winners onto bi/tri and extra Welvet modes after this.
 func Screen() Config {
 	f := Full()
@@ -118,7 +172,7 @@ func Screen() Config {
 		DTypes:  f.DTypes,
 		Formats: f.Formats,
 		Modes:   LucyModes(),
-		Arches:  []ArchKind{ArchCNN},
+		Arches:  []ArchKind{ArchSingle},
 	}
 }
 
@@ -146,6 +200,7 @@ func Expand(cfg Config) []Cell {
 	simdOK := simd.Enabled()
 	for _, mode := range cfg.Modes {
 		for _, arch := range arches {
+			arch = CanonicalArch(arch)
 			for _, dt := range cfg.DTypes {
 				for _, f := range cfg.Formats {
 					cellDT := dt

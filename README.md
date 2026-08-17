@@ -57,15 +57,17 @@ sine frequency switches in test41).
 | DType | `core.AllDTypes` (full) |
 | Quant | `quant.AllFormats` |
 | Modes | Lucy 6 (`sgd`…`step_tween_chain`) **plus** every other named Welvet TrainMode (Split / Alt / FastProxy / Sparse / Mesh*). Old Lucy tokens stay frozen so checkpoints resume. |
-| Arch | `cnn` (single×1), `bicameral` (×2), `tricameral` (×3) |
+| Arch | `single` (×1), `bicameral` (×2), `tricameral` (×3) — cameral width, not a layer type |
 
 **Removed:** `tween_head` / `*_simd` twin modes / CPU-tiled backends.
 
 ### Architectures
 
-**cnn** — `CNN2 → CNN2 → Dense → 10` (single, cams=1)  
-**bicameral** — `CNN2 → CNN2 → Dense → Parallel(2×Dense, add) → Dense → 10`  
+**single** — host stem (live_mnist: `CNN2 → CNN2 → Dense → 10`; live_gpt: causal MHA) + 1 head  
+**bicameral** — same stem with **2** hemispheres  
 **tricameral** — same with **3** hemispheres
+
+Old cell IDs used `cnn` for single; checkpoints still resume (`|cnn|` ≡ `|single|`).
 
 Credit modes (FastProxy, Sparse, …) run `TrainStackMSE` on the Dense sandwich; CNN stem gets Tween-style local gaps. Mesh* on this bench collapses to the family (no volumetric grid).
 

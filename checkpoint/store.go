@@ -31,20 +31,20 @@ type Inflight struct {
 
 // Progress is the on-disk resume state.
 type Progress struct {
-	Version       int                  `json:"version"`
-	Mode          string               `json:"mode"`
-	Epoch         int                  `json:"epoch"` // 1-based; re-run after full sweep bumps this
-	UpdatedAt     time.Time            `json:"updated_at"`
-	CellTotal     int                  `json:"cell_total"`
-	NextCellIndex int                  `json:"next_cell_index"`
-	DoneIDs       []string             `json:"done_ids"`
-	Completed     []pulse.Result       `json:"completed"`
-	Best          pulse.Best           `json:"best"`
-	BestMobile    pulse.BestMobile     `json:"best_mobile"`
-	BestLearn     pulse.BestLearn      `json:"best_learn"`
+	Version         int                   `json:"version"`
+	Mode            string                `json:"mode"`
+	Epoch           int                   `json:"epoch"` // 1-based; re-run after full sweep bumps this
+	UpdatedAt       time.Time             `json:"updated_at"`
+	CellTotal       int                   `json:"cell_total"`
+	NextCellIndex   int                   `json:"next_cell_index"`
+	DoneIDs         []string              `json:"done_ids"`
+	Completed       []pulse.Result        `json:"completed"`
+	Best            pulse.Best            `json:"best"`
+	BestMobile      pulse.BestMobile      `json:"best_mobile"`
+	BestLearn       pulse.BestLearn       `json:"best_learn"`
 	BestLearnMobile pulse.BestLearnMobile `json:"best_learn_mobile"`
-	History       []pulse.HistoryPoint `json:"history,omitempty"`
-	Inflight      *Inflight            `json:"inflight,omitempty"`
+	History         []pulse.HistoryPoint  `json:"history,omitempty"`
+	Inflight        *Inflight             `json:"inflight,omitempty"`
 }
 
 // Store writes progress.json + model weight dirs under Root.
@@ -211,8 +211,24 @@ func (s *Store) SaveModel(slot string, m *chain.Model) error {
 }
 
 func (s *Store) LoadModel(slot string, m *chain.Model) error {
-	dir := filepath.Join(s.Root, "models", sanitize(slot))
-	return m.LoadWeightsDir(dir)
+	var last error
+	for _, id := range permute.IDAliases(slot) {
+		dir := filepath.Join(s.Root, "models", sanitize(id))
+		err := m.LoadWeightsDir(dir)
+		if err == nil {
+			return nil
+		}
+		last = err
+		if err != nil && !os.IsNotExist(err) {
+			if _, statErr := os.Stat(dir); statErr != nil && os.IsNotExist(statErr) {
+				continue
+			}
+		}
+	}
+	if last == nil {
+		last = fmt.Errorf("checkpoint: no model for %s", slot)
+	}
+	return last
 }
 
 func (s *Store) SaveInflightModel(m *chain.Model) error {
@@ -255,6 +271,12 @@ func sanitize(id string) string {
 	return r.Replace(id)
 }
 
+func markDone(out map[string]bool, id string) {
+	for _, a := range permute.IDAliases(id) {
+		out[a] = true
+	}
+}
+
 // DoneSet returns cell IDs finished for the current epoch.
 func DoneSet(p *Progress) map[string]bool {
 	out := map[string]bool{}
@@ -266,7 +288,7 @@ func DoneSet(p *Progress) map[string]bool {
 		epoch = 1
 	}
 	for _, id := range p.DoneIDs {
-		out[id] = true
+		markDone(out, id)
 	}
 	for _, r := range p.Completed {
 		re := r.Epoch
@@ -274,11 +296,13 @@ func DoneSet(p *Progress) map[string]bool {
 			re = 1
 		}
 		if re == epoch && (r.Status == "ok" || r.Status == "gap") {
-			out[r.Cell.ID] = true
+			markDone(out, r.Cell.ID)
 		}
 	}
 	if p.Inflight != nil {
-		delete(out, p.Inflight.Cell.ID)
+		for _, a := range permute.IDAliases(p.Inflight.Cell.ID) {
+			delete(out, a)
+		}
 	}
 	return out
 }
@@ -293,7 +317,7 @@ func AllDone(p *Progress, cells []permute.Cell) bool {
 		return false
 	}
 	for _, c := range cells {
-		if !done[c.ID] {
+		if !permute.IDDone(done, c.ID) {
 			return false
 		}
 	}

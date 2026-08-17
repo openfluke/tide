@@ -1,6 +1,7 @@
 package permute
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/openfluke/welvet/layers/parallel"
@@ -44,7 +45,7 @@ func TestScreenIsCNNLucy(t *testing.T) {
 
 func TestArchTag(t *testing.T) {
 	if g := (Cell{Arch: ArchCNN}).ArchTag(); g != "single×1" {
-		t.Fatalf("cnn: %s", g)
+		t.Fatalf("single: %s", g)
 	}
 	if g := (Cell{Arch: ArchBicameral}).ArchTag(); g != "bicameral×2" {
 		t.Fatalf("bi: %s", g)
@@ -80,6 +81,24 @@ func TestSprintIsNoneAllArches(t *testing.T) {
 	}
 	if seen[ArchCNN] != seen[ArchBicameral] || seen[ArchCNN] != seen[ArchTricameral] {
 		t.Fatalf("uneven arches %+v", seen)
+	}
+}
+
+func TestCanonicalArchAndIDs(t *testing.T) {
+	if CanonicalArch("cnn") != ArchSingle || CanonicalArch(ArchCNN) != ArchSingle {
+		t.Fatalf("cnn → %s", CanonicalArch("cnn"))
+	}
+	c := Cell{Mode: ModeSGD, Arch: "cnn"}
+	if !strings.Contains(c.String(), "|single|") || strings.Contains(c.String(), "|cnn|") {
+		t.Fatalf("id %s", c.String())
+	}
+	old := "fp6|none|sgd|cnn|simd"
+	if NormalizeCellID(old) != "fp6|none|sgd|single|simd" {
+		t.Fatalf("norm %s", NormalizeCellID(old))
+	}
+	done := map[string]bool{old: true}
+	if !IDDone(done, "fp6|none|sgd|single|simd") {
+		t.Fatal("alias miss")
 	}
 }
 

@@ -122,7 +122,7 @@ const $ = id => document.getElementById(id);
 function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
 function fmt(n, d=2) { return (n||0).toFixed(d); }
 function prettyCell(id) {
-  return String(id||'').replace(/\|cnn\|/g, '|single×1|');
+  return String(id||'').replace(/\|cnn\|/g, '|single|');
 }
 // Ocean polls 127.0.0.1 on the host; rewrite so remote browsers hit the same
 // hostname they used for ocean, keeping each tide's port.

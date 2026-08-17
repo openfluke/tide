@@ -119,8 +119,9 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 		FlatIn: flat, OutH1: outH1, OutW1: outW1, OutH2: outH2, OutW2: outW2,
 	}
 	if m.Arch == "" {
-		m.Arch = permute.ArchCNN
+		m.Arch = permute.ArchSingle
 	}
+	m.Arch = permute.CanonicalArch(m.Arch)
 
 	switch m.Arch {
 	case permute.ArchBicameral, permute.ArchTricameral:
@@ -168,7 +169,7 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 			return nil, fmt.Errorf("dense: %w", err)
 		}
 		m.Head = head
-		m.Arch = permute.ArchCNN
+		m.Arch = permute.ArchSingle
 	}
 
 	if err := m.applyCell(cell); err != nil {

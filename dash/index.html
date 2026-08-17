@@ -929,7 +929,7 @@ function drawPulse(viewEnd) {
     pulseCtx.fillStyle = '#e6eef2';
     pulseCtx.font = '11px ui-monospace, monospace';
     pulseCtx.textAlign = 'right';
-    pulseCtx.fillText(tip.cell_id, w - padR, 12);
+    pulseCtx.fillText(prettyCellId(tip.cell_id), w - padR, 12);
   }
 }
 
@@ -975,10 +975,14 @@ function bindRowClicks(root) {
   });
 }
 
+function prettyCellId(id) {
+  return String(id||'').replace(/\|cnn\|/g, '|single|');
+}
 function parseCell(cell, id) {
-  id = id || cell?.id || '';
+  id = prettyCellId(id || cell?.id || '');
   const p = String(id).split('|');
-  const arch = (cell && cell.arch) || p[3] || 'single';
+  let arch = (cell && cell.arch) || p[3] || 'single';
+  if (arch === 'cnn') arch = 'single';
   let cams = (cell && cell.cams) || 0;
   if (!cams) {
     if (arch === 'tricameral') cams = 3;
@@ -988,8 +992,6 @@ function parseCell(cell, id) {
   const mode = (cell && cell.mode) || p[2] || '';
   const dtype = p[0] || '';
   const format = p[1] || '';
-  // ArchCNN token is "cnn" in cell IDs (live_mnist / checkpoints). On the
-  // dashboard that means single-headed, not "this tide is a CNN".
   const tag = cams <= 1 ? 'single×1' : (cams === 2 ? 'bi×2' : (cams === 3 ? 'tri×3' : (arch + '×' + cams)));
   return { id, arch, cams, mode, dtype, format, tag };
 }
@@ -1432,7 +1434,7 @@ async function tick() {
       ? `Finished cells keep their epoch-${epochN} scores. Only new modes / arches / leftover IDs will run.`
       : 'Nothing trains until you press Start. Checkpoint is not written while paused.';
     document.getElementById('status').textContent =
-      `${j.message || ''} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${
+      `${prettyCellId(j.message || '')} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${
         awaiting ? 'PAUSED' : (j.running ? 'RUNNING' : 'idle')
       }`;
 
