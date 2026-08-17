@@ -278,6 +278,7 @@
 <header>
   <h1><span>tide</span> <span id="taskTitle">live adaptation</span></h1>
   <div class="meta" id="status">connecting…</div>
+  <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
 </header>
 <p class="score-eq">Score = Throughput × Availability% × SoftAcc% / 10,000 &nbsp;·&nbsp; Availability = Infer / (Infer+Train)</p>
 <p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
@@ -750,24 +751,29 @@ function renderWinners(w) {
 
 function drawProgressPie() {
   if (!lastLive) return;
-  const total = lastLive.cell_total || 0;
-  const done = (lastLive.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
-  const fail = (lastLive.completed || []).filter(r => r.status === 'fail').length;
+  const total = lastLive.plan || lastLive.cell_total || 0;
+  const done = lastLive.epoch_done != null
+    ? lastLive.epoch_done
+    : (lastLive.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
+  const fail = lastLive.epoch_fail != null ? lastLive.epoch_fail
+    : (lastLive.completed || []).filter(r => r.status === 'fail').length;
   const running = lastLive.running ? 1 : 0;
-  const left = Math.max(0, total - done - fail - running);
+  const left = Math.max(0, total - Math.min(done, total) - fail - running);
   const slices = [
-    { value: done, color: '#3dd6c6' },
+    { value: Math.min(done, total), color: '#3dd6c6' },
     { value: running, color: '#e6b35a' },
     { value: fail, color: '#e06c75' },
     { value: left, color: '#3a4a55' },
   ].filter(s => s.value > 0);
-  const pct = total > 0 ? (100*done/total).toFixed(1) + '%' : '—';
+  const pct = total > 0 ? (100*Math.min(done,total)/total).toFixed(1) + '%' : '—';
   drawDonut(pieCtx, pieCanvas, slices, [pct + ' done', fmtDur(etaSec) + ' ETA']);
+  const rec = lastLive.recorded || 0;
   document.getElementById('pieAside').innerHTML =
     `<div><span class="swatch" style="background:#3dd6c6"></span>done <b>${done}</b></div>` +
     `<div><span class="swatch" style="background:#e6b35a"></span>running <b>${running}</b></div>` +
-    `<div><span class="swatch" style="background:#3a4a55"></span>left <b>${left}</b> / ${total}</div>` +
+    `<div><span class="swatch" style="background:#3a4a55"></span>left <b>${left}</b> / ${total}  (epoch ${lastLive.epoch||1})</div>` +
     (fail ? `<div><span class="swatch" style="background:#e06c75"></span>fail <b>${fail}</b></div>` : '') +
+    (rec > total ? `<div>recorded ${rec} across epochs</div>` : '') +
     `<div class="eta">ETA ~ ${fmtDur(etaSec)}</div>`;
 }
 
@@ -1189,9 +1195,10 @@ function refreshScrub() {
 }
 
 function updateETA(j) {
-  const total = j.cell_total || 0;
-  const done = (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
-  const left = Math.max(0, total - done - (j.running ? 1 : 0));
+  const total = j.plan || j.cell_total || 0;
+  const done = j.epoch_done != null ? j.epoch_done
+    : (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
+  const left = Math.max(0, total - Math.min(done, total) - (j.running ? 1 : 0));
   const finished = (j.completed || []).filter(r => r.ended && r.started);
   let avgMs = 0;
   if (finished.length) {

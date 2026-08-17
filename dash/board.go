@@ -14,6 +14,7 @@ func APIPaths() map[string]string {
 		"start":   "/api/start",
 		"history": "/api/history",
 		"winners": "/api/winners",
+		"report":  "/api/report.pdf",
 	}
 }
 
@@ -49,6 +50,11 @@ type Board struct {
 	Ok              int               `json:"ok"`
 	Gap             int               `json:"gap"`
 	Fail            int               `json:"fail"`
+	OkAll           int               `json:"ok_all"`
+	Recorded        int               `json:"recorded"`
+	Plan            int               `json:"plan"`
+	EpochDone       int               `json:"epoch_done"`
+	ProgressPct     float64           `json:"progress_pct"`
 	Current         *pulse.Result     `json:"current,omitempty"`
 	Best            pulse.Best        `json:"best"`
 	BestMobile      pulse.BestMobile  `json:"best_mobile"`
@@ -58,6 +64,9 @@ type Board struct {
 	Leaderboard     []pulse.Result    `json:"leaderboard"`
 	LeaderboardLearn []pulse.Result   `json:"leaderboard_learn"`
 	APIs            map[string]string `json:"apis"`
+	// Status is paused | queued | running | done | idle — ocean uses this so
+	// a finished epoch (dashboard kept up) is not shown as "still running".
+	Status          string            `json:"status"`
 }
 
 func (s *Server) identityID() string {
@@ -101,15 +110,24 @@ func (s *Server) Board() Board {
 	if s != nil && s.Tracker != nil {
 		live = s.Tracker.SnapshotLive()
 	}
-	ok, gap, fail := 0, 0, 0
-	for _, r := range live.Completed {
-		switch r.Status {
-		case "ok":
-			ok++
-		case "gap":
-			gap++
-		case "fail":
-			fail++
+	epoch := 1
+	if s != nil && s.Epoch > 0 {
+		epoch = s.Epoch
+	}
+	okE, gapE, failE, okAll, rec := countResults(live.Completed, epoch)
+	plan := 0
+	if s != nil {
+		plan = len(s.Cells)
+	}
+	if plan == 0 {
+		plan = live.CellTotal
+	}
+	epochDone := okE + gapE + failE
+	pct := 0.0
+	if plan > 0 {
+		pct = 100 * float64(epochDone) / float64(plan)
+		if pct > 100 {
+			pct = 100
 		}
 	}
 	lb := live.Leaderboard
@@ -126,17 +144,22 @@ func (s *Server) Board() Board {
 		Task:             s.Task,
 		Subtitle:         s.Subtitle,
 		Addr:             s.Addr,
-		Epoch:            s.Epoch,
+		Epoch:            epoch,
 		Started:          started,
 		AwaitingStart:    !started,
 		Running:          live.Running,
 		Phase:            live.Phase,
 		Message:          live.Message,
 		CellIndex:        live.CellIndex,
-		CellTotal:        live.CellTotal,
-		Ok:               ok,
-		Gap:              gap,
-		Fail:             fail,
+		CellTotal:        plan,
+		Ok:               okE,
+		Gap:              gapE,
+		Fail:             failE,
+		OkAll:            okAll,
+		Recorded:         rec,
+		Plan:             plan,
+		EpochDone:        epochDone,
+		ProgressPct:      pct,
 		Current:          live.Current,
 		Best:             live.Best,
 		BestMobile:       live.BestMobile,
@@ -146,12 +169,63 @@ func (s *Server) Board() Board {
 		Leaderboard:      append([]pulse.Result(nil), lb...),
 		LeaderboardLearn: append([]pulse.Result(nil), learn...),
 		APIs:             APIPaths(),
+		Status:           boardStatus(started, live.Running, epochDone, plan),
 	}
+}
+
+func countResults(completed []pulse.Result, epoch int) (okE, gapE, failE, okAll, recorded int) {
+	if epoch < 1 {
+		epoch = 1
+	}
+	for _, r := range completed {
+		recorded++
+		switch r.Status {
+		case "ok":
+			okAll++
+		}
+		re := r.Epoch
+		if re < 1 {
+			re = 1
+		}
+		if re != epoch {
+			continue
+		}
+		switch r.Status {
+		case "ok":
+			okE++
+		case "gap":
+			gapE++
+		case "fail":
+			failE++
+		}
+	}
+	return
+}
+
+func boardStatus(started, running bool, done, total int) string {
+	if running {
+		return "running"
+	}
+	if total > 0 && done >= total {
+		return "done"
+	}
+	if !started {
+		return "paused"
+	}
+	if done == 0 {
+		return "queued"
+	}
+	return "idle"
 }
 
 func (s *Server) livePayload() map[string]any {
 	live := s.Tracker.SnapshotLive()
 	meta := s.Meta()
+	b := s.Board()
+	cellTotal := b.Plan
+	if cellTotal == 0 {
+		cellTotal = live.CellTotal
+	}
 	return map[string]any{
 		"live": live,
 		// Flat fields kept for older dashboard JS that reads top-level keys.
@@ -173,17 +247,24 @@ func (s *Server) livePayload() map[string]any {
 		"batch_index":              live.BatchIndex,
 		"batch_total":              live.BatchTotal,
 		"cell_index":               live.CellIndex,
-		"cell_total":               live.CellTotal,
+		"cell_total":               cellTotal,
 		"message":                  live.Message,
 		"mode_progress":            s.modeProgress(live),
 		"winners":                  computeWinners(live),
 		"awaiting_start":           meta.AwaitingStart,
 		"started":                  meta.Started,
-		"epoch":                    s.Epoch,
+		"epoch":                    b.Epoch,
 		"task":                     s.Task,
 		"subtitle":                 s.Subtitle,
 		"id":                       meta.ID,
 		"addr":                     s.Addr,
 		"apis":                     meta.APIs,
+		"plan":                     b.Plan,
+		"epoch_ok":                 b.Ok,
+		"epoch_fail":               b.Fail,
+		"epoch_done":               b.EpochDone,
+		"ok_all":                   b.OkAll,
+		"recorded":                 b.Recorded,
+		"progress_pct":             b.ProgressPct,
 	}
 }

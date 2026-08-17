@@ -53,10 +53,13 @@
   .tides { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; }
   .card { background: rgba(0,0,0,0.25); border: 1px solid var(--grid); padding: 0.8rem; }
   .card.down { opacity: 0.55; border-color: var(--bad); }
+  .card.run { border-color: var(--accent); }
+  .card.queued { border-color: var(--warn); }
+  .card.done { border-color: #2a6b5e; }
   .card h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
   .card h3 a { color: var(--tide); text-decoration: none; }
-  .bar { height: 8px; background: #1a2a33; margin: 0.4rem 0; }
-  .bar i { display: block; height: 100%; background: var(--accent); }
+  .bar { height: 8px; background: #1a2a33; margin: 0.4rem 0; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); max-width: 100%; }
   .tiny { font-size: 0.78rem; color: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th { text-align: left; color: var(--muted); font-weight: 600; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--grid); }
@@ -73,15 +76,16 @@
   <h1><span>ocean</span> linked tides</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Each card is a live tide dashboard. Ocean only polls <code>/api/board</code> — it does not retrain. Start all, then watch per-layer Lucy Score, then the holistic mode / dtype vote.</p>
+<p class="score-eq">Each card is a live tide dashboard. Ocean only polls <code>/api/board</code> — it does not retrain. Only <code>-parallel</code> layers train at once; a finished tide frees its slot so the queue can move. Dashboards stay up after the epoch so you can still open them.</p>
 <div class="actions">
   <button type="button" id="startAll">Start all tides</button>
   <button type="button" class="ghost" id="refresh">Refresh now</button>
+  <button type="button" class="ghost" id="pdfBtn">Download ocean PDF</button>
 </div>
 <div class="holistic" id="kpis"></div>
 <section>
   <h2>Holistic winners</h2>
-  <p class="hint">Plurality of per-tide best-Score cells (tie-break: mean Score). This is the sprint answer for “which train mode / dtype wins across layers”.</p>
+  <p class="hint">Among finished layers with Score &gt; 0: plurality of per-tide best-Score cells (tie-break: mean Score). Layers still queued do not vote. A finished tide keeps its dashboard up but frees the worker slot so the next layer can train.</p>
   <div id="votes"></div>
 </section>
 <section>
@@ -122,18 +126,19 @@ function render(j) {
   $('votes').innerHTML = chips(h.mode_votes, 'train mode') + chips(h.dtype_votes, 'dtype');
   $('tides').innerHTML = (j.peers||[]).map(p => {
     const b = p.board || {};
-    const done = (b.ok||0)+(b.gap||0)+(b.fail||0);
-    const tot = b.cell_total || 0;
+    const tot = b.plan || b.cell_total || 0;
+    const done = b.epoch_done != null ? b.epoch_done : ((b.ok||0)+(b.gap||0)+(b.fail||0));
+    const rec = b.recorded || done;
+    const pctBar = tot ? Math.min(100, Math.round(100 * done / tot)) : 0;
     const cur = b.current && b.current.cell ? b.current.cell.id : (b.message || 'idle');
     const best = b.best && b.best.score ? `${fmt(b.best.score.snapshot.score)} · ${b.best.score.cell?.id||''}` : '—';
-    const st = p.ok
-      ? (b.awaiting_start ? 'paused' : (b.running ? 'running' : 'idle'))
-      : 'down';
-    return `<article class="card ${p.ok?'':'down'}">
+    const st = p.ok ? (b.status || (b.awaiting_start ? 'paused' : (b.running ? 'running' : 'idle'))) : 'down';
+    const cls = !p.ok ? 'down' : (st === 'done' ? 'done' : (st === 'running' ? 'run' : (st === 'queued' ? 'queued' : '')));
+    return `<article class="card ${cls}">
       <h3><a href="${p.url}" target="_blank" rel="noopener">${p.name}</a></h3>
       <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms</div>
-      <div class="bar"><i style="width:${pct(done,tot)}%"></i></div>
-      <div class="tiny">${done}/${tot} · ${b.ok||0} ok · ${b.gap||0} gap · ${b.fail||0} fail</div>
+      <div class="bar"><i style="width:${pctBar}%"></i></div>
+      <div class="tiny">epoch ${b.epoch||1} · ${done}/${tot}${rec > tot ? ` · ${rec} recorded` : ''} · ${b.ok||0} ok · ${b.gap||0} gap · ${b.fail||0} fail</div>
       <div class="tiny">now ${cur}</div>
       <div class="tiny">best ${best}</div>
       <div class="tiny"><a href="${p.url}" target="_blank" rel="noopener">open tide dashboard</a></div>
@@ -145,7 +150,7 @@ function render(j) {
     <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td>
     <td class="ok">${fmt(l.score)}</td>
     <td>${fmt(l.soft_acc,1)}</td>
-    <td>${l.done||0}/${l.total||0}</td>
+    <td>${l.done||0}/${l.total||0}${l.recorded && l.recorded > l.total ? ` (${l.recorded} rec)` : ''}</td>
   </tr>`).join('');
   const bt = $('board').querySelector('tbody');
   bt.innerHTML = (h.combined_top||[]).map(r => {
@@ -174,6 +179,7 @@ $('startAll').onclick = async () => {
   }
 };
 $('refresh').onclick = tick;
+$('pdfBtn').onclick = () => { window.location = '/api/report.pdf'; };
 setInterval(tick, 1000);
 tick();
 </script>

@@ -44,9 +44,13 @@ func TestConsolidateVotesModeAndDType(t *testing.T) {
 			Leaderboard: []pulse.Result{*okResult(permute.ModeTween, core.DTypeFloat32, 18)},
 		}},
 		{Name: "down", OK: false, Error: "dial"},
+		{Name: "layernorm", OK: true, URL: "http://ln", Board: dash.Board{
+			CellTotal: 10, Ok: 10,
+			Best: pulse.Best{Score: okResult(permute.ModeSGD, core.DTypeFloat64, 0)},
+		}},
 	}
 	h := consolidate(peers)
-	if h.TidesUp != 3 || h.TidesTotal != 4 {
+	if h.TidesUp != 4 || h.TidesTotal != 5 {
 		t.Fatalf("up %d/%d", h.TidesUp, h.TidesTotal)
 	}
 	if h.BestMode != "sgd" {
@@ -55,10 +59,29 @@ func TestConsolidateVotesModeAndDType(t *testing.T) {
 	if h.BestDType != "float32" {
 		t.Fatalf("best dtype %q want float32", h.BestDType)
 	}
-	if len(h.Layers) != 3 || h.Layers[0].Tide != "dense" {
+	if len(h.Layers) != 4 || h.Layers[0].Tide != "dense" {
 		t.Fatalf("layers %+v", h.Layers)
 	}
 	if len(h.CombinedTop) != 3 {
 		t.Fatalf("combined %d", len(h.CombinedTop))
+	}
+}
+
+func TestConsolidateUsesEpochPlan(t *testing.T) {
+	peers := []PeerState{
+		{Name: "cnn2", OK: true, Board: dash.Board{Plan: 782, EpochDone: 291, Recorded: 1073, Ok: 291}},
+		{Name: "dense", OK: true, Board: dash.Board{Plan: 782, EpochDone: 782, Recorded: 782, Ok: 782}},
+	}
+	h := consolidate(peers)
+	if h.CellsDone != 291+782 || h.CellsTotal != 782+782 {
+		t.Fatalf("cells %d/%d", h.CellsDone, h.CellsTotal)
+	}
+	by := map[string]LayerWinner{}
+	for _, l := range h.Layers {
+		by[l.Tide] = l
+	}
+	c := by["cnn2"]
+	if c.Done != 291 || c.Total != 782 || c.Recorded != 1073 {
+		t.Fatalf("cnn2 %+v", c)
 	}
 }

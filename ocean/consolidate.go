@@ -24,6 +24,8 @@ type LayerWinner struct {
 	Fail     int     `json:"fail"`
 	Done     int     `json:"done"`
 	Total    int     `json:"total"`
+	Recorded int     `json:"recorded,omitempty"`
+	Plan     int     `json:"plan,omitempty"`
 }
 
 // Vote is a plurality count with mean Score of the layers that picked this key.
@@ -64,16 +66,22 @@ func consolidate(peers []PeerState) Holistic {
 		}
 		h.TidesUp++
 		b := p.Board
-		h.CellsDone += b.Ok + b.Gap + b.Fail
-		h.CellsTotal += b.CellTotal
+		h.CellsDone += b.EpochDone
+		if b.Plan > 0 {
+			h.CellsTotal += b.Plan
+		} else {
+			h.CellsTotal += b.CellTotal
+		}
 		w := LayerWinner{
 			Tide:  p.Name,
 			URL:   p.URL,
 			Ok:    b.Ok,
 			Gap:   b.Gap,
 			Fail:  b.Fail,
-			Done:  b.Ok + b.Gap + b.Fail,
-			Total: b.CellTotal,
+			Done:     b.EpochDone,
+			Total:    b.Plan,
+			Recorded: b.Recorded,
+			Plan:     b.Plan,
 		}
 		if b.Best.Score != nil {
 			r := b.Best.Score
@@ -134,7 +142,7 @@ func voteOf(layers []LayerWinner, keyFn func(LayerWinner) string) []Vote {
 	by := map[string]*acc{}
 	for _, l := range layers {
 		k := strings.TrimSpace(keyFn(l))
-		if k == "" {
+		if k == "" || l.Score <= 0 {
 			continue
 		}
 		if !seen[k] {

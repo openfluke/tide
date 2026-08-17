@@ -44,9 +44,10 @@ type Snapshot struct {
 
 // Server is a tide-of-tides: it does not train; it polls child dashboards.
 type Server struct {
-	Addr  string
-	Title string
-	Peers []Peer
+	Addr   string
+	Title  string
+	Peers  []Peer
+	OutDir string // optional; /api/report.pdf also writes ocean-report.pdf here
 
 	client *http.Client
 	mu     sync.Mutex
@@ -92,9 +93,11 @@ func (s *Server) Handler() http.Handler {
 			"ocean":  true,
 			"peers":  len(s.Peers),
 			"addr":   s.Addr,
-			"apis":   map[string]string{"ocean": "/api/ocean", "start_all": "/api/start-all", "start": "/api/start"},
+			"apis":   map[string]string{"ocean": "/api/ocean", "start_all": "/api/start-all", "start": "/api/start", "report": "/api/report.pdf"},
 		})
 	})
+	mux.HandleFunc("/api/report.pdf", s.handleReportPDF)
+	mux.HandleFunc("/api/report", s.handleReportJSON)
 	mux.HandleFunc("/api/start-all", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			http.Error(w, "POST /api/start-all", http.StatusMethodNotAllowed)

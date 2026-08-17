@@ -67,7 +67,18 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 		}
 		a.total++
 	}
+	epoch := 1
+	if s != nil && s.Epoch > 0 {
+		epoch = s.Epoch
+	}
 	for _, r := range live.Completed {
+		re := r.Epoch
+		if re < 1 {
+			re = 1
+		}
+		if re != epoch {
+			continue
+		}
 		if r.Status == "ok" || r.Status == "gap" || r.Status == "fail" {
 			m := string(r.Cell.Mode)
 			if a := by[m]; a != nil {
@@ -155,6 +166,8 @@ func (s *Server) Handler() http.Handler {
 			"message": "training start signaled",
 		})
 	})
+	mux.HandleFunc("/api/report.pdf", s.handleReportPDF)
+	mux.HandleFunc("/api/report", s.handleReportJSON)
 	mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
 		from := 0
 		if v := r.URL.Query().Get("from"); v != "" {

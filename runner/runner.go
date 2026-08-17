@@ -379,66 +379,74 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			pulseHardSum = snap.AvgAccuracy * float64(pulseAccN)
 			pulseSoftSum = snap.SoftAcc * float64(pulseAccN)
 		}
+		emitPulse := func(now time.Time) {
+			p := phase.Load().(string)
+			softN := winSoftN.Swap(0)
+			softMicro := winSoftSum.Swap(0)
+			softWin := 0.0
+			if softN > 0 {
+				softWin = float64(softMicro) / 1e6 / float64(softN)
+			}
+			switches := int(phaseSwitch.Swap(0))
+			w := metrics.Window{
+				At:            now,
+				Outputs:       winOut.Swap(0),
+				Correct:       winCorrect.Swap(0),
+				TrainSteps:    winTrain.Swap(0),
+				InferMs:       float64(winInferNS.Swap(0)) / 1e6,
+				TrainMs:       float64(winTrainNS.Swap(0)) / 1e6,
+				Phase:         p,
+				PhaseSwitches: switches,
+				SoftAcc:       softWin,
+			}
+			w.BlockedTrain = time.Duration(w.TrainMs * float64(time.Millisecond))
+			w.Accuracy = metrics.WindowAccuracy(w.Correct, w.Outputs)
+			sec := cfg.PulseEvery.Seconds()
+			if sec <= 0 {
+				sec = 0.05
+			}
+			w.Throughput = float64(w.Outputs) / sec
+			pulseHardSum += w.Accuracy
+			pulseSoftSum += w.SoftAcc
+			pulseAccN++
+			snap.Windows = metrics.AppendWindow(snap.Windows, w)
+			snap.SoftAccBlocks = append(snap.SoftAccBlocks, softWin)
+			snap.PhaseBlocks = append(snap.PhaseBlocks, p)
+			snap.SwitchBlocks = append(snap.SwitchBlocks, switches > 0)
+			snap.TotalOutputs = totalOut.Load()
+			snap.TotalCorrect = totalCorrect.Load()
+			snap.TotalTrain = totalTrain.Load()
+			snap.InferMs = float64(inferNS.Load()) / 1e6
+			snap.TrainMs = float64(trainNS.Load()) / 1e6
+			snap.BlockedTrain = time.Duration(trainNS.Load())
+			snap.Duration = time.Since(start)
+			snap.WeightBytes = weightBytes
+			snap.HeapBytes = heapBytes
+			snap.AvgAccuracy = pulseHardSum / float64(pulseAccN)
+			snap.SoftAcc = pulseSoftSum / float64(pulseAccN)
+			snap.AccuracyPulses = pulseAccN
+			durSec := snap.Duration.Seconds()
+			if snap.TimeToAcc25Sec == 0 && w.Accuracy >= metrics.AccThreshold25 {
+				snap.TimeToAcc25Sec = durSec
+			}
+			if snap.TimeToAcc50Sec == 0 && w.Accuracy >= metrics.AccThreshold50 {
+				snap.TimeToAcc50Sec = durSec
+			}
+			metrics.Finalize(&snap)
+			lastSnap.Store(snap)
+			tr.Pulse(w, snap, p)
+			tr.SetCellProgress(cellIdx, len(cfg.Cells),
+				fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen))
+		}
 		for {
 			select {
 			case <-cellCtx.Done():
+				if winSoftN.Load() > 0 || winOut.Load() > 0 || pulseAccN == 0 {
+					emitPulse(time.Now())
+				}
 				return
 			case now := <-tick.C:
-				p := phase.Load().(string)
-				softN := winSoftN.Swap(0)
-				softMicro := winSoftSum.Swap(0)
-				softWin := 0.0
-				if softN > 0 {
-					softWin = float64(softMicro) / 1e6 / float64(softN)
-				}
-				switches := int(phaseSwitch.Swap(0))
-				w := metrics.Window{
-					At:            now,
-					Outputs:       winOut.Swap(0),
-					Correct:       winCorrect.Swap(0),
-					TrainSteps:    winTrain.Swap(0),
-					InferMs:       float64(winInferNS.Swap(0)) / 1e6,
-					TrainMs:       float64(winTrainNS.Swap(0)) / 1e6,
-					BlockedTrain:  time.Duration(0),
-					Phase:         p,
-					PhaseSwitches: switches,
-					SoftAcc:       softWin,
-				}
-				w.BlockedTrain = time.Duration(w.TrainMs * float64(time.Millisecond))
-				w.Accuracy = metrics.WindowAccuracy(w.Correct, w.Outputs)
-				w.Throughput = float64(w.Outputs) / cfg.PulseEvery.Seconds()
-				pulseHardSum += w.Accuracy
-				pulseSoftSum += w.SoftAcc
-				pulseAccN++
-				snap.Windows = metrics.AppendWindow(snap.Windows, w)
-				// Full-epoch SoftAcc strip (not capped like Windows sparklines).
-				snap.SoftAccBlocks = append(snap.SoftAccBlocks, softWin)
-				snap.PhaseBlocks = append(snap.PhaseBlocks, p)
-				snap.SwitchBlocks = append(snap.SwitchBlocks, switches > 0)
-				snap.TotalOutputs = totalOut.Load()
-				snap.TotalCorrect = totalCorrect.Load()
-				snap.TotalTrain = totalTrain.Load()
-				snap.InferMs = float64(inferNS.Load()) / 1e6
-				snap.TrainMs = float64(trainNS.Load()) / 1e6
-				snap.BlockedTrain = time.Duration(trainNS.Load())
-				snap.Duration = time.Since(start)
-				snap.WeightBytes = weightBytes
-				snap.HeapBytes = heapBytes
-				snap.AvgAccuracy = pulseHardSum / float64(pulseAccN)
-				snap.SoftAcc = pulseSoftSum / float64(pulseAccN)
-				snap.AccuracyPulses = pulseAccN
-				sec := snap.Duration.Seconds()
-				if snap.TimeToAcc25Sec == 0 && w.Accuracy >= metrics.AccThreshold25 {
-					snap.TimeToAcc25Sec = sec
-				}
-				if snap.TimeToAcc50Sec == 0 && w.Accuracy >= metrics.AccThreshold50 {
-					snap.TimeToAcc50Sec = sec
-				}
-				metrics.Finalize(&snap)
-				lastSnap.Store(snap)
-				tr.Pulse(w, snap, p)
-				tr.SetCellProgress(cellIdx, len(cfg.Cells),
-					fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen))
+				emitPulse(now)
 				if trainDone.Load() {
 					return
 				}
@@ -514,6 +522,23 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		snap.AccuracyPulses = live.Current.Snapshot.AccuracyPulses
 		snap.TimeToAcc25Sec = live.Current.Snapshot.TimeToAcc25Sec
 		snap.TimeToAcc50Sec = live.Current.Snapshot.TimeToAcc50Sec
+	}
+	// Fast cells can finish before a Lucy pulse, which left SoftAcc=0 and Score=0.
+	if snap.SoftAcc == 0 && failNote.Load() == nil {
+		p := "A"
+		if v := phase.Load(); v != nil {
+			p, _ = v.(string)
+		}
+		s := remap(ds.NextServe(p), p)
+		mu.Lock()
+		_, soft, err := m.ServeEval(s.X, s.Target)
+		mu.Unlock()
+		if err == nil {
+			snap.SoftAcc = soft
+			if snap.AccuracyPulses == 0 {
+				snap.AccuracyPulses = 1
+			}
+		}
 	}
 	metrics.Finalize(&snap)
 
