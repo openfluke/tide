@@ -53,3 +53,22 @@ func TestArchTag(t *testing.T) {
 		t.Fatalf("tri: %s", g)
 	}
 }
+
+func TestSprintIsNoneCNN(t *testing.T) {
+	cells := Expand(Sprint())
+	if len(cells) == 0 {
+		t.Fatal("sprint empty")
+	}
+	full := Expand(Full())
+	if len(cells) >= len(full) {
+		t.Fatalf("sprint=%d should be < full=%d", len(cells), len(full))
+	}
+	for _, c := range cells {
+		if c.Arch != ArchCNN {
+			t.Fatalf("sprint arch %s", c.Arch)
+		}
+		if c.Format != 0 { // FormatNone
+			t.Fatalf("sprint format %v", c.Format)
+		}
+	}
+}

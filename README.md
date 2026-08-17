@@ -88,8 +88,9 @@ Credit modes (FastProxy, Sparse, …) run `TrainStackMSE` on the Dense sandwich;
 | `metrics` | SoftAcc + duty-cycle Availability + Score |
 | `permute` | dtype × format × mode × arch @ SIMD |
 | `pulse` | live run state for the dashboard |
-| `dash` | HTTP + HTML charts (1s poll) |
-| `runner` | concurrent serve + train pulses |
+| `dash` | HTTP + HTML charts (1s poll). JSON: `/api/live`, `/api/board`, `/api/meta`, `/api/winners`, `/api/start` (CORS `*`) |
+| `ocean` | tide-of-tides: poll many dashboards, consolidate best mode/dtype |
+| `runner` | concurrent serve + train pulses (`Config.Build` optional; nil keeps `chain.Model`) |
 | `chain` | CNN / Bi / Tri Welvet models |
 
 ## Quick start
@@ -103,6 +104,17 @@ go run . -addr :8080 -mode smoke
 ```
 
 Set `dash.Server.Task` / `Subtitle` so the page names the workload (MNIST, sine, …).
+
+Ocean mode (another tide that **does not train**) links any running dashboards:
+
+```bash
+# watch live_mnist + a layer sprint together
+cd ../quick_sprint
+go run . -ocean-only -peers http://127.0.0.1:8080,http://127.0.0.1:8101
+# open http://127.0.0.1:8090
+```
+
+See [`quick_sprint`](../quick_sprint) for one tide per Welvet layer.
 
 ## Epoch default
 

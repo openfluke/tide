@@ -98,6 +98,18 @@ func Full() Config {
 	}
 }
 
+// Sprint is the quick_sprint matrix: every native dtype × FormatNone × every
+// train mode × cnn arch only (the host layer *is* the architecture).
+// Packed quants stay opt-in so a layer sprint finishes in minutes, not a week.
+func Sprint() Config {
+	return Config{
+		DTypes:  append([]core.DType(nil), core.AllDTypes...),
+		Formats: []quant.Format{quant.FormatNone},
+		Modes:   AllModes(),
+		Arches:  []ArchKind{ArchCNN},
+	}
+}
+
 // Screen is the cheap first pass: Lucy 6 × cnn × full numeric axis.
 // Promote winners onto bi/tri and extra Welvet modes after this.
 func Screen() Config {

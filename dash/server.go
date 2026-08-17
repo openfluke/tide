@@ -27,6 +27,8 @@ type Server struct {
 	// Empty keeps the generic "live adaptation" title.
 	Task     string
 	Subtitle string
+	// ID is the ocean peer name. Empty → Task, then Addr.
+	ID string
 
 	startMu sync.Mutex
 	started bool
@@ -117,37 +119,26 @@ func (s *Server) Handler() http.Handler {
 		live.UpdatedAt = time.Now()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"live": live,
-			// Flat fields kept for older dashboard JS that reads top-level keys.
-			"updated_at":               live.UpdatedAt,
-			"running":                  live.Running,
-			"current":                  live.Current,
-			"completed":                live.Completed,
-			"leaderboard":              live.Leaderboard,
-			"leaderboard_mobile":       live.LeaderboardMobile,
-			"leaderboard_learn":        live.LeaderboardLearn,
-			"leaderboard_learn_mobile": live.LeaderboardLearnMobile,
-			"best":                     live.Best,
-			"best_mobile":              live.BestMobile,
-			"best_learn":               live.BestLearn,
-			"best_learn_mobile":        live.BestLearnMobile,
-			"history":                  live.History,
-			"history_len":              live.HistoryLen,
-			"phase":                    live.Phase,
-			"batch_index":              live.BatchIndex,
-			"batch_total":              live.BatchTotal,
-			"cell_index":               live.CellIndex,
-			"cell_total":               live.CellTotal,
-			"message":                  live.Message,
-			"mode_progress":            s.modeProgress(live),
-			"winners":                  computeWinners(live),
-			"awaiting_start":           !s.Started(),
-			"started":                  s.Started(),
-			"epoch":                    s.Epoch,
-			"task":                     s.Task,
-			"subtitle":                 s.Subtitle,
-		})
+		payload := s.livePayload()
+		payload["updated_at"] = live.UpdatedAt
+		payload["live"] = live
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(s.Meta())
+	})
+	mux.HandleFunc("/api/board", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(s.Board())
+	})
+	mux.HandleFunc("/api/winners", func(w http.ResponseWriter, r *http.Request) {
+		live := s.Tracker.SnapshotLive()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(computeWinners(live))
 	})
 	mux.HandleFunc("/api/start", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost && r.Method != http.MethodGet {
@@ -179,7 +170,7 @@ func (s *Server) Handler() http.Handler {
 			"history": s.Tracker.HistoryFrom(from),
 		})
 	})
-	return mux
+	return withCORS(mux)
 }
 
 // ListenAndServe blocks on Addr.

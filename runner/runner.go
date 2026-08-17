@@ -38,6 +38,7 @@ type Config struct {
 	FlipBack        float64 // fraction of epoch → phase A2
 	Store           *checkpoint.Store
 	Resume          *checkpoint.Progress
+	Build           BuildFunc // nil → chain.Build(Spec); live_mnist leaves this unset
 }
 
 // DefaultConfig: 1 epoch per cell over the dataset train split.
@@ -143,7 +144,7 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	return nil
 }
 
-func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint.Inflight, m *chain.Model) error {
+func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint.Inflight, m Net) error {
 	if cfg.Store == nil {
 		return nil
 	}
@@ -175,8 +176,8 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		History:         live.History,
 		Inflight:        inf,
 	}
-	if m != nil {
-		if err := cfg.Store.SaveInflightModel(m); err != nil {
+	if cm := asChain(m); cm != nil {
+		if err := cfg.Store.SaveInflightModel(cm); err != nil {
 			return err
 		}
 	}
@@ -195,7 +196,7 @@ func phaseAtFrac(frac, flipAt, flipBack float64) string {
 
 func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker, cell permute.Cell, cellIdx int, resume bool, inf *checkpoint.Inflight) error {
 	tr.BeginEpoch(cell, cfg.Epoch, "A")
-	m, err := chain.Build(cfg.Spec, cell)
+	m, err := cfg.buildNet(cell)
 	if err != nil {
 		tr.Finish("gap", err.Error(), metrics.Snapshot{})
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
@@ -206,11 +207,15 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	if resume && inf != nil {
 		offset = inf.TrainOffset
 		if cfg.Store != nil {
-			_ = cfg.Store.LoadInflightModel(m)
+			if cm := asChain(m); cm != nil {
+				_ = cfg.Store.LoadInflightModel(cm)
+			}
 		}
 	} else if cfg.Epoch > 1 && cfg.Store != nil {
-		// Continue weights from previous epoch of this cell.
-		_ = cfg.Store.LoadModel(cell.ID, m)
+		// Continue weights from previous epoch of this cell (chain models only).
+		if cm := asChain(m); cm != nil {
+			_ = cfg.Store.LoadModel(cell.ID, cm)
+		}
 	}
 	ds.ResetEpoch(offset)
 
@@ -540,8 +545,10 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		best := tr.Best()
 		mobile := tr.BestMobile()
 		mu.Lock()
-		_ = cfg.Store.SaveBestModels(m, best, mobile, done)
-		_ = cfg.Store.SaveModel(cell.ID, m)
+		if cm := asChain(m); cm != nil {
+			_ = cfg.Store.SaveBestModels(cm, best, mobile, done)
+			_ = cfg.Store.SaveModel(cell.ID, cm)
+		}
 		mu.Unlock()
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
 	}

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ocean — linked tides</title>
+<style>
+  :root {
+    --bg0: #071018;
+    --bg1: #0c1c28;
+    --ink: #e6eef2;
+    --muted: #8aa0ad;
+    --accent: #3dd6c6;
+    --tide: #4ea3ff;
+    --warn: #e6b35a;
+    --bad: #e06c75;
+    --grid: #1d3342;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    background:
+      radial-gradient(900px 480px at 8% -8%, #123a4a 0%, transparent 55%),
+      radial-gradient(700px 380px at 100% 0%, #1a2848 0%, transparent 50%),
+      linear-gradient(165deg, var(--bg0), var(--bg1));
+  }
+  header { padding: 1.2rem 1.5rem 0.4rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: baseline; }
+  h1 { margin: 0; font-size: clamp(1.6rem, 3vw, 2.2rem); font-family: "IBM Plex Serif", Georgia, serif; }
+  h1 span { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 0.95rem; }
+  .score-eq {
+    margin: 0 1.5rem 0.9rem; padding: 0.65rem 0.9rem;
+    border-left: 3px solid var(--accent); background: rgba(61,214,198,0.06);
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.85rem;
+  }
+  .actions { margin: 0 1.5rem 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #042226; border: 0; font-weight: 700;
+    padding: 0.55rem 0.95rem; cursor: pointer; font-size: 0.9rem;
+  }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--grid); }
+  .holistic {
+    margin: 0 1.5rem 1rem; display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;
+  }
+  .kpi { background: rgba(0,0,0,0.28); border: 1px solid var(--grid); padding: 0.85rem 1rem; }
+  .kpi b { display: block; font-size: 1.25rem; color: var(--accent); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .kpi span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  section { background: rgba(0,0,0,0.22); border: 1px solid var(--grid); padding: 1rem; margin: 0 1.5rem 1rem; }
+  h2 { margin: 0 0 0.55rem; font-size: 0.95rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  .hint { font-size: 0.75rem; color: var(--muted); margin: 0 0 0.65rem; }
+  .tides { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; }
+  .card { background: rgba(0,0,0,0.25); border: 1px solid var(--grid); padding: 0.8rem; }
+  .card.down { opacity: 0.55; border-color: var(--bad); }
+  .card h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+  .card h3 a { color: var(--tide); text-decoration: none; }
+  .bar { height: 8px; background: #1a2a33; margin: 0.4rem 0; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .tiny { font-size: 0.78rem; color: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--grid); }
+  td { padding: 0.32rem 0.4rem; border-bottom: 1px solid rgba(36,49,58,0.6); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .ok { color: var(--accent); }
+  .bad { color: var(--bad); }
+  .votes { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip { background: #13232d; border: 1px solid var(--grid); padding: 0.2rem 0.5rem; font-size: 0.78rem; }
+  .chip b { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>ocean</span> linked tides</h1>
+  <div class="meta" id="status">connecting…</div>
+</header>
+<p class="score-eq">Each card is a live tide dashboard. Ocean only polls <code>/api/board</code> — it does not retrain. Start all, then watch per-layer Lucy Score, then the holistic mode / dtype vote.</p>
+<div class="actions">
+  <button type="button" id="startAll">Start all tides</button>
+  <button type="button" class="ghost" id="refresh">Refresh now</button>
+</div>
+<div class="holistic" id="kpis"></div>
+<section>
+  <h2>Holistic winners</h2>
+  <p class="hint">Plurality of per-tide best-Score cells (tie-break: mean Score). This is the sprint answer for “which train mode / dtype wins across layers”.</p>
+  <div id="votes"></div>
+</section>
+<section>
+  <h2>Tides</h2>
+  <div class="tides" id="tides"></div>
+</section>
+<section>
+  <h2>Per-layer best (mode × dtype)</h2>
+  <div style="overflow-x:auto"><table id="layers"><thead><tr>
+    <th>tide</th><th>mode</th><th>dtype</th><th>score</th><th>soft</th><th>done</th>
+  </tr></thead><tbody></tbody></table></div>
+</section>
+<section>
+  <h2>Combined leaderboard</h2>
+  <div style="overflow-x:auto"><table id="board"><thead><tr>
+    <th>tide</th><th>cell</th><th>score</th><th>soft</th><th>avail</th>
+  </tr></thead><tbody></tbody></table></div>
+</section>
+<script>
+const $ = id => document.getElementById(id);
+function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
+function fmt(n, d=2) { return (n||0).toFixed(d); }
+function render(j) {
+  const h = j.holistic || {};
+  $('status').textContent = `${j.title||'ocean'} · ${h.tides_up||0}/${h.tides_total||0} up · ${h.cells_done||0}/${h.cells_total||0} cells · ${new Date(j.updated_at).toLocaleTimeString()}`;
+  $('kpis').innerHTML = [
+    ['best mode', h.best_mode || '—'],
+    ['best dtype', h.best_dtype || '—'],
+    ['tides up', `${h.tides_up||0} / ${h.tides_total||0}`],
+    ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
+  ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
+  const chips = (votes, label) => {
+    if (!votes || !votes.length) return `<p class="hint">No ${label} votes yet — wait for finished cells.</p>`;
+    return `<div class="hint">${label}</div><div class="votes">` +
+      votes.slice(0, 12).map(v => `<span class="chip"><b>${v.key}</b> ×${v.count} · mean ${fmt(v.mean_score)}</span>`).join('') +
+      `</div>`;
+  };
+  $('votes').innerHTML = chips(h.mode_votes, 'train mode') + chips(h.dtype_votes, 'dtype');
+  $('tides').innerHTML = (j.peers||[]).map(p => {
+    const b = p.board || {};
+    const done = (b.ok||0)+(b.gap||0)+(b.fail||0);
+    const tot = b.cell_total || 0;
+    const cur = b.current && b.current.cell ? b.current.cell.id : (b.message || 'idle');
+    const best = b.best && b.best.score ? `${fmt(b.best.score.snapshot.score)} · ${b.best.score.cell?.id||''}` : '—';
+    const st = p.ok
+      ? (b.awaiting_start ? 'paused' : (b.running ? 'running' : 'idle'))
+      : 'down';
+    return `<article class="card ${p.ok?'':'down'}">
+      <h3><a href="${p.url}" target="_blank" rel="noopener">${p.name}</a></h3>
+      <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms</div>
+      <div class="bar"><i style="width:${pct(done,tot)}%"></i></div>
+      <div class="tiny">${done}/${tot} · ${b.ok||0} ok · ${b.gap||0} gap · ${b.fail||0} fail</div>
+      <div class="tiny">now ${cur}</div>
+      <div class="tiny">best ${best}</div>
+      <div class="tiny"><a href="${p.url}" target="_blank" rel="noopener">open tide dashboard</a></div>
+    </article>`;
+  }).join('') || '<p class="hint">No peers configured.</p>';
+  const lt = $('layers').querySelector('tbody');
+  lt.innerHTML = (h.layers||[]).map(l => `<tr>
+    <td><a href="${l.url}" target="_blank">${l.tide}</a></td>
+    <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td>
+    <td class="ok">${fmt(l.score)}</td>
+    <td>${fmt(l.soft_acc,1)}</td>
+    <td>${l.done||0}/${l.total||0}</td>
+  </tr>`).join('');
+  const bt = $('board').querySelector('tbody');
+  bt.innerHTML = (h.combined_top||[]).map(r => {
+    const s = r.result?.snapshot || {};
+    const id = r.result?.cell?.id || '';
+    return `<tr>
+      <td>${r.tide}</td><td>${id}</td>
+      <td class="ok">${fmt(s.score)}</td>
+      <td>${fmt(s.soft_acc,1)}</td>
+      <td>${fmt(s.availability,1)}</td>
+    </tr>`;
+  }).join('');
+}
+async function tick() {
+  try {
+    const r = await fetch('/api/ocean');
+    render(await r.json());
+  } catch (e) {
+    $('status').textContent = 'waiting for /api/ocean…';
+  }
+}
+$('startAll').onclick = async () => {
+  $('startAll').disabled = true;
+  try { await fetch('/api/start-all', { method: 'POST' }); } finally {
+    $('startAll').disabled = false; tick();
+  }
+};
+$('refresh').onclick = tick;
+setInterval(tick, 1000);
+tick();
+</script>
+</body>
+</html>
