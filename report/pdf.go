@@ -31,6 +31,8 @@ func PDFOcean(o OceanReport) ([]byte, error) {
 	p.coverOcean(o)
 	p.votes("Train mode votes", o.Holistic.ModeVotes)
 	p.votes("DType votes", o.Holistic.DTypeVotes)
+	p.votes("Arch votes", o.Holistic.ArchVotes)
+	p.axisTable(o.Holistic.Axes)
 	p.bars("Train mode mean Score", voteBars(o.Holistic.ModeVotes))
 	p.bars("DType mean Score", voteBars(o.Holistic.DTypeVotes))
 	p.layerTable(o.Holistic.Layers)
@@ -80,7 +82,7 @@ func (d *doc) coverTide(r TideReport) {
 	d.h1("tide  " + nz(r.Task, r.ID))
 	d.muted(r.Formula)
 	d.muted(fmt.Sprintf("%s  ·  epoch %d  ·  %s  ·  %s", r.Status, r.Epoch, r.Generated.Format("2006-01-02 15:04:05"), r.Addr))
-	d.body(fmt.Sprintf("This epoch %d / %d cells. Recorded %d results across epochs (a restart continues epoch N+1 without wiping Lucy boards).",
+	d.body(fmt.Sprintf("This epoch %d / %d cells. Recorded %d results.",
 		r.EpochDone, r.Plan, r.Recorded))
 	d.body("Score 0 usually means the cell finished before a Lucy pulse (SoftAcc never sampled) or true-class mass was 0. Those rows do not vote holistically.")
 	if r.Subtitle != "" {
@@ -95,7 +97,9 @@ func (d *doc) coverOcean(o OceanReport) {
 	h := o.Holistic
 	d.body(fmt.Sprintf("Generated %s. Tides up %d / %d. This-epoch cells %d / %d.",
 		o.Generated.Format("2006-01-02 15:04:05"), h.TidesUp, h.TidesTotal, h.CellsDone, h.CellsTotal))
-	d.body(fmt.Sprintf("Holistic best train mode: %s     best dtype: %s", nz(h.BestMode, "—"), nz(h.BestDType, "—")))
+	d.body(fmt.Sprintf("Holistic best train mode: %s     best dtype: %s     best arch: %s", nz(h.BestMode, "—"), nz(h.BestDType, "—"), nz(h.BestArch, "—")))
+	d.body(fmt.Sprintf("Suggested default (most Lucy-axis wins): %s | %s | %s  (%d axes)",
+		nz(h.DefaultMode, "—"), nz(h.DefaultDType, "—"), nz(h.DefaultArch, "—"), h.DefaultWins))
 	d.gap(3)
 }
 
@@ -197,14 +201,25 @@ func (d *doc) votes(title string, vs []Vote) {
 	})
 }
 
-func (d *doc) layerTable(rows []LayerRow) {
-	d.h2("Per-layer best (mode x dtype)")
-	d.table([]string{"Tide", "Mode", "DType", "Score", "Soft", "Done"}, func(k int) []string {
+func (d *doc) axisTable(rows []AxisView) {
+	d.h2("Lucy axis champions (ocean-wide)")
+	d.table([]string{"Axis", "Tide", "Mode", "DType", "Arch", "Value"}, func(k int) []string {
 		if k >= len(rows) {
 			return nil
 		}
 		r := rows[k]
-		return []string{r.Tide, clip(r.Mode, 18), r.DType, fmt.Sprintf("%.1f", r.Score), fmt.Sprintf("%.1f", r.SoftAcc), fmt.Sprintf("%d/%d", r.Done, r.Total)}
+		return []string{clip(r.Name, 14), clip(r.Tide, 12), clip(r.Mode, 16), r.DType, clip(r.Arch, 14), fmt.Sprintf("%.2f", r.Value)}
+	})
+}
+
+func (d *doc) layerTable(rows []LayerRow) {
+	d.h2("Per-layer best (mode x dtype x arch)")
+	d.table([]string{"Tide", "Mode", "DType", "Arch", "Score", "Soft"}, func(k int) []string {
+		if k >= len(rows) {
+			return nil
+		}
+		r := rows[k]
+		return []string{r.Tide, clip(r.Mode, 16), r.DType, clip(r.Arch, 12), fmt.Sprintf("%.1f", r.Score), fmt.Sprintf("%.1f", r.SoftAcc)}
 	})
 }
 

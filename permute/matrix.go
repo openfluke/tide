@@ -99,14 +99,14 @@ func Full() Config {
 }
 
 // Sprint is the quick_sprint matrix: every native dtype × FormatNone × every
-// train mode × cnn arch only (the host layer *is* the architecture).
-// Packed quants stay opt-in so a layer sprint finishes in minutes, not a week.
+// train mode × single/bi/tri cameral. Packed quants stay opt-in so a layer
+// sprint finishes in minutes, not a week. One epoch is the whole point.
 func Sprint() Config {
 	return Config{
 		DTypes:  append([]core.DType(nil), core.AllDTypes...),
 		Formats: []quant.Format{quant.FormatNone},
 		Modes:   AllModes(),
-		Arches:  []ArchKind{ArchCNN},
+		Arches:  AllArches(),
 	}
 }
 

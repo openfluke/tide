@@ -54,7 +54,7 @@ func TestArchTag(t *testing.T) {
 	}
 }
 
-func TestSprintIsNoneCNN(t *testing.T) {
+func TestSprintIsNoneAllArches(t *testing.T) {
 	cells := Expand(Sprint())
 	if len(cells) == 0 {
 		t.Fatal("sprint empty")
@@ -63,12 +63,22 @@ func TestSprintIsNoneCNN(t *testing.T) {
 	if len(cells) >= len(full) {
 		t.Fatalf("sprint=%d should be < full=%d", len(cells), len(full))
 	}
+	seen := map[ArchKind]int{}
 	for _, c := range cells {
-		if c.Arch != ArchCNN {
-			t.Fatalf("sprint arch %s", c.Arch)
-		}
+		seen[c.Arch]++
 		if c.Format != 0 { // FormatNone
 			t.Fatalf("sprint format %v", c.Format)
 		}
+		if c.Cams != CamsOf(c.Arch) {
+			t.Fatalf("cams %d for %s", c.Cams, c.Arch)
+		}
+	}
+	for _, a := range AllArches() {
+		if seen[a] == 0 {
+			t.Fatalf("missing arch %s", a)
+		}
+	}
+	if seen[ArchCNN] != seen[ArchBicameral] || seen[ArchCNN] != seen[ArchTricameral] {
+		t.Fatalf("uneven arches %+v", seen)
 	}
 }

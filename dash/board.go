@@ -63,6 +63,14 @@ type Board struct {
 	ModeProgress    []ModeProgress    `json:"mode_progress"`
 	Leaderboard     []pulse.Result    `json:"leaderboard"`
 	LeaderboardLearn []pulse.Result   `json:"leaderboard_learn"`
+	BestAdapt       *pulse.Result     `json:"best_adapt,omitempty"`
+	BestSoft        *pulse.Result     `json:"best_soft,omitempty"`
+	BestHard        *pulse.Result     `json:"best_hard,omitempty"`
+	BestConsistency *pulse.Result     `json:"best_consistency,omitempty"`
+	BestStability   *pulse.Result     `json:"best_stability,omitempty"`
+	BestAccThru     *pulse.Result     `json:"best_acc_thru,omitempty"`
+	BestRealtime    *pulse.Result     `json:"best_realtime,omitempty"`
+	BestKeep        *pulse.Result     `json:"best_keep,omitempty"`
 	APIs            map[string]string `json:"apis"`
 	// Status is paused | queued | running | done | idle — ocean uses this so
 	// a finished epoch (dashboard kept up) is not shown as "still running".
@@ -139,6 +147,7 @@ func (s *Server) Board() Board {
 		learn = learn[:8]
 	}
 	started := s != nil && s.Started()
+	adapt, soft, hard, cons, stab, accThru, realtime, keep := extraBests(live.Completed)
 	return Board{
 		ID:               s.identityID(),
 		Task:             s.Task,
@@ -168,6 +177,14 @@ func (s *Server) Board() Board {
 		ModeProgress:     s.modeProgress(live),
 		Leaderboard:      append([]pulse.Result(nil), lb...),
 		LeaderboardLearn: append([]pulse.Result(nil), learn...),
+		BestAdapt:        adapt,
+		BestSoft:         soft,
+		BestHard:         hard,
+		BestConsistency:  cons,
+		BestStability:    stab,
+		BestAccThru:      accThru,
+		BestRealtime:     realtime,
+		BestKeep:         keep,
 		APIs:             APIPaths(),
 		Status:           boardStatus(started, live.Running, epochDone, plan),
 	}

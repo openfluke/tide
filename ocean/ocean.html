@@ -76,7 +76,7 @@
   <h1><span>ocean</span> linked tides</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Each card is a live tide dashboard. Ocean only polls <code>/api/board</code> — it does not retrain. Only <code>-parallel</code> layers train at once; a finished tide frees its slot so the queue can move. Dashboards stay up after the epoch so you can still open them.</p>
+<p class="score-eq">Each card is a live tide. Ocean polls <code>/api/board</code> — it does not retrain. Score = T × Availability% × SoftAcc% / 10,000. quick_sprint is <b>one epoch</b> of every dtype × train mode × single/bi/tri cameral. The goal is a default recipe: fastest realtime serve+train that still adapts and keeps learning.</p>
 <div class="actions">
   <button type="button" id="startAll">Start all tides</button>
   <button type="button" class="ghost" id="refresh">Refresh now</button>
@@ -85,17 +85,24 @@
 <div class="holistic" id="kpis"></div>
 <section>
   <h2>Holistic winners</h2>
-  <p class="hint">Among finished layers with Score &gt; 0: plurality of per-tide best-Score cells (tie-break: mean Score). Layers still queued do not vote. A finished tide keeps its dashboard up but frees the worker slot so the next layer can train.</p>
+  <p class="hint">Per-layer best-Score cells (Score &gt; 0) vote for train mode, dtype, and cameral arch. Suggested default is the mode/dtype/arch that wins the most Lucy axes below (score, acc, throughput, acc×thru, realtime, adapt, keep-learning, …).</p>
   <div id="votes"></div>
+</section>
+<section>
+  <h2>Lucy axis champions</h2>
+  <p class="hint">Ocean-wide best cell on each metric. <code>acc_thru</code> is accurate and fast. <code>realtime</code> is throughput × availability. <code>keep_learn</code> prefers SoftAcc that is still rising in the last third of pulses instead of peaking then flattening.</p>
+  <div style="overflow-x:auto"><table id="axes"><thead><tr>
+    <th>axis</th><th>value</th><th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th>
+  </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
   <h2>Tides</h2>
   <div class="tides" id="tides"></div>
 </section>
 <section>
-  <h2>Per-layer best (mode × dtype)</h2>
+  <h2>Per-layer best (mode × dtype × arch)</h2>
   <div style="overflow-x:auto"><table id="layers"><thead><tr>
-    <th>tide</th><th>mode</th><th>dtype</th><th>score</th><th>soft</th><th>done</th>
+    <th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>score</th><th>soft</th><th>thru</th><th>adapt</th><th>done</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
@@ -114,6 +121,8 @@ function render(j) {
   $('kpis').innerHTML = [
     ['best mode', h.best_mode || '—'],
     ['best dtype', h.best_dtype || '—'],
+    ['best arch', h.best_arch || '—'],
+    ['default recipe', `${h.default_mode||'—'} · ${h.default_dtype||'—'} · ${h.default_arch||'—'}`],
     ['tides up', `${h.tides_up||0} / ${h.tides_total||0}`],
     ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
   ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
@@ -123,7 +132,17 @@ function render(j) {
       votes.slice(0, 12).map(v => `<span class="chip"><b>${v.key}</b> ×${v.count} · mean ${fmt(v.mean_score)}</span>`).join('') +
       `</div>`;
   };
-  $('votes').innerHTML = chips(h.mode_votes, 'train mode') + chips(h.dtype_votes, 'dtype');
+  $('votes').innerHTML = chips(h.mode_votes, 'train mode') + chips(h.dtype_votes, 'dtype') + chips(h.arch_votes, 'arch');
+  const ax = $('axes').querySelector('tbody');
+  ax.innerHTML = (h.axes||[]).map(a => `<tr>
+    <td>${a.name}</td>
+    <td class="ok">${fmt(a.value)}</td>
+    <td>${a.tide||'—'}</td>
+    <td>${a.mode||'—'}</td>
+    <td>${a.dtype||'—'}</td>
+    <td>${a.arch||'—'}</td>
+    <td>${a.cell_id||''}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="tiny">No axis winners yet.</td></tr>';
   $('tides').innerHTML = (j.peers||[]).map(p => {
     const b = p.board || {};
     const tot = b.plan || b.cell_total || 0;
@@ -147,9 +166,11 @@ function render(j) {
   const lt = $('layers').querySelector('tbody');
   lt.innerHTML = (h.layers||[]).map(l => `<tr>
     <td><a href="${l.url}" target="_blank">${l.tide}</a></td>
-    <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td>
+    <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td><td>${l.arch||'—'}</td>
     <td class="ok">${fmt(l.score)}</td>
     <td>${fmt(l.soft_acc,1)}</td>
+    <td>${fmt(l.throughput,0)}</td>
+    <td>${fmt(l.adapt_pct,1)}</td>
     <td>${l.done||0}/${l.total||0}${l.recorded && l.recorded > l.total ? ` (${l.recorded} rec)` : ''}</td>
   </tr>`).join('');
   const bt = $('board').querySelector('tbody');

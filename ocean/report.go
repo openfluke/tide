@@ -44,12 +44,17 @@ func (s *Server) BuildReport() report.OceanReport {
 		Kind:      "ocean",
 		Title:     snap.Title,
 		Holistic: report.HolisticView{
-			BestMode:   snap.Holistic.BestMode,
-			BestDType:  snap.Holistic.BestDType,
-			TidesUp:    snap.Holistic.TidesUp,
-			TidesTotal: snap.Holistic.TidesTotal,
-			CellsDone:  snap.Holistic.CellsDone,
-			CellsTotal: snap.Holistic.CellsTotal,
+			BestMode:     snap.Holistic.BestMode,
+			BestDType:    snap.Holistic.BestDType,
+			BestArch:     snap.Holistic.BestArch,
+			DefaultMode:  snap.Holistic.DefaultMode,
+			DefaultDType: snap.Holistic.DefaultDType,
+			DefaultArch:  snap.Holistic.DefaultArch,
+			DefaultWins:  snap.Holistic.DefaultWins,
+			TidesUp:      snap.Holistic.TidesUp,
+			TidesTotal:   snap.Holistic.TidesTotal,
+			CellsDone:    snap.Holistic.CellsDone,
+			CellsTotal:   snap.Holistic.CellsTotal,
 		},
 	}
 	for _, v := range snap.Holistic.ModeVotes {
@@ -58,10 +63,21 @@ func (s *Server) BuildReport() report.OceanReport {
 	for _, v := range snap.Holistic.DTypeVotes {
 		out.Holistic.DTypeVotes = append(out.Holistic.DTypeVotes, report.Vote{Key: v.Key, Count: v.Count, Mean: v.Mean})
 	}
+	for _, v := range snap.Holistic.ArchVotes {
+		out.Holistic.ArchVotes = append(out.Holistic.ArchVotes, report.Vote{Key: v.Key, Count: v.Count, Mean: v.Mean})
+	}
+	for _, a := range snap.Holistic.Axes {
+		out.Holistic.Axes = append(out.Holistic.Axes, report.AxisView{
+			Name: a.Name, Hint: a.Hint, Tide: a.Tide, CellID: a.CellID,
+			Mode: a.Mode, DType: a.DType, Arch: a.Arch, Value: a.Value,
+			SoftAcc: a.SoftAcc, Thru: a.Thru,
+		})
+	}
 	for _, l := range snap.Holistic.Layers {
 		out.Holistic.Layers = append(out.Holistic.Layers, report.LayerRow{
-			Tide: l.Tide, Mode: l.Mode, DType: l.DType, CellID: l.CellID,
-			Score: l.Score, SoftAcc: l.SoftAcc, Done: l.Done, Total: l.Total, Recorded: l.Recorded,
+			Tide: l.Tide, Mode: l.Mode, DType: l.DType, Arch: l.Arch, CellID: l.CellID,
+			Score: l.Score, SoftAcc: l.SoftAcc, Thru: l.Thru, Avail: l.Avail, Adapt: l.Adapt,
+			Done: l.Done, Total: l.Total, Recorded: l.Recorded,
 		})
 	}
 	for _, t := range snap.Holistic.CombinedTop {

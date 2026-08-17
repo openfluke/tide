@@ -42,16 +42,23 @@ type OceanReport struct {
 // HolisticView is a JSON-friendly copy of ocean.Holistic without importing ocean
 // (report is used by both dash and ocean).
 type HolisticView struct {
-	BestMode    string     `json:"best_mode"`
-	BestDType   string     `json:"best_dtype"`
-	ModeVotes   []Vote     `json:"mode_votes"`
-	DTypeVotes  []Vote     `json:"dtype_votes"`
-	Layers      []LayerRow `json:"layers"`
-	CombinedTop []TopRow   `json:"combined_top"`
-	TidesUp     int        `json:"tides_up"`
-	TidesTotal  int        `json:"tides_total"`
-	CellsDone   int        `json:"cells_done"`
-	CellsTotal  int        `json:"cells_total"`
+	BestMode     string     `json:"best_mode"`
+	BestDType    string     `json:"best_dtype"`
+	BestArch     string     `json:"best_arch"`
+	ModeVotes    []Vote     `json:"mode_votes"`
+	DTypeVotes   []Vote     `json:"dtype_votes"`
+	ArchVotes    []Vote     `json:"arch_votes"`
+	Layers       []LayerRow `json:"layers"`
+	CombinedTop  []TopRow   `json:"combined_top"`
+	Axes         []AxisView `json:"axes"`
+	DefaultMode  string     `json:"default_mode"`
+	DefaultDType string     `json:"default_dtype"`
+	DefaultArch  string     `json:"default_arch"`
+	DefaultWins  int        `json:"default_wins"`
+	TidesUp      int        `json:"tides_up"`
+	TidesTotal   int        `json:"tides_total"`
+	CellsDone    int        `json:"cells_done"`
+	CellsTotal   int        `json:"cells_total"`
 }
 
 type Vote struct {
@@ -64,15 +71,30 @@ type LayerRow struct {
 	Tide     string  `json:"tide"`
 	Mode     string  `json:"mode"`
 	DType    string  `json:"dtype"`
+	Arch     string  `json:"arch"`
 	CellID   string  `json:"cell_id"`
 	Score    float64 `json:"score"`
 	SoftAcc  float64 `json:"soft_acc"`
 	Avail    float64 `json:"availability"`
 	Thru     float64 `json:"throughput"`
+	Adapt    float64 `json:"adapt_pct"`
 	Done     int     `json:"done"`
 	Total    int     `json:"total"`
 	Recorded int     `json:"recorded"`
 	Status   string  `json:"status"`
+}
+
+type AxisView struct {
+	Name    string  `json:"name"`
+	Hint    string  `json:"hint"`
+	Tide    string  `json:"tide"`
+	CellID  string  `json:"cell_id"`
+	Mode    string  `json:"mode"`
+	DType   string  `json:"dtype"`
+	Arch    string  `json:"arch"`
+	Value   float64 `json:"value"`
+	SoftAcc float64 `json:"soft_acc"`
+	Thru    float64 `json:"throughput"`
 }
 
 type TopRow struct {

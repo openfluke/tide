@@ -65,6 +65,12 @@ func TestConsolidateVotesModeAndDType(t *testing.T) {
 	if len(h.CombinedTop) != 3 {
 		t.Fatalf("combined %d", len(h.CombinedTop))
 	}
+	if h.BestArch == "" {
+		t.Fatalf("expected arch vote, got %q", h.BestArch)
+	}
+	if len(h.Axes) == 0 {
+		t.Fatal("expected score axis")
+	}
 }
 
 func TestConsolidateUsesEpochPlan(t *testing.T) {
