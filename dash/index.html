@@ -336,10 +336,10 @@
   <section>
     <h2>Models ranked — all metrics</h2>
     <p class="hint">
-      Top models by Score. Label is <b>mode</b> plus <b>dtype · quant · arch</b>
-      (<span class="arch single">cnn</span> single head,
-      <span class="arch">bi×2</span> / <span class="arch">tri×3</span> hemispheres).
-      Bars are scaled within each metric.
+      Top models by Score. Label is <b>mode</b> plus <b>layer · dtype · quant · head</b>
+      (<span class="arch single">single×1</span> one head,
+      <span class="arch">bi×2</span> / <span class="arch">tri×3</span> cameral hemispheres).
+      The tide name is the Welvet layer (dense, cnn2, lstm, …). Head width is not the layer.
     </p>
     <div class="legend">
       <span><i style="background:#3dd6c6"></i>score</span>
@@ -455,7 +455,7 @@
 <div class="tables">
   <section>
     <h2>Best full cell per mode × arch</h2>
-    <p class="hint">Champion cell for each mode at each cameral width (cnn / bi / tri).</p>
+    <p class="hint">Champion cell for each mode at each cameral width (single×1 / bi×2 / tri×3). That is head count, not the layer under test.</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
         <thead><tr><th>Mode</th><th>Score</th><th>Acc</th><th>t→50%</th><th>Acc/s</th><th>n</th><th>Cell</th></tr></thead>
@@ -978,7 +978,7 @@ function bindRowClicks(root) {
 function parseCell(cell, id) {
   id = id || cell?.id || '';
   const p = String(id).split('|');
-  const arch = (cell && cell.arch) || p[3] || 'cnn';
+  const arch = (cell && cell.arch) || p[3] || 'single';
   let cams = (cell && cell.cams) || 0;
   if (!cams) {
     if (arch === 'tricameral') cams = 3;
@@ -988,7 +988,9 @@ function parseCell(cell, id) {
   const mode = (cell && cell.mode) || p[2] || '';
   const dtype = p[0] || '';
   const format = p[1] || '';
-  const tag = cams <= 1 ? 'cnn' : (cams === 2 ? 'bi×2' : (cams === 3 ? 'tri×3' : (arch + '×' + cams)));
+  // ArchCNN token is "cnn" in cell IDs (live_mnist / checkpoints). On the
+  // dashboard that means single-headed, not "this tide is a CNN".
+  const tag = cams <= 1 ? 'single×1' : (cams === 2 ? 'bi×2' : (cams === 3 ? 'tri×3' : (arch + '×' + cams)));
   return { id, arch, cams, mode, dtype, format, tag };
 }
 function archBadge(cell, id) {
@@ -998,7 +1000,10 @@ function archBadge(cell, id) {
 }
 function compactSub(cell, id) {
   const c = parseCell(cell, id);
-  const bits = [c.dtype];
+  const bits = [];
+  const task = (lastLive && lastLive.task) ? String(lastLive.task) : '';
+  if (task) bits.push(task);
+  bits.push(c.dtype);
   if (c.format && c.format !== 'none') bits.push(c.format);
   bits.push(c.tag);
   return bits.join(' · ');

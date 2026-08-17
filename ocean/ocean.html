@@ -121,6 +121,9 @@
 const $ = id => document.getElementById(id);
 function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
 function fmt(n, d=2) { return (n||0).toFixed(d); }
+function prettyCell(id) {
+  return String(id||'').replace(/\|cnn\|/g, '|single×1|');
+}
 function render(j) {
   const h = j.holistic || {};
   $('status').textContent = `${j.title||'ocean'} · ${h.tides_up||0}/${h.tides_total||0} up · ${h.cells_done||0}/${h.cells_total||0} cells · ${new Date(j.updated_at).toLocaleTimeString()}`;
@@ -147,7 +150,7 @@ function render(j) {
     <td>${a.mode||'—'}</td>
     <td>${a.dtype||'—'}</td>
     <td>${a.arch||'—'}</td>
-    <td>${a.cell_id||''}</td>
+    <td>${prettyCell(a.cell_id||'')}</td>
   </tr>`).join('') || '<tr><td colspan="7" class="tiny">No axis winners yet.</td></tr>';
   $('layerAxes').innerHTML = (h.layers||[]).map(l => {
     const rows = (l.axes||[]).map(a => `<tr>
@@ -156,7 +159,7 @@ function render(j) {
       <td>${a.mode||'—'}</td>
       <td>${a.dtype||'—'}</td>
       <td>${a.arch||'—'}</td>
-      <td>${a.cell_id||''}</td>
+      <td>${prettyCell(a.cell_id||'')}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="tiny">no finished cells yet</td></tr>';
     return `<h3><a href="${l.url||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
       <div style="overflow-x:auto"><table>
@@ -170,8 +173,8 @@ function render(j) {
     const done = b.epoch_done != null ? b.epoch_done : ((b.ok||0)+(b.gap||0)+(b.fail||0));
     const rec = b.recorded || done;
     const pctBar = tot ? Math.min(100, Math.round(100 * done / tot)) : 0;
-    const cur = b.current && b.current.cell ? b.current.cell.id : (b.message || 'idle');
-    const best = b.best && b.best.score ? `${fmt(b.best.score.snapshot.score)} · ${b.best.score.cell?.id||''}` : '—';
+    const cur = b.current && b.current.cell ? prettyCell(b.current.cell.id) : (b.message || 'idle');
+    const best = b.best && b.best.score ? `${fmt(b.best.score.snapshot.score)} · ${prettyCell(b.best.score.cell?.id||'')}` : '—';
     const st = p.ok ? (b.status || (b.awaiting_start ? 'paused' : (b.running ? 'running' : 'idle'))) : 'down';
     const cls = !p.ok ? 'down' : (st === 'done' ? 'done' : (st === 'running' ? 'run' : (st === 'queued' ? 'queued' : '')));
     return `<article class="card ${cls}">
@@ -199,7 +202,7 @@ function render(j) {
     const s = r.result?.snapshot || {};
     const id = r.result?.cell?.id || '';
     return `<tr>
-      <td>${r.tide}</td><td>${id}</td>
+      <td>${r.tide}</td><td>${prettyCell(id)}</td>
       <td class="ok">${fmt(s.score)}</td>
       <td>${fmt(s.soft_acc,1)}</td>
       <td>${fmt(s.availability,1)}</td>
