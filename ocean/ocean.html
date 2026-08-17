@@ -112,7 +112,7 @@
 </section>
 <section>
   <h2>Lucy Pareto (LPD) — goldilocks</h2>
-  <p class="hint">Q = geomean of Score/Soft/Acc/Thru vs the ocean Score champion. Gold = Q ≥ 80% and RAM ≤ 20% of that champ. LPD is 0 if Q &lt; 70% — that is why binary Score/MiB is a trap. Gold is the recipe that still learns, at a fraction of the memory.</p>
+  <p class="hint">Q = geomean of Score/Soft/Acc/Thru vs the ocean Score champion. Gold = Q ≥ 80% and RAM ≤ 20% of that champ. LPD is 0 if Q &lt; 70% — that is why binary Score/MiB is a trap. Gold is the recipe that still learns, at a fraction of the memory. MSpeed = Thru vs the ocean’s fastest (0 unless Q ≥ 70%). MAvail = infer/(infer+train) vs the best duty cycle, same Q gate. Mix = geomean of Q, MSpeed, MAvail.</p>
   <div class="legend">
     <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
     <span><i style="background:#e6b35a"></i>near Q≥70% RAM≤50%</span>
@@ -132,7 +132,7 @@
     </div>
   </div>
   <div style="overflow-x:auto;margin-top:0.7rem"><table id="lpdTable"><thead><tr>
-    <th>band</th><th>tide</th><th>cell</th><th>Q%</th><th>RAM%</th><th>×smaller</th><th>LPD</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>KiB</th>
+    <th>band</th><th>tide</th><th>cell</th><th>Q%</th><th>RAM%</th><th>×smaller</th><th>LPD</th><th>Spd%</th><th>Duty%</th><th>Mix</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>KiB</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
@@ -234,6 +234,7 @@ function render(j) {
     ['tides up', `${h.tides_up||0} / ${h.tides_total||0}`],
     ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
     ['LPD gold', (h.lpd && h.lpd.gold && h.lpd.gold.length) ? `${h.lpd.gold.length} · ${prettyCell(h.lpd.gold[0].id)}` : 'none yet'],
+    ['mix', (h.lpd && h.lpd.top_mix && h.lpd.top_mix[0] && h.lpd.top_mix[0].mix) ? `${prettyCell(h.lpd.top_mix[0].id)} · ${((h.lpd.top_mix[0].mix||0)*100).toFixed(0)}%` : '—'],
     ['LPD champ RAM', h.lpd && h.lpd.champ && h.lpd.champ.id ? `${(h.lpd.champ.ram_kib||0).toFixed(1)} KiB` : '—'],
   ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
   const chips = (votes, label) => {
@@ -489,7 +490,8 @@ function drawLPD(h) {
     const c = l.champ || {};
     champEl.innerHTML = c.id
       ? `<span class="chip"><b>champ</b></span> ${prettyCell(c.id)} · Score ${fmt(c.score,1)} · Soft ${fmt(c.soft_acc,0)} · Acc ${fmt(c.avg_accuracy,0)} · Thru ${fmt(c.throughput,0)} · ${fmt(c.ram_kib,1)} KiB
-         · gold ${gold.length} · near ${near.length} · trap ${trap.length}`
+         · gold ${gold.length} · near ${near.length} · trap ${trap.length}
+         <div>fastest ${prettyCell(l.fast_id||'—')} · ${fmt(l.fast_thru,0)}/s · best duty ${prettyCell(l.avail_id||'—')} · ${fmt(l.best_avail,1)}% · mix ${(l.top_mix && l.top_mix[0]) ? prettyCell(l.top_mix[0].id)+' '+((l.top_mix[0].mix||0)*100).toFixed(0)+'%' : '—'}</div>`
       : 'Need finished ok cells.';
   }
   if (goldEl) {
@@ -513,12 +515,15 @@ function drawLPD(h) {
       <td>${((r.ram_frac||0)*100).toFixed(0)}</td>
       <td>${(r.shrink||0).toFixed(1)}×</td>
       <td>${fmt(r.lpd)}</td>
+      <td>${((r.mspeed||0)*100).toFixed(0)}</td>
+      <td>${((r.mavail||0)*100).toFixed(0)}</td>
+      <td>${((r.mix||0)*100).toFixed(0)}</td>
       <td>${fmt(r.score,1)}</td>
       <td>${fmt(r.soft_acc,0)}</td>
       <td>${fmt(r.avg_accuracy,0)}</td>
       <td>${fmt(r.throughput,0)}</td>
       <td>${fmt(r.ram_kib,1)}</td>
-    </tr>`).join('') : '<tr><td colspan="12">no finished ok cells yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="15">no finished ok cells yet</td></tr>';
   }
   const pts = lpdMerged(l).map(r => ({
     band: r.band, gold: r.gold,

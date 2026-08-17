@@ -57,6 +57,11 @@ type LPDRow struct {
 	RAMFrac  float64 `json:"ram_frac"` // this / champ RAM
 	Shrink   float64 `json:"shrink"`   // champ / this (× smaller)
 	LPD      float64 `json:"lpd"`      // Q × min(Shrink, 32); 0 if Q < 70%
+	RelFast  float64 `json:"rel_fast"` // Thru / fastest on the board (capped 1)
+	RelDuty  float64 `json:"rel_duty"` // Avail / best Availability on the board (capped 1)
+	MSpeed   float64 `json:"mspeed"`   // RelFast if Q ≥ 70%, else 0
+	MAvail   float64 `json:"mavail"`   // RelDuty if Q ≥ 70%, else 0
+	Mix      float64 `json:"mix"`      // geomean(Q, RelFast, RelDuty); 0 if Q < 70%
 	Band     string  `json:"band"`     // gold | near | keep | trap | —
 	Gold     bool    `json:"gold"`
 }
@@ -69,15 +74,22 @@ type LPD struct {
 	PeakSoft  float64  `json:"peak_soft"`
 	PeakAcc   float64  `json:"peak_acc"`
 	PeakThru  float64  `json:"peak_thru"`
+	FastThru  float64  `json:"fast_thru"` // fastest Throughput on the board
+	FastID    string   `json:"fast_id,omitempty"`
+	BestAvail float64  `json:"best_avail"` // highest Availability on the board
+	AvailID   string   `json:"avail_id,omitempty"`
 	N         int      `json:"n"`
 	Gold      []LPDRow `json:"gold,omitempty"`
 	Near      []LPDRow `json:"near,omitempty"`
 	Top       []LPDRow `json:"top,omitempty"`
 	Trap      []LPDRow `json:"trap,omitempty"`
+	TopSpeed  []LPDRow `json:"top_speed,omitempty"`
+	TopAvail  []LPDRow `json:"top_avail,omitempty"`
+	TopMix    []LPDRow `json:"top_mix,omitempty"`
 }
 
 func lpdFormula() string {
-	return "Q = geomean of Score/Soft/Acc/Thru vs the Lucy Score champion. LPD = 0 if Q<70%, else Q × shrink vs champ RAM (capped 32×). Gold = Q≥80% and RAM≤20% of champ. Raw Score/MiB is the binary trap."
+	return "Q = geomean of Score/Soft/Acc/Thru vs the Lucy Score champion. LPD = 0 if Q<70%, else Q × shrink vs champ RAM (capped 32×). Gold = Q≥80% and RAM≤20% of champ. MSpeed = Thru vs the board's fastest (0 if Q<70%). MAvail = Availability vs the board's best duty cycle (0 if Q<70%). Mix = geomean(Q, MSpeed, MAvail). Raw Score/MiB is the binary trap."
 }
 
 // BuildLPD ranks cells for the goldilocks: good enough quality, then smaller RAM.
@@ -87,6 +99,8 @@ func BuildLPD(pts []CellPoint) LPD {
 		return out
 	}
 	var champ CellPoint
+	var fastThru, bestAvail float64
+	var fastID, availID string
 	for i, p := range pts {
 		better := p.Score > champ.Score
 		if p.Score == champ.Score && champ.ID != "" {
@@ -97,8 +111,16 @@ func BuildLPD(pts []CellPoint) LPD {
 		if i == 0 || better {
 			champ = p
 		}
+		if i == 0 || p.Thru > fastThru {
+			fastThru, fastID = p.Thru, p.ID
+		}
+		if i == 0 || p.Avail > bestAvail {
+			bestAvail, availID = p.Avail, p.ID
+		}
 	}
 	out.PeakScore, out.PeakSoft, out.PeakAcc, out.PeakThru = champ.Score, champ.Soft, champ.Acc, champ.Thru
+	out.FastThru, out.FastID = fastThru, PrettyCell(fastID)
+	out.BestAvail, out.AvailID = bestAvail, PrettyCell(availID)
 	if champ.RAMKiB <= 0 {
 		champ.RAMKiB = 1e-6
 	}
@@ -146,7 +168,24 @@ func BuildLPD(pts []CellPoint) LPD {
 	if len(out.Top) > 40 {
 		out.Top = out.Top[:40]
 	}
+	out.TopSpeed = rankLPD(rows, func(r LPDRow) float64 { return r.MSpeed }, 12)
+	out.TopAvail = rankLPD(rows, func(r LPDRow) float64 { return r.MAvail }, 12)
+	out.TopMix = rankLPD(rows, func(r LPDRow) float64 { return r.Mix }, 12)
 	return out
+}
+
+func rankLPD(rows []LPDRow, val func(LPDRow) float64, max int) []LPDRow {
+	cp := append([]LPDRow(nil), rows...)
+	sort.SliceStable(cp, func(i, j int) bool {
+		if val(cp[i]) != val(cp[j]) {
+			return val(cp[i]) > val(cp[j])
+		}
+		return cp[i].Q > cp[j].Q
+	})
+	if len(cp) > max {
+		cp = cp[:max]
+	}
+	return cp
 }
 
 func lpdRow(p CellPoint, board LPD) LPDRow {
@@ -165,6 +204,8 @@ func lpdRow(p CellPoint, board LPD) LPDRow {
 	}
 	rs, rso, ra, rt := rel(p.Score, board.PeakScore), rel(p.Soft, board.PeakSoft), rel(p.Acc, board.PeakAcc), rel(p.Thru, board.PeakThru)
 	q := geomean4(rs, rso, ra, rt)
+	relFast := rel(p.Thru, board.FastThru)
+	relDuty := rel(p.Avail, board.BestAvail)
 	ram := p.RAMKiB
 	if ram <= 0 {
 		ram = 1e-6
@@ -174,9 +215,11 @@ func lpdRow(p CellPoint, board LPD) LPDRow {
 	if shrink > LPDShrinkCap {
 		shrink = LPDShrinkCap
 	}
-	lpd := 0.0
+	lpd, mspeed, mavail, mix := 0.0, 0.0, 0.0, 0.0
 	if q >= LPDKeepFloor {
 		lpd = q * shrink
+		mspeed, mavail = relFast, relDuty
+		mix = geomean3(q, relFast, relDuty)
 	}
 	band := "—"
 	gold := q >= LPDGoldKeep && frac <= LPDGoldRAM
@@ -195,6 +238,7 @@ func lpdRow(p CellPoint, board LPD) LPDRow {
 		Score: p.Score, Soft: p.Soft, Acc: p.Acc, Thru: p.Thru, Avail: p.Avail, RAMKiB: p.RAMKiB,
 		RelScore: rs, RelSoft: rso, RelAcc: ra, RelThru: rt,
 		Q: q, RAMFrac: frac, Shrink: shrink, LPD: lpd, Band: band, Gold: gold,
+		RelFast: relFast, RelDuty: relDuty, MSpeed: mspeed, MAvail: mavail, Mix: mix,
 	}
 }
 
@@ -203,6 +247,20 @@ func (r LPDRow) Point() CellPoint {
 		Tide: r.Tide, ID: r.ID, Mode: r.Mode, DType: r.DType, Format: r.Format, Arch: r.Arch,
 		Score: r.Score, Soft: r.Soft, Acc: r.Acc, Avail: r.Avail, Thru: r.Thru, RAMKiB: r.RAMKiB,
 	}
+}
+
+func geomean3(a, b, c float64) float64 {
+	const eps = 1e-6
+	if a < eps {
+		a = eps
+	}
+	if b < eps {
+		b = eps
+	}
+	if c < eps {
+		c = eps
+	}
+	return math.Pow(a*b*c, 1.0/3.0)
 }
 
 func geomean4(a, b, c, d float64) float64 {

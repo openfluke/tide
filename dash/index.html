@@ -363,6 +363,9 @@
       Q is how close a cell stays to the <b>Score champion</b> (geomean of Score, Soft, Acc, Thru).
       Gold = Q ≥ 80% <b>and</b> RAM ≤ 20% of that champ — 80% of the best, at 1/5th the memory.
       LPD is 0 below Q 70% so binary / chance Acc cannot win. Raw Score/MiB is the trap (tiny RAM, dead learner).
+      <b>MSpeed</b> = throughput vs the board’s fastest, but 0 unless Q ≥ 70%.
+      <b>MAvail</b> = infer/(infer+train) vs the board’s best duty cycle, same Q gate.
+      <b>Mix</b> = geomean of Q, MSpeed, MAvail — the live mobile blend.
     </p>
     <div class="legend">
       <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
@@ -386,7 +389,8 @@
       <table>
         <thead><tr>
           <th>Band</th><th>Cell</th><th class="num">Q%</th><th class="num">RAM%</th><th class="num">×smaller</th>
-          <th class="num">LPD</th><th class="num">Score</th><th class="num">Soft</th><th class="num">Acc</th><th class="num">Thru</th><th class="num">KiB</th>
+          <th class="num">LPD</th><th class="num">Spd%</th><th class="num">Duty%</th><th class="num">Mix</th>
+          <th class="num">Score</th><th class="num">Soft</th><th class="num">Acc</th><th class="num">Thru</th><th class="num">KiB</th>
         </tr></thead>
         <tbody id="lpdTable"></tbody>
       </table>
@@ -1686,7 +1690,10 @@ function drawLPD() {
     const c = l.champ || {};
     champEl.innerHTML = c.id
       ? `<span class="pill">champ</span> ${prettyCellId(c.id)} · Score ${(c.score||0).toFixed(1)} · Soft ${(c.soft_acc||0).toFixed(0)} · Acc ${(c.avg_accuracy||0).toFixed(0)} · Thru ${(c.throughput||0).toFixed(0)} · ${(c.ram_kib||0).toFixed(1)} KiB
-         · <span class="pill">gold ${gold.length}</span> <span class="pill">near ${near.length}</span> <span class="pill">trap ${trap.length}</span>`
+         · <span class="pill">gold ${gold.length}</span> <span class="pill">near ${near.length}</span> <span class="pill">trap ${trap.length}</span>
+         <div style="margin-top:0.35rem">fastest ${prettyCellId(l.fast_id||'—')} · ${(l.fast_thru||0).toFixed(0)}/s
+         · best duty ${prettyCellId(l.avail_id||'—')} · ${(l.best_avail||0).toFixed(1)}%
+         · mix ${(l.top_mix && l.top_mix[0] && l.top_mix[0].mix) ? prettyCellId(l.top_mix[0].id)+' '+((l.top_mix[0].mix||0)*100).toFixed(0)+'%' : '—'}</div>`
       : 'Need finished ok cells.';
   }
   if (goldEl) {
@@ -1709,12 +1716,15 @@ function drawLPD() {
       <td class="num">${((r.ram_frac||0)*100).toFixed(0)}</td>
       <td class="num">${(r.shrink||0).toFixed(1)}×</td>
       <td class="num">${(r.lpd||0).toFixed(2)}</td>
+      <td class="num">${((r.mspeed||0)*100).toFixed(0)}</td>
+      <td class="num">${((r.mavail||0)*100).toFixed(0)}</td>
+      <td class="num">${((r.mix||0)*100).toFixed(0)}</td>
       <td class="num">${(r.score||0).toFixed(1)}</td>
       <td class="num">${(r.soft_acc||0).toFixed(0)}</td>
       <td class="num">${(r.avg_accuracy||0).toFixed(0)}</td>
       <td class="num">${(r.throughput||0).toFixed(0)}</td>
       <td class="num">${(r.ram_kib||0).toFixed(1)}</td>
-    </tr>`).join('') : '<tr><td colspan="11">no finished ok cells yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="14">no finished ok cells yet</td></tr>';
     bindRowClicks(tb);
   }
   const pts = lpdMerged(l).map(r => ({

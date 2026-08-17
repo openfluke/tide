@@ -201,6 +201,15 @@ func (s *Server) Board() Board {
 	if ax := lpdAxis(out.LPD); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
 	}
+	if ax := lpdPickAxis(out.LPD, "mspeed", "Thru vs board fastest; 0 unless Q≥70%", func(r report.LPDRow) float64 { return r.MSpeed }); ax.Name != "" {
+		out.Axes = append(out.Axes, ax)
+	}
+	if ax := lpdPickAxis(out.LPD, "mavail", "Avail vs board best duty cycle; 0 unless Q≥70%", func(r report.LPDRow) float64 { return r.MAvail }); ax.Name != "" {
+		out.Axes = append(out.Axes, ax)
+	}
+	if ax := lpdPickAxis(out.LPD, "mix", "geomean of Q, MSpeed, MAvail — live mobile blend", func(r report.LPDRow) float64 { return r.Mix }); ax.Name != "" {
+		out.Axes = append(out.Axes, ax)
+	}
 	return out
 }
 
@@ -216,6 +225,27 @@ func lpdAxis(l report.LPD) LucyAxis {
 	return LucyAxis{
 		Name: "lpd", Hint: "goldilocks: ≥80% of Score champ quality at ≤20% RAM",
 		Value: pick.LPD, CellID: pick.ID, Mode: pick.Mode, DType: pick.DType, Arch: pick.Arch,
+		Score: pick.Score, SoftAcc: pick.Soft, Thru: pick.Thru, Avail: pick.Avail,
+	}
+}
+
+func lpdPickAxis(l report.LPD, name, hint string, val func(report.LPDRow) float64) LucyAxis {
+	src := l.Top
+	switch name {
+	case "mspeed":
+		src = l.TopSpeed
+	case "mavail":
+		src = l.TopAvail
+	case "mix":
+		src = l.TopMix
+	}
+	if len(src) == 0 || val(src[0]) <= 0 {
+		return LucyAxis{}
+	}
+	pick := src[0]
+	return LucyAxis{
+		Name: name, Hint: hint, Value: val(pick),
+		CellID: pick.ID, Mode: pick.Mode, DType: pick.DType, Arch: pick.Arch,
 		Score: pick.Score, SoftAcc: pick.Soft, Thru: pick.Thru, Avail: pick.Avail,
 	}
 }

@@ -58,6 +58,10 @@ func (d *doc) lpdBoard(l LPD) {
 	d.body(l.Formula)
 	d.body(fmt.Sprintf("Quality champ %s   Score %.1f  Soft %.0f  Acc %.0f  Thru %.0f  RAM %.1f KiB",
 		PrettyCell(l.Champ.ID), l.Champ.Score, l.Champ.Soft, l.Champ.Acc, l.Champ.Thru, l.Champ.RAMKiB))
+	if l.FastID != "" {
+		d.body(fmt.Sprintf("Board fastest %s  Thru %.0f     Best availability %s  %.1f%%",
+			PrettyCell(l.FastID), l.FastThru, PrettyCell(l.AvailID), l.BestAvail))
+	}
 	if len(l.Gold) > 0 {
 		d.h2("Gold — Q >= 80% of champ, RAM <= 20%")
 		d.lpdTable(l.Gold, 16)
@@ -70,6 +74,18 @@ func (d *doc) lpdBoard(l LPD) {
 	}
 	d.h2("LPD rank (Q x shrink; 0 if Q < 70%)")
 	d.lpdTable(l.Top, 20)
+	if len(l.TopSpeed) > 0 && l.TopSpeed[0].MSpeed > 0 {
+		d.h2("Mobile speed — Thru vs board fastest (Q >= 70%)")
+		d.lpdMobileTable(l.TopSpeed, 10)
+	}
+	if len(l.TopAvail) > 0 && l.TopAvail[0].MAvail > 0 {
+		d.h2("Mobile availability — duty cycle vs board best (Q >= 70%)")
+		d.lpdMobileTable(l.TopAvail, 10)
+	}
+	if len(l.TopMix) > 0 && l.TopMix[0].Mix > 0 {
+		d.h2("Mix — geomean of Q, MSpeed, MAvail")
+		d.lpdMobileTable(l.TopMix, 10)
+	}
 	if len(l.Trap) > 0 {
 		d.h2("Trap — tiny RAM, Q < 70% (why Score/MiB lies)")
 		d.lpdTable(l.Trap, 10)
@@ -106,6 +122,25 @@ func (d *doc) lpdTable(rows []LPDRow, max int) {
 			fmt.Sprintf("%.0f", r.Acc),
 			fmt.Sprintf("%.1f", r.Score),
 			fmt.Sprintf("%.1f", r.RAMKiB),
+		}
+	})
+}
+
+func (d *doc) lpdMobileTable(rows []LPDRow, max int) {
+	d.table([]string{"Band", "Cell", "Q%", "Spd%", "Duty%", "Mix%", "LPD", "Thru", "Avail"}, func(k int) []string {
+		if k >= len(rows) || k >= max {
+			return nil
+		}
+		r := rows[k]
+		return []string{
+			r.Band, PrettyCell(r.ID),
+			fmt.Sprintf("%.0f", r.Q*100),
+			fmt.Sprintf("%.0f", r.MSpeed*100),
+			fmt.Sprintf("%.0f", r.MAvail*100),
+			fmt.Sprintf("%.0f", r.Mix*100),
+			fmt.Sprintf("%.2f", r.LPD),
+			fmt.Sprintf("%.0f", r.Thru),
+			fmt.Sprintf("%.1f", r.Avail),
 		}
 	})
 }
