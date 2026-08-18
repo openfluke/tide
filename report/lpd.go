@@ -5,14 +5,10 @@ import (
 	"sort"
 )
 
-// LPD is the Lucy Pareto / goldilocks board: stay close to live Score
-// and to the Acc champion, then shrink RAM. Raw Score/MiB is the binary
-// trap — a 1-bit net with chance Acc still "wins" MobileScore.
-//
-// Score and Thru peaks are the Score champion (binary must not set Thru).
-// Soft and Acc peaks are their own board champs, so a fast cell with
-// chance Acc cannot look like 94% Q. LPD = 0 unless Q ≥ 70% and Acc
-// keep ≥ 70% of the Acc champ. Gold also needs RAM ≤ 20% of Score champ.
+// Consciousness / synthetic-organism metric: Acc, Throughput, Availability.
+// Lucy Score = T × Avail × Acc / 10,000. SoftAcc is serve-confidence, not Score.
+// Memory density condenses the three pillars vs Acc-champ RAM. Tiny dtypes at
+// chance Acc are traps (LPD = 0). SGD that blocks serve dies on Availability.
 const (
 	LPDKeepFloor = 0.70
 	LPDGoldKeep  = 0.80
@@ -21,7 +17,7 @@ const (
 	LPDShrinkCap = 32.0
 )
 
-// LPDChamp is the quality reference (highest Lucy Score).
+// LPDChamp is a named reference cell (Score champ, Acc champ, live-fit champ).
 type LPDChamp struct {
 	ID     string  `json:"id"`
 	Tide   string  `json:"tide,omitempty"`
@@ -36,38 +32,43 @@ type LPDChamp struct {
 	RAMKiB float64 `json:"ram_kib"`
 }
 
-// LPDRow is one cell against the champion.
+// LPDRow is one cell against the three pillars and Acc-champ RAM.
 type LPDRow struct {
-	Tide     string  `json:"tide,omitempty"`
-	ID       string  `json:"id"`
-	Mode     string  `json:"mode"`
-	DType    string  `json:"dtype"`
-	Format   string  `json:"format"`
-	Arch     string  `json:"arch"`
-	Score    float64 `json:"score"`
-	Soft     float64 `json:"soft_acc"`
-	Acc      float64 `json:"avg_accuracy"`
-	Thru     float64 `json:"throughput"`
-	Avail    float64 `json:"availability"`
-	RAMKiB   float64 `json:"ram_kib"`
-	RelScore float64 `json:"rel_score"`
-	RelSoft  float64 `json:"rel_soft"`
-	RelAcc   float64 `json:"rel_acc"`
-	RelThru  float64 `json:"rel_thru"`
-	Q        float64 `json:"q"`        // 0–1 keep of the peaks
-	RAMFrac  float64 `json:"ram_frac"` // this / champ RAM
-	Shrink   float64 `json:"shrink"`   // champ / this (× smaller)
-	LPD      float64 `json:"lpd"`      // Q × min(Shrink, 32); 0 if Q < 70%
-	RelFast  float64 `json:"rel_fast"` // Thru / fastest on the board (capped 1)
-	RelDuty  float64 `json:"rel_duty"` // Avail / best Availability on the board (capped 1)
-	MSpeed   float64 `json:"mspeed"`   // RelFast if Q ≥ 70%, else 0
-	MAvail   float64 `json:"mavail"`   // RelDuty if Q ≥ 70%, else 0
-	Mix      float64 `json:"mix"`      // geomean(Q, RelFast, RelDuty); 0 if Q < 70%
-	Band     string  `json:"band"`     // gold | near | keep | trap | —
-	Gold     bool    `json:"gold"`
+	Tide      string  `json:"tide,omitempty"`
+	ID        string  `json:"id"`
+	Mode      string  `json:"mode"`
+	DType     string  `json:"dtype"`
+	Format    string  `json:"format"`
+	Arch      string  `json:"arch"`
+	Score     float64 `json:"score"`
+	Soft      float64 `json:"soft_acc"`
+	Acc       float64 `json:"avg_accuracy"`
+	Thru      float64 `json:"throughput"`
+	Avail     float64 `json:"availability"`
+	RAMKiB    float64 `json:"ram_kib"`
+	RelScore  float64 `json:"rel_score"`
+	RelSoft   float64 `json:"rel_soft"`
+	RelAcc    float64 `json:"rel_acc"`
+	RelThru   float64 `json:"rel_thru"`
+	RelAvail  float64 `json:"rel_avail"`
+	Q         float64 `json:"q"`        // geomean of Acc/Thru/Avail keep vs learner peaks
+	RAMFrac   float64 `json:"ram_frac"` // this / Acc-champ RAM
+	Shrink    float64 `json:"shrink"`   // Acc-champ RAM / this (× smaller)
+	LPD       float64 `json:"lpd"`      // Q × shrink; 0 unless Acc keep ≥ 70%
+	RelFast   float64 `json:"rel_fast"` // Thru / board fastest (trap can win)
+	RelDuty   float64 `json:"rel_duty"` // Avail / board best (trap can win)
+	MSpeed    float64 `json:"mspeed"`   // RelThru if Acc keep, else 0
+	MAvail    float64 `json:"mavail"`   // RelAvail if Acc keep, else 0
+	Mix       float64 `json:"mix"`      // Q if Acc keep, else 0 (consciousness)
+	DensAcc   float64 `json:"dens_acc"` // RelAcc × shrink (0 if trap)
+	DensThru  float64 `json:"dens_thru"`
+	DensAvail float64 `json:"dens_avail"`
+	Pillars   int     `json:"pillars"` // how many of Acc/Thru/Avail ≥ 80%
+	Band      string  `json:"band"`    // gold | near | keep | acc | trap | —
+	Gold      bool    `json:"gold"`
 }
 
-// LPDMode is one train mode among cells that kept Acc-champ quality.
+// LPDMode is one train mode among 2+ pillar (gold-std) cells.
 type LPDMode struct {
 	Mode     string  `json:"mode"`
 	N        int     `json:"n"`
@@ -81,35 +82,40 @@ type LPDMode struct {
 
 // LPD is the goldilocks snapshot for a tide or the ocean.
 type LPD struct {
-	Formula   string    `json:"formula"`
-	Champ     LPDChamp  `json:"champ"`
-	AccChamp  LPDChamp  `json:"acc_champ"`
-	SoftChamp LPDChamp  `json:"soft_champ"`
-	PeakScore float64   `json:"peak_score"`
-	PeakSoft  float64   `json:"peak_soft"`
-	PeakAcc   float64   `json:"peak_acc"`
-	PeakThru  float64   `json:"peak_thru"`
-	FastThru  float64   `json:"fast_thru"` // fastest Throughput on the board
-	FastID    string    `json:"fast_id,omitempty"`
-	BestAvail float64   `json:"best_avail"` // highest Availability on the board
-	AvailID   string    `json:"avail_id,omitempty"`
-	N         int       `json:"n"`
-	Gold      []LPDRow  `json:"gold,omitempty"`
-	Near      []LPDRow  `json:"near,omitempty"`
-	Top       []LPDRow  `json:"top,omitempty"`
-	Trap      []LPDRow  `json:"trap,omitempty"`
-	TopSpeed  []LPDRow  `json:"top_speed,omitempty"`
-	TopAvail  []LPDRow  `json:"top_avail,omitempty"`
-	TopMix    []LPDRow  `json:"top_mix,omitempty"`
-	GoldStd   LPDRow    `json:"gold_std,omitempty"`
-	GoldModes []LPDMode `json:"gold_modes,omitempty"`
+	Formula       string    `json:"formula"`
+	Champ         LPDChamp  `json:"champ"`      // Welvet Lucy Score champ (SoftAcc-based)
+	AccChamp      LPDChamp  `json:"acc_champ"`  // highest hard Acc — RAM reference
+	SoftChamp     LPDChamp  `json:"soft_champ"` // Welvet SoftAcc champ (display)
+	LiveChamp     LPDChamp  `json:"live_champ"` // best consciousness Q among learners
+	PeakScore     float64   `json:"peak_score"`
+	PeakSoft      float64   `json:"peak_soft"`
+	PeakAcc       float64   `json:"peak_acc"`
+	PeakThru      float64   `json:"peak_thru"`  // fastest Thru among Acc-keepers
+	PeakAvail     float64   `json:"peak_avail"` // best Avail among Acc-keepers
+	FastThru      float64   `json:"fast_thru"`  // board fastest (trap can own this)
+	FastID        string    `json:"fast_id,omitempty"`
+	BestAvail     float64   `json:"best_avail"`
+	AvailID       string    `json:"avail_id,omitempty"`
+	PeakDensAcc   float64   `json:"peak_dens_acc"`
+	PeakDensThru  float64   `json:"peak_dens_thru"`
+	PeakDensAvail float64   `json:"peak_dens_avail"`
+	N             int       `json:"n"`
+	Gold          []LPDRow  `json:"gold,omitempty"`
+	Near          []LPDRow  `json:"near,omitempty"`
+	Top           []LPDRow  `json:"top,omitempty"`
+	Trap          []LPDRow  `json:"trap,omitempty"`
+	TopSpeed      []LPDRow  `json:"top_speed,omitempty"`
+	TopAvail      []LPDRow  `json:"top_avail,omitempty"`
+	TopMix        []LPDRow  `json:"top_mix,omitempty"`
+	GoldStd       LPDRow    `json:"gold_std,omitempty"`
+	GoldModes     []LPDMode `json:"gold_modes,omitempty"`
 }
 
 func lpdFormula() string {
-	return "Q = geomean of Score/Thru vs Score champ and Soft/Acc vs their own champs. Thru peak is the Score champ (not the board fastest). LPD = 0 unless Q≥70% and Acc keep ≥70% of the Acc champ, else Q × shrink vs Score-champ RAM (capped 32×). Gold = Q≥80% and Acc keep ≥80% and RAM≤20%. Gold-std mode = smallest then fastest among Acc-keep ≥80%. Mix = geomean(Q, MSpeed, MAvail). Raw Score/MiB is the binary trap."
+	return "Synthetic organism / Lucy density: can the net run and train at the same time in a small box. Lucy Score = Throughput x Availability x Acc / 10,000 (hard Acc; SoftAcc is serve-confidence only). SGD that blocks serve dies on Availability. Q = geomean Acc/Thru/Avail vs learner peaks (traps do not set Thru/Avail). LPD = Q x shrink vs Acc-champ RAM; 0 unless Acc keep >=70%. Gold = all 3 pillars >=80% at <=20% Acc-champ RAM. Gold-std = Acc >=80% plus Thru or Avail, then smallest then fastest. Honesty/test48 is the train-mode truth (FastProxy / MeshTween / Sparse vs SGD). Score/MiB is the binary trap."
 }
 
-// BuildLPD ranks cells for the goldilocks: good enough quality, then smaller RAM.
+// BuildLPD ranks cells for consciousness (Acc/Thru/Avail) then memory density.
 func BuildLPD(pts []CellPoint) LPD {
 	out := LPD{Formula: lpdFormula()}
 	if len(pts) == 0 {
@@ -141,21 +147,26 @@ func BuildLPD(pts []CellPoint) LPD {
 			bestAvail, availID = p.Avail, p.ID
 		}
 	}
-	out.PeakScore, out.PeakThru = champ.Score, champ.Thru
-	out.PeakSoft, out.PeakAcc = softChamp.Soft, accChamp.Acc
+	out.PeakScore, out.PeakSoft, out.PeakAcc = champ.Score, softChamp.Soft, accChamp.Acc
 	out.FastThru, out.FastID = fastThru, PrettyCell(fastID)
 	out.BestAvail, out.AvailID = bestAvail, PrettyCell(availID)
-	if champ.RAMKiB <= 0 {
-		champ.RAMKiB = 1e-6
+	liveThru, liveAvail := learnerPeaks(pts, accChamp.Acc)
+	out.PeakThru, out.PeakAvail = liveThru, liveAvail
+	if accChamp.RAMKiB <= 0 {
+		accChamp.RAMKiB = 1e-6
 	}
 	out.Champ = lpdChampOf(champ)
 	out.AccChamp = lpdChampOf(accChamp)
 	out.SoftChamp = lpdChampOf(softChamp)
 	out.N = len(pts)
 	rows := make([]LPDRow, 0, len(pts))
+	var live LPDRow
 	for _, p := range pts {
 		r := lpdRow(p, out)
 		rows = append(rows, r)
+		if r.RelAcc >= LPDKeepFloor && (live.ID == "" || r.Q > live.Q) {
+			live = r
+		}
 		switch r.Band {
 		case "gold":
 			out.Gold = append(out.Gold, r)
@@ -163,6 +174,21 @@ func BuildLPD(pts []CellPoint) LPD {
 			out.Near = append(out.Near, r)
 		case "trap":
 			out.Trap = append(out.Trap, r)
+		}
+		if r.DensAcc > out.PeakDensAcc {
+			out.PeakDensAcc = r.DensAcc
+		}
+		if r.DensThru > out.PeakDensThru {
+			out.PeakDensThru = r.DensThru
+		}
+		if r.DensAvail > out.PeakDensAvail {
+			out.PeakDensAvail = r.DensAvail
+		}
+	}
+	if live.ID != "" {
+		out.LiveChamp = LPDChamp{
+			ID: live.ID, Tide: live.Tide, Mode: live.Mode, DType: live.DType, Arch: live.Arch,
+			Score: live.Score, Soft: live.Soft, Acc: live.Acc, Thru: live.Thru, Avail: live.Avail, RAMKiB: live.RAMKiB,
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
@@ -197,6 +223,24 @@ func BuildLPD(pts []CellPoint) LPD {
 	return out
 }
 
+func learnerPeaks(pts []CellPoint, peakAcc float64) (thru, avail float64) {
+	floor := peakAcc * LPDKeepFloor
+	first := true
+	for _, p := range pts {
+		if peakAcc > 0 && p.Acc < floor {
+			continue
+		}
+		if first || p.Thru > thru {
+			thru = p.Thru
+		}
+		if first || p.Avail > avail {
+			avail = p.Avail
+		}
+		first = false
+	}
+	return thru, avail
+}
+
 func lpdChampOf(p CellPoint) LPDChamp {
 	return LPDChamp{
 		ID: PrettyCell(p.ID), Tide: p.Tide, Mode: p.Mode, DType: p.DType, Arch: PrettyArch(p.Arch),
@@ -207,7 +251,7 @@ func lpdChampOf(p CellPoint) LPDChamp {
 func goldStandard(rows []LPDRow) (LPDRow, []LPDMode) {
 	var keep []LPDRow
 	for _, r := range rows {
-		if r.RelAcc >= LPDGoldKeep {
+		if r.RelAcc >= LPDGoldKeep && r.Pillars >= 2 {
 			keep = append(keep, r)
 		}
 	}
@@ -300,44 +344,67 @@ func lpdRow(p CellPoint, board LPD) LPDRow {
 		}
 		return x
 	}
-	rs, rso, ra, rt := rel(p.Score, board.PeakScore), rel(p.Soft, board.PeakSoft), rel(p.Acc, board.PeakAcc), rel(p.Thru, board.PeakThru)
-	q := geomean4(rs, rso, ra, rt)
+	rs, rso := rel(p.Score, board.PeakScore), rel(p.Soft, board.PeakSoft)
+	ra := rel(p.Acc, board.PeakAcc)
+	rt := rel(p.Thru, board.PeakThru)
+	rv := rel(p.Avail, board.PeakAvail)
+	q := geomean3(ra, rt, rv)
 	relFast := rel(p.Thru, board.FastThru)
 	relDuty := rel(p.Avail, board.BestAvail)
 	ram := p.RAMKiB
 	if ram <= 0 {
 		ram = 1e-6
 	}
-	frac := ram / board.Champ.RAMKiB
-	shrink := board.Champ.RAMKiB / ram
+	ref := board.AccChamp.RAMKiB
+	if ref <= 0 {
+		ref = 1e-6
+	}
+	frac := ram / ref
+	shrink := ref / ram
 	if shrink > LPDShrinkCap {
 		shrink = LPDShrinkCap
 	}
 	lpd, mspeed, mavail, mix := 0.0, 0.0, 0.0, 0.0
+	da, dt, dv := 0.0, 0.0, 0.0
 	accKeep := ra >= LPDKeepFloor
-	if q >= LPDKeepFloor && accKeep {
+	if accKeep {
 		lpd = q * shrink
-		mspeed, mavail = relFast, relDuty
-		mix = geomean3(q, relFast, relDuty)
+		mspeed, mavail, mix = rt, rv, q
+		da, dt, dv = ra*shrink, rt*shrink, rv*shrink
 	}
+	pillars := 0
+	if ra >= LPDGoldKeep {
+		pillars++
+	}
+	if rt >= LPDGoldKeep {
+		pillars++
+	}
+	if rv >= LPDGoldKeep {
+		pillars++
+	}
+	pair := ra >= LPDGoldKeep && pillars >= 2
+	trifecta := pillars >= 3
+	gold := trifecta && frac <= LPDGoldRAM
 	band := "—"
-	gold := q >= LPDGoldKeep && ra >= LPDGoldKeep && frac <= LPDGoldRAM
 	switch {
 	case gold:
 		band = "gold"
-	case q >= LPDKeepFloor && ra >= LPDKeepFloor && frac <= LPDNearRAM:
+	case pair && frac <= LPDNearRAM:
 		band = "near"
-	case q >= LPDGoldKeep && ra >= LPDGoldKeep:
+	case pair:
 		band = "keep"
-	case frac <= LPDGoldRAM:
+	case ra >= LPDGoldKeep:
+		band = "acc"
+	case frac <= LPDGoldRAM && !accKeep:
 		band = "trap"
 	}
 	return LPDRow{
 		Tide: p.Tide, ID: PrettyCell(p.ID), Mode: p.Mode, DType: p.DType, Format: p.Format, Arch: PrettyArch(p.Arch),
 		Score: p.Score, Soft: p.Soft, Acc: p.Acc, Thru: p.Thru, Avail: p.Avail, RAMKiB: p.RAMKiB,
-		RelScore: rs, RelSoft: rso, RelAcc: ra, RelThru: rt,
-		Q: q, RAMFrac: frac, Shrink: shrink, LPD: lpd, Band: band, Gold: gold,
+		RelScore: rs, RelSoft: rso, RelAcc: ra, RelThru: rt, RelAvail: rv,
+		Q: q, RAMFrac: frac, Shrink: shrink, LPD: lpd, Band: band, Gold: gold, Pillars: pillars,
 		RelFast: relFast, RelDuty: relDuty, MSpeed: mspeed, MAvail: mavail, Mix: mix,
+		DensAcc: da, DensThru: dt, DensAvail: dv,
 	}
 }
 

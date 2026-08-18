@@ -75,7 +75,7 @@ func (b Board) ToReport(history []pulse.HistoryPoint) report.TideReport {
 		EpochDone:    b.EpochDone,
 		Recorded:     b.Recorded,
 		Status:       b.Status,
-		Formula:      "Score = Throughput x Availability% x SoftAcc% / 10,000",
+		Formula:      "Lucy Score = Throughput x Availability x Acc / 10,000. LPD condenses live-fit vs Acc-champ RAM.",
 		Best:         b.Best,
 		BestMobile:   b.BestMobile,
 		BestLearn:    b.BestLearn,

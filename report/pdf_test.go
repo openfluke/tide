@@ -100,3 +100,57 @@ func TestLatin(t *testing.T) {
 		t.Fatalf("clip arch: %q", clip("single×1", 20))
 	}
 }
+
+func TestTableColWidthsCellGetsRoom(t *testing.T) {
+	w := tableColWidths([]string{"Mode", "n", "Acc", "KiB", "Thru", "Cell"}, 174)
+	if len(w) != 6 {
+		t.Fatalf("widths %v", w)
+	}
+	if w[5] <= w[1]*2 {
+		t.Fatalf("cell col should dwarf n: n=%.1f cell=%.1f", w[1], w[5])
+	}
+}
+
+func TestPDFGoldModeTableFits(t *testing.T) {
+	id := "bfloat16|none|MeshTweenSplitSparse|single|simd"
+	b, err := PDFTide(TideReport{
+		Task: "GPT-char",
+		LPD: LPD{
+			N:       1,
+			Formula: "Q = test",
+			Champ:   LPDChamp{ID: id, Mode: "MeshTweenSplitSparse", Score: 4, Acc: 8, Thru: 300, RAMKiB: 40},
+			GoldModes: []LPDMode{{
+				Mode: "MeshTweenSplitSparse", N: 1, BestAcc: 8.6, MinRAM: 142.1, MaxThru: 395,
+				Smallest: id, Fastest: id,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("smallest cell")) || bytes.Contains(b, []byte("fastest cell")) {
+		t.Fatal("old overlapping gold-mode headers still present")
+	}
+	if !bytes.Contains(b, []byte("bfloat16 MeshTweenSplitSparse single")) {
+		t.Fatal("expected compact cell in gold-mode table")
+	}
+}
+
+func TestPDFConsciousnessRadar(t *testing.T) {
+	pts := []CellPoint{
+		{ID: "f32", Mode: "sgd", DType: "float32", Arch: "single", Score: 100, Soft: 80, Acc: 90, Thru: 200, Avail: 40, RAMKiB: 1000},
+		{ID: "int8", Mode: "sgd", DType: "int8", Arch: "single", Score: 85, Soft: 72, Acc: 82, Thru: 180, Avail: 38, RAMKiB: 180},
+		{ID: "bin", Mode: "sgd", DType: "binary", Arch: "single", Score: 40, Soft: 20, Acc: 12, Thru: 400, Avail: 50, RAMKiB: 40},
+	}
+	l := BuildLPD(pts)
+	b, err := PDFTide(TideReport{Task: "GPT-char", LPD: l, Cells: pts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte("Consciousness radar")) {
+		t.Fatal("missing consciousness radar")
+	}
+	if !bytes.Contains(b, []byte("Memory density radar")) {
+		t.Fatal("missing density radar")
+	}
+}

@@ -36,9 +36,9 @@ func betterMax(dst *pulse.Result, r pulse.Result, val func(metrics.Snapshot) flo
 	return dst
 }
 
-// AccThru is SoftAcc × Throughput / 100 — accurate *and* fast.
+// AccThru is hard Acc × Throughput / 100 — accurate and fast.
 func AccThru(s metrics.Snapshot) float64 {
-	return s.SoftAcc * s.Throughput / 100
+	return s.AvgAccuracy * s.Throughput / 100
 }
 
 // Realtime is Throughput × Availability / 100 — serve+train duty cycle speed.
@@ -104,12 +104,12 @@ func LucyAxes(b Board) []LucyAxis {
 		lower      bool
 	}
 	specs := []spec{
-		{"score", "T x Avail x SoftAcc / 10,000", func(b Board) *pulse.Result { return b.Best.Score }, func(s metrics.Snapshot) float64 { return s.Score }, false},
-		{"soft_acc", "class-mass SoftAcc (adaptation quality)", func(b Board) *pulse.Result { return b.BestSoft }, func(s metrics.Snapshot) float64 { return s.SoftAcc }, false},
-		{"hard_acc", "argmax accuracy", func(b Board) *pulse.Result { return b.BestHard }, func(s metrics.Snapshot) float64 { return s.AvgAccuracy }, false},
-		{"throughput", "outputs / second (fast realtime)", func(b Board) *pulse.Result { return b.Best.Throughput }, func(s metrics.Snapshot) float64 { return s.Throughput }, false},
-		{"availability", "infer / (infer+train) duty cycle", func(b Board) *pulse.Result { return b.Best.Availability }, func(s metrics.Snapshot) float64 { return s.Availability }, false},
-		{"acc_thru", "SoftAcc x Throughput / 100", func(b Board) *pulse.Result { return b.BestAccThru }, AccThru, false},
+		{"hard_acc", "pillar: argmax accuracy (learning)", func(b Board) *pulse.Result { return b.BestHard }, func(s metrics.Snapshot) float64 { return s.AvgAccuracy }, false},
+		{"throughput", "pillar: outputs / second", func(b Board) *pulse.Result { return b.Best.Throughput }, func(s metrics.Snapshot) float64 { return s.Throughput }, false},
+		{"availability", "pillar: infer / (infer+train) duty cycle", func(b Board) *pulse.Result { return b.Best.Availability }, func(s metrics.Snapshot) float64 { return s.Availability }, false},
+		{"score", "live-fit: T x Avail x Acc / 10,000 (SGD that blocks serve dies here)", func(b Board) *pulse.Result { return b.Best.Score }, func(s metrics.Snapshot) float64 { return s.Score }, false},
+		{"soft_acc", "serve-confidence (softmax vs true class) — not Score", func(b Board) *pulse.Result { return b.BestSoft }, func(s metrics.Snapshot) float64 { return s.SoftAcc }, false},
+		{"acc_thru", "hard Acc x Throughput / 100", func(b Board) *pulse.Result { return b.BestAccThru }, AccThru, false},
 		{"realtime", "Throughput x Availability / 100", func(b Board) *pulse.Result { return b.BestRealtime }, Realtime, false},
 		{"adapt", "AdaptPct after phase switches", func(b Board) *pulse.Result { return b.BestAdapt }, func(s metrics.Snapshot) float64 { return s.AdaptPct }, false},
 		{"keep_learn", "late SoftAcc still rising (not plateau)", func(b Board) *pulse.Result { return b.BestKeep }, KeepLearn, false},
@@ -117,7 +117,7 @@ func LucyAxes(b Board) []LucyAxis {
 		{"time_to_50", "seconds to 50% window acc (lower better)", func(b Board) *pulse.Result { return b.BestLearn.To50 }, func(s metrics.Snapshot) float64 { return s.TimeToAcc50Sec }, true},
 		{"consistency", "share of windows above SoftAcc threshold", func(b Board) *pulse.Result { return b.BestConsistency }, func(s metrics.Snapshot) float64 { return s.Consistency }, false},
 		{"stability", "low SoftAcc variance after switches", func(b Board) *pulse.Result { return b.BestStability }, func(s metrics.Snapshot) float64 { return s.Stability }, false},
-		{"mobile_score", "raw Score/MiB (binary trap — use LPD)", func(b Board) *pulse.Result { return b.BestMobile.Score }, func(s metrics.Snapshot) float64 { return s.MobileScore }, false},
+		{"mobile_score", "raw Score/MiB (binary trap — use LPD density)", func(b Board) *pulse.Result { return b.BestMobile.Score }, func(s metrics.Snapshot) float64 { return s.MobileScore }, false},
 	}
 	out := make([]LucyAxis, 0, len(specs))
 	for _, sp := range specs {

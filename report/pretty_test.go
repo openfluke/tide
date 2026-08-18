@@ -17,6 +17,17 @@ func TestPrettyCellAndArch(t *testing.T) {
 	}
 }
 
+func TestCompactCell(t *testing.T) {
+	got := CompactCell("bfloat16|none|MeshTweenSplitSparse|cnn|simd")
+	want := "bfloat16 MeshTweenSplitSparse single"
+	if got != want {
+		t.Fatalf("CompactCell: got %q want %q", got, want)
+	}
+	if CompactCell("") != "" {
+		t.Fatal("empty")
+	}
+}
+
 func TestBuildHeat(t *testing.T) {
 	pts := []CellPoint{
 		{Tide: "mha", Mode: "sgd", DType: "float32", Arch: "single", Score: 10, Soft: 40, Acc: 50},

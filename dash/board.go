@@ -201,18 +201,18 @@ func (s *Server) Board() Board {
 	if ax := lpdAxis(out.LPD); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
 	}
-	if ax := lpdPickAxis(out.LPD, "mspeed", "Thru vs board fastest; 0 unless Q≥70%", func(r report.LPDRow) float64 { return r.MSpeed }); ax.Name != "" {
+	if ax := lpdPickAxis(out.LPD, "mspeed", "Thru keep vs learner-fast peak; 0 unless Acc keep ≥70%", func(r report.LPDRow) float64 { return r.MSpeed }); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
 	}
-	if ax := lpdPickAxis(out.LPD, "mavail", "Avail vs board best duty cycle; 0 unless Q≥70%", func(r report.LPDRow) float64 { return r.MAvail }); ax.Name != "" {
+	if ax := lpdPickAxis(out.LPD, "mavail", "Avail keep vs learner-best duty; 0 unless Acc keep ≥70%", func(r report.LPDRow) float64 { return r.MAvail }); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
 	}
-	if ax := lpdPickAxis(out.LPD, "mix", "geomean of Q, MSpeed, MAvail — live mobile blend", func(r report.LPDRow) float64 { return r.Mix }); ax.Name != "" {
+	if ax := lpdPickAxis(out.LPD, "mix", "consciousness Q = geomean Acc/Thru/Avail keep", func(r report.LPDRow) float64 { return r.Mix }); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
 	}
 	if s := out.LPD.GoldStd; s.ID != "" {
 		out.Axes = append(out.Axes, LucyAxis{
-			Name: "gold_std", Hint: "smallest then fastest cell with Acc keep ≥80% of Acc champ",
+			Name: "gold_std", Hint: "2+ pillars with Acc ≥80%, then smallest RAM then fastest",
 			Value: s.RAMKiB, CellID: s.ID, Mode: s.Mode, DType: s.DType, Arch: s.Arch,
 			Score: s.Score, SoftAcc: s.Soft, Thru: s.Thru, Avail: s.Avail,
 		})
@@ -230,7 +230,7 @@ func lpdAxis(l report.LPD) LucyAxis {
 		return LucyAxis{}
 	}
 	return LucyAxis{
-		Name: "lpd", Hint: "goldilocks: ≥80% Q and ≥80% of Acc champ at ≤20% RAM",
+		Name: "lpd", Hint: "Lucy density: Q × shrink vs Acc-champ RAM; 0 unless Acc keep ≥70%",
 		Value: pick.LPD, CellID: pick.ID, Mode: pick.Mode, DType: pick.DType, Arch: pick.Arch,
 		Score: pick.Score, SoftAcc: pick.Soft, Thru: pick.Thru, Avail: pick.Avail,
 	}

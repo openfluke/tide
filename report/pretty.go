@@ -11,6 +11,28 @@ func PrettyCell(id string) string {
 	return strings.ReplaceAll(id, "|cnn|", "|single|")
 }
 
+// CompactCell is PrettyCell with filler tokens dropped so IDs fit PDF tables.
+// float32|none|sgd|single|simd → float32 sgd single
+func CompactCell(id string) string {
+	id = PrettyCell(id)
+	if id == "" {
+		return id
+	}
+	parts := strings.Split(id, "|")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.EqualFold(p, "none") || strings.EqualFold(p, "simd") {
+			continue
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return id
+	}
+	return strings.Join(out, " ")
+}
+
 // PrettyArch maps the old cameral name onto single (display only).
 func PrettyArch(a string) string {
 	s := strings.TrimSpace(a)

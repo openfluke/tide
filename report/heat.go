@@ -28,7 +28,7 @@ func PointsFromResults(rs []pulse.Result, tide string) []CellPoint {
 			DType:  r.Cell.DType.String(),
 			Format: r.Cell.Format.String(),
 			Arch:   arch,
-			Score:  s.Score,
+			Score:  s.Throughput * s.Availability * s.AvgAccuracy / 10000,
 			Soft:   s.SoftAcc,
 			Acc:    s.AvgAccuracy,
 			Avail:  s.Availability,

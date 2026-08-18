@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/phpdave11/gofpdf"
 )
 
 func (d *doc) lucyCharts(cells []CellPoint, heat Heat) {
@@ -33,19 +35,19 @@ func (d *doc) lucyCharts(cells []CellPoint, heat Heat) {
 	if len(pts) == 0 {
 		pts = cells
 	}
-	d.scatter("Avail vs hard Acc (headline scatter)", "Availability %", "Hard Acc %", pts,
+	d.scatter("Pillars — Availability vs hard Acc", "Availability %", "Hard Acc %", pts,
 		func(p CellPoint) float64 { return p.Avail },
 		func(p CellPoint) float64 { return p.Acc })
-	d.scatter("Pareto — SoftAcc vs Score", "SoftAcc %", "Lucy Score", pts,
-		func(p CellPoint) float64 { return p.Soft },
-		func(p CellPoint) float64 { return p.Score })
-	d.scatter("Pareto — hard Acc vs Score", "Hard Acc %", "Lucy Score", pts,
+	d.scatter("Pillars — Throughput vs hard Acc", "Throughput /s", "Hard Acc %", pts,
+		func(p CellPoint) float64 { return p.Thru },
+		func(p CellPoint) float64 { return p.Acc })
+	d.scatter("Pareto — hard Acc vs Lucy Score", "Hard Acc %", "Lucy Score (Welvet)", pts,
 		func(p CellPoint) float64 { return p.Acc },
 		func(p CellPoint) float64 { return p.Score })
-	d.scatter("SoftAcc vs hard Acc", "SoftAcc %", "Hard Acc %", pts,
+	d.scatter("SoftAcc (serve-confidence) vs hard Acc", "SoftAcc %", "Hard Acc %", pts,
 		func(p CellPoint) float64 { return p.Soft },
 		func(p CellPoint) float64 { return p.Acc })
-	d.scatter("Avail vs Score (duty clock)", "Availability %", "Lucy Score", pts,
+	d.scatter("Avail vs Lucy Score (duty clock)", "Availability %", "Lucy Score", pts,
 		func(p CellPoint) float64 { return p.Avail },
 		func(p CellPoint) float64 { return p.Score })
 }
@@ -54,61 +56,57 @@ func (d *doc) lpdBoard(l LPD) {
 	if l.N == 0 || l.Champ.ID == "" {
 		return
 	}
-	d.h2("Lucy Pareto (LPD) — goldilocks")
+	d.h2("Consciousness — Acc, Throughput, Availability")
 	d.body(l.Formula)
-	d.body(fmt.Sprintf("Score champ %s   Score %.1f  Soft %.0f  Acc %.0f  Thru %.0f  RAM %.1f KiB",
-		PrettyCell(l.Champ.ID), l.Champ.Score, l.Champ.Soft, l.Champ.Acc, l.Champ.Thru, l.Champ.RAMKiB))
-	if l.AccChamp.ID != "" {
-		d.body(fmt.Sprintf("Acc champ %s   Acc %.1f  Soft %.0f  Score %.1f  RAM %.1f KiB",
-			PrettyCell(l.AccChamp.ID), l.AccChamp.Acc, l.AccChamp.Soft, l.AccChamp.Score, l.AccChamp.RAMKiB))
+	d.body(fmt.Sprintf("Acc champ %s   Acc %.1f  Thru %.0f  Avail %.1f%%  %.1f KiB  (RAM reference)",
+		PrettyCell(l.AccChamp.ID), l.AccChamp.Acc, l.AccChamp.Thru, l.AccChamp.Avail, l.AccChamp.RAMKiB))
+	d.body(fmt.Sprintf("Lucy Score champ (T x Avail x Acc) %s   Score %.1f  Acc %.1f  Soft %.0f  %.1f KiB",
+		PrettyCell(l.Champ.ID), l.Champ.Score, l.Champ.Acc, l.Champ.Soft, l.Champ.RAMKiB))
+	if l.LiveChamp.ID != "" {
+		d.body(fmt.Sprintf("Live-fit champ (best Q) %s   Acc %.1f  Thru %.0f  Avail %.1f%%  %.1f KiB",
+			PrettyCell(l.LiveChamp.ID), l.LiveChamp.Acc, l.LiveChamp.Thru, l.LiveChamp.Avail, l.LiveChamp.RAMKiB))
 	}
 	if l.GoldStd.ID != "" {
-		d.body(fmt.Sprintf("Gold-std (smallest then fastest with Acc keep >= 80%%): %s  mode %s  Acc %.1f  Thru %.0f  %.1f KiB",
+		d.body(fmt.Sprintf("Gold-std (2+ pillars, Acc keep >= 80%%, then smallest then fastest): %s  mode %s  Acc %.1f  Thru %.0f  %.1f KiB",
 			PrettyCell(l.GoldStd.ID), l.GoldStd.Mode, l.GoldStd.Acc, l.GoldStd.Thru, l.GoldStd.RAMKiB))
 	}
 	if l.FastID != "" {
-		d.body(fmt.Sprintf("Board fastest %s  Thru %.0f     Best availability %s  %.1f%%",
+		d.body(fmt.Sprintf("Board fastest %s  Thru %.0f (traps may own this)     Best availability %s  %.1f%%",
 			PrettyCell(l.FastID), l.FastThru, PrettyCell(l.AvailID), l.BestAvail))
+		d.body(fmt.Sprintf("Learner Thru peak %.0f   learner Avail peak %.1f%%", l.PeakThru, l.PeakAvail))
 	}
+	d.lpdRadars(l)
 	if len(l.Gold) > 0 {
-		d.h2("Gold — Q>=80%, Acc keep >=80% of Acc champ, RAM <=20%")
+		d.h2("Gold — trifecta >=80% at <=20% of Acc-champ RAM")
 		d.lpdTable(l.Gold, 16)
 	} else {
-		d.body("No gold cell yet. Need 80% of Score+Acc champs at one fifth the Score-champ RAM.")
+		d.body("No gold cell yet. Need all three pillars at 80% of learner peaks in one fifth of Acc-champ RAM.")
 	}
 	if len(l.GoldModes) > 0 {
-		d.h2("Gold-standard train modes — Acc keep >= 80%, smallest then fastest")
+		d.h2("Gold-standard train modes — 2+ pillars, Acc keep >= 80%, smallest then fastest")
 		d.lpdModeTable(l.GoldModes)
 	}
 	if len(l.Near) > 0 {
-		d.h2("Near-gold — Q >= 70%, RAM <= 50%")
+		d.h2("Near-gold — 2+ pillars, RAM <= 50% of Acc champ")
 		d.lpdTable(l.Near, 12)
 	}
-	d.h2("LPD rank (Q x shrink; 0 if Q < 70%)")
+	d.h2("Lucy density (LPD) — Q x shrink vs Acc-champ RAM; 0 if Acc keep < 70%")
 	d.lpdTable(l.Top, 20)
-	if len(l.TopSpeed) > 0 && l.TopSpeed[0].MSpeed > 0 {
-		d.h2("Mobile speed — Thru vs board fastest (Q >= 70%)")
-		d.lpdMobileTable(l.TopSpeed, 10)
-	}
-	if len(l.TopAvail) > 0 && l.TopAvail[0].MAvail > 0 {
-		d.h2("Mobile availability — duty cycle vs board best (Q >= 70%)")
-		d.lpdMobileTable(l.TopAvail, 10)
-	}
 	if len(l.TopMix) > 0 && l.TopMix[0].Mix > 0 {
-		d.h2("Mix — geomean of Q, MSpeed, MAvail")
+		d.h2("Consciousness rank — Q = geomean Acc/Thru/Avail keep")
 		d.lpdMobileTable(l.TopMix, 10)
 	}
 	if len(l.Trap) > 0 {
-		d.h2("Trap — tiny RAM, Q < 70% (why Score/MiB lies)")
+		d.h2("Trap — tiny RAM, Acc keep < 70% (Score/MiB and SoftAcc Score lie here)")
 		d.lpdTable(l.Trap, 10)
 	}
-	d.scatterLPD("LPD — Acc% vs RAM KiB (gold = high Acc keep, low RAM)", "RAM KiB", "Acc keep % vs Acc champ", l.Top,
+	d.scatterLPD("Acc keep % vs RAM KiB (gold = high Acc, low RAM vs Acc champ)", "RAM KiB", "Acc keep % vs Acc champ", l.Top,
 		func(r LPDRow) float64 { return r.RAMKiB },
 		func(r LPDRow) float64 { return r.RelAcc * 100 })
-	d.scatterLPD("LPD — Q% vs RAM KiB (gold = high Q, low RAM)", "RAM KiB", "Q %", l.Top,
+	d.scatterLPD("Q% vs RAM KiB (gold = high consciousness, low RAM)", "RAM KiB", "Q %", l.Top,
 		func(r LPDRow) float64 { return r.RAMKiB },
 		func(r LPDRow) float64 { return r.Q * 100 })
-	d.scatterLPD("LPD — Q% vs shrink vs champ (gold = upper right)", "times smaller than champ", "Q %", l.Top,
+	d.scatterLPD("Q% vs shrink vs Acc champ (gold = upper right)", "times smaller than Acc champ", "Q %", l.Top,
 		func(r LPDRow) float64 { return r.Shrink },
 		func(r LPDRow) float64 { return r.Q * 100 })
 	var bars []kv
@@ -116,62 +114,193 @@ func (d *doc) lpdBoard(l LPD) {
 		if i >= 16 || r.LPD <= 0 {
 			continue
 		}
-		bars = append(bars, kv{PrettyCell(r.ID), r.LPD})
+		bars = append(bars, kv{CompactCell(r.ID), r.LPD})
 	}
-	d.bars("Top LPD", bars)
+	d.bars("Top Lucy density (LPD)", bars)
+}
+
+type radarSeries struct {
+	Label   string
+	R, G, B int
+	Vals    [3]float64
+}
+
+func (d *doc) lpdRadars(l LPD) {
+	find := func(id string) LPDRow {
+		id = PrettyCell(id)
+		for _, r := range l.Top {
+			if r.ID == id {
+				return r
+			}
+		}
+		for _, r := range append(append(append([]LPDRow{}, l.Gold...), l.Near...), l.Trap...) {
+			if r.ID == id {
+				return r
+			}
+		}
+		return LPDRow{}
+	}
+	seen := map[string]bool{}
+	add := func(dst *[]radarSeries, label string, r, g, b int, row LPDRow, dens bool) {
+		if row.ID == "" || seen[label] {
+			return
+		}
+		seen[label] = true
+		var v [3]float64
+		if dens {
+			v = [3]float64{densNorm(row.DensAcc, l.PeakDensAcc), densNorm(row.DensThru, l.PeakDensThru), densNorm(row.DensAvail, l.PeakDensAvail)}
+		} else {
+			v = [3]float64{row.RelAcc, row.RelThru, row.RelAvail}
+		}
+		*dst = append(*dst, radarSeries{Label: label + "  " + CompactCell(row.ID), R: r, G: g, B: b, Vals: v})
+	}
+	var live, dens []radarSeries
+	seen = map[string]bool{}
+	add(&live, "Acc champ", 230, 179, 90, find(l.AccChamp.ID), false)
+	add(&live, "Gold-std", 183, 121, 31, l.GoldStd, false)
+	add(&live, "Live-fit", 61, 214, 198, find(l.LiveChamp.ID), false)
+	add(&live, "Lucy Score", 224, 108, 117, find(l.Champ.ID), false)
+	seen = map[string]bool{}
+	add(&dens, "Gold-std", 183, 121, 31, l.GoldStd, true)
+	if len(l.Top) > 0 && l.Top[0].LPD > 0 {
+		add(&dens, "LPD lead", 61, 214, 198, l.Top[0], true)
+	}
+	add(&dens, "Acc champ", 230, 179, 90, find(l.AccChamp.ID), true)
+	add(&dens, "Lucy Score", 224, 108, 117, find(l.Champ.ID), true)
+	d.radar("Consciousness radar — Acc / Thru / Avail vs learner peaks", live)
+	d.radar("Memory density radar — same pillars x shrink vs Acc champ (traps sit at origin)", dens)
+}
+
+func densNorm(v, peak float64) float64 {
+	if peak <= 0 {
+		return 0
+	}
+	x := v / peak
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
+}
+
+func (d *doc) radar(title string, series []radarSeries) {
+	if len(series) == 0 {
+		return
+	}
+	d.h2(title)
+	if d.pdf.GetY() > 205 {
+		d.pdf.AddPage()
+		d.h2(title)
+	}
+	cx, cy, radius := 68.0, d.pdf.GetY()+38, 30.0
+	labels := []string{"Acc", "Thru", "Avail"}
+	d.pdf.SetDrawColor(190, 198, 204)
+	d.pdf.SetLineWidth(0.2)
+	for ring := 1; ring <= 4; ring++ {
+		rr := radius * float64(ring) / 4
+		pts := make([]gofpdf.PointType, 3)
+		for i := 0; i < 3; i++ {
+			ang := -math.Pi/2 + float64(i)*2*math.Pi/3
+			pts[i] = gofpdf.PointType{X: cx + rr*math.Cos(ang), Y: cy + rr*math.Sin(ang)}
+		}
+		d.pdf.Polygon(pts, "D")
+	}
+	d.pdf.SetFont("Helvetica", "B", 7)
+	d.pdf.SetTextColor(40, 50, 55)
+	for i, lab := range labels {
+		ang := -math.Pi/2 + float64(i)*2*math.Pi/3
+		x := cx + (radius+7)*math.Cos(ang)
+		y := cy + (radius+7)*math.Sin(ang)
+		d.pdf.Line(cx, cy, cx+radius*math.Cos(ang), cy+radius*math.Sin(ang))
+		d.pdf.SetXY(x-10, y-3)
+		d.pdf.CellFormat(20, 5, lab, "", 0, "C", false, 0, "")
+	}
+	d.pdf.SetLineWidth(0.7)
+	for _, s := range series {
+		pts := make([]gofpdf.PointType, 3)
+		for i := 0; i < 3; i++ {
+			ang := -math.Pi/2 + float64(i)*2*math.Pi/3
+			rr := radius * s.Vals[i]
+			if rr < 0.4 {
+				rr = 0.4
+			}
+			pts[i] = gofpdf.PointType{X: cx + rr*math.Cos(ang), Y: cy + rr*math.Sin(ang)}
+		}
+		d.pdf.SetDrawColor(s.R, s.G, s.B)
+		d.pdf.Polygon(pts, "D")
+	}
+	d.pdf.SetLineWidth(0.2)
+	lx, ly := 118.0, cy-26
+	for i, s := range series {
+		d.pdf.SetFillColor(s.R, s.G, s.B)
+		d.pdf.Rect(lx, ly+float64(i)*6, 3.2, 3.2, "F")
+		d.pdf.SetFont("Helvetica", "", 7)
+		d.pdf.SetTextColor(40, 50, 55)
+		d.pdf.SetXY(lx+5, ly+float64(i)*6-1.2)
+		d.pdf.CellFormat(72, 5, latin(clipHead(s.Label, 44)), "", 0, "L", false, 0, "")
+	}
+	d.pdf.SetY(cy + radius + 12)
+	d.gap(2)
 }
 
 func (d *doc) lpdTable(rows []LPDRow, max int) {
-	d.table([]string{"Band", "Cell", "Q%", "Acc%", "RAM%", "xSmall", "LPD", "Soft", "Acc", "Score", "KiB"}, func(k int) []string {
+	d.table([]string{"Band", "Cell", "Acc%", "Thru%", "Avail%", "Q%", "RAM%", "xSmall", "LPD", "Acc", "Thru", "KiB"}, func(k int) []string {
 		if k >= len(rows) || k >= max {
 			return nil
 		}
 		r := rows[k]
 		return []string{
-			r.Band, PrettyCell(r.ID),
-			fmt.Sprintf("%.0f", r.Q*100),
+			r.Band, CompactCell(r.ID),
 			fmt.Sprintf("%.0f", r.RelAcc*100),
+			fmt.Sprintf("%.0f", r.RelThru*100),
+			fmt.Sprintf("%.0f", r.RelAvail*100),
+			fmt.Sprintf("%.0f", r.Q*100),
 			fmt.Sprintf("%.0f", r.RAMFrac*100),
 			fmt.Sprintf("%.1f", r.Shrink),
 			fmt.Sprintf("%.2f", r.LPD),
-			fmt.Sprintf("%.0f", r.Soft),
-			fmt.Sprintf("%.0f", r.Acc),
-			fmt.Sprintf("%.1f", r.Score),
+			fmt.Sprintf("%.1f", r.Acc),
+			fmt.Sprintf("%.0f", r.Thru),
 			fmt.Sprintf("%.1f", r.RAMKiB),
 		}
 	})
 }
 
 func (d *doc) lpdModeTable(modes []LPDMode) {
-	d.table([]string{"Mode", "n", "best Acc", "smallest KiB", "fastest Thru", "smallest cell", "fastest cell"}, func(k int) []string {
+	d.table([]string{"Mode", "n", "Acc", "KiB", "Thru", "Cell"}, func(k int) []string {
 		if k >= len(modes) {
 			return nil
 		}
 		m := modes[k]
+		cell := CompactCell(m.Smallest)
+		fast := CompactCell(m.Fastest)
+		if fast != "" && fast != cell {
+			cell += " / " + fast
+		}
 		return []string{
 			m.Mode,
 			fmt.Sprintf("%d", m.N),
 			fmt.Sprintf("%.1f", m.BestAcc),
 			fmt.Sprintf("%.1f", m.MinRAM),
 			fmt.Sprintf("%.0f", m.MaxThru),
-			PrettyCell(m.Smallest),
-			PrettyCell(m.Fastest),
+			cell,
 		}
 	})
 }
 
 func (d *doc) lpdMobileTable(rows []LPDRow, max int) {
-	d.table([]string{"Band", "Cell", "Q%", "Spd%", "Duty%", "Mix%", "LPD", "Thru", "Avail"}, func(k int) []string {
+	d.table([]string{"Band", "Cell", "Acc%", "Thru%", "Avail%", "Q%", "LPD", "Thru", "Avail"}, func(k int) []string {
 		if k >= len(rows) || k >= max {
 			return nil
 		}
 		r := rows[k]
 		return []string{
-			r.Band, PrettyCell(r.ID),
+			r.Band, CompactCell(r.ID),
+			fmt.Sprintf("%.0f", r.RelAcc*100),
+			fmt.Sprintf("%.0f", r.RelThru*100),
+			fmt.Sprintf("%.0f", r.RelAvail*100),
 			fmt.Sprintf("%.0f", r.Q*100),
-			fmt.Sprintf("%.0f", r.MSpeed*100),
-			fmt.Sprintf("%.0f", r.MAvail*100),
-			fmt.Sprintf("%.0f", r.Mix*100),
 			fmt.Sprintf("%.2f", r.LPD),
 			fmt.Sprintf("%.0f", r.Thru),
 			fmt.Sprintf("%.1f", r.Avail),

@@ -7,12 +7,12 @@ import (
 
 func TestLucyScoreEquation(t *testing.T) {
 	s := Snapshot{
-		TotalOutputs: 1000,
-		TotalCorrect: 800,
-		InferMs:      800,
-		TrainMs:      200,
-		Duration:     time.Second,
-		SoftAcc:      75,
+		TotalOutputs:   1000,
+		TotalCorrect:   800,
+		InferMs:        800,
+		TrainMs:        200,
+		Duration:       time.Second,
+		SoftAcc:        75,
 		AccuracyPulses: 2,
 		Windows: []Window{
 			{SoftAcc: 80, Accuracy: 80},
@@ -20,7 +20,7 @@ func TestLucyScoreEquation(t *testing.T) {
 		},
 	}
 	Finalize(&s)
-	// thru=1000, avail=800/(800+200)*100=80, softAcc=75 → score = 1000*80*75/10000 = 600
+	// thru=1000, avail=80, Acc=80 (800/1000) → 1000*80*80/10000 = 640
 	if s.Throughput != 1000 {
 		t.Fatalf("throughput %v", s.Throughput)
 	}
@@ -30,8 +30,11 @@ func TestLucyScoreEquation(t *testing.T) {
 	if s.SoftAcc != 75 {
 		t.Fatalf("softAcc %v", s.SoftAcc)
 	}
-	if s.Score != 600 {
-		t.Fatalf("score %v want 600", s.Score)
+	if s.AvgAccuracy != 80 {
+		t.Fatalf("acc %v want 80", s.AvgAccuracy)
+	}
+	if s.Score != 640 {
+		t.Fatalf("score %v want 640", s.Score)
 	}
 }
 

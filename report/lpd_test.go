@@ -97,4 +97,36 @@ func TestBuildLPDUsesAccChamp(t *testing.T) {
 	if len(l.GoldModes) == 0 || l.GoldModes[0].Mode != "sgd" {
 		t.Fatalf("gold-std mode want sgd, got %+v", l.GoldModes)
 	}
+	if l.PeakThru != 170 {
+		t.Fatalf("learner Thru peak must ignore chance-Acc fast cell, got %v", l.PeakThru)
+	}
+	if keep.RAMFrac <= 0 || keep.RAMFrac > 0.21 {
+		t.Fatalf("shrink vs Acc-champ RAM want ~0.20, got %v", keep.RAMFrac)
+	}
+}
+
+func TestBuildLPDTrapDoesNotSetThruPeak(t *testing.T) {
+	pts := []CellPoint{
+		{ID: "learn", Mode: "sgd", DType: "float32", Acc: 90, Thru: 100, Avail: 40, Score: 10, RAMKiB: 800},
+		{ID: "bin", Mode: "tween", DType: "binary", Acc: 12, Thru: 900, Avail: 80, Score: 50, RAMKiB: 30},
+	}
+	l := BuildLPD(pts)
+	if l.PeakThru != 100 {
+		t.Fatalf("PeakThru want learner 100, got %v (board fast %v)", l.PeakThru, l.FastThru)
+	}
+	if l.FastThru != 900 {
+		t.Fatalf("board FastThru still records trap speed, got %v", l.FastThru)
+	}
+	var bin LPDRow
+	for _, r := range l.Top {
+		if r.ID == "bin" {
+			bin = r
+		}
+	}
+	if bin.LPD != 0 || bin.Band != "trap" {
+		t.Fatalf("binary trap: %+v", bin)
+	}
+	if bin.RelAcc >= LPDKeepFloor {
+		t.Fatalf("trap RelAcc should miss Acc keep, got %v", bin.RelAcc)
+	}
 }

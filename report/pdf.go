@@ -103,7 +103,7 @@ func (d *doc) coverTide(r TideReport) {
 	d.muted(fmt.Sprintf("%s  ·  epoch %d  ·  %s  ·  %s", r.Status, r.Epoch, r.Generated.Format("2006-01-02 15:04:05"), r.Addr))
 	d.body(fmt.Sprintf("This epoch %d / %d cells. Recorded %d results.",
 		r.EpochDone, r.Plan, r.Recorded))
-	d.body("Score 0 usually means the cell finished before a Lucy pulse (SoftAcc never sampled) or true-class mass was 0. Those rows do not vote holistically.")
+	d.body("Score 0 usually means the cell finished before a Lucy pulse (Acc never sampled). Score is live-fit: Throughput x Availability x Acc. SGD that blocks serve dies on Availability. SoftAcc is serve-confidence only.")
 	if r.Subtitle != "" {
 		d.body(r.Subtitle)
 	}
@@ -112,7 +112,7 @@ func (d *doc) coverTide(r TideReport) {
 
 func (d *doc) coverOcean(o OceanReport) {
 	d.h1("ocean  " + nz(o.Title, "linked tides"))
-	d.muted("Score = Throughput x Availability% x SoftAcc% / 10,000   ·   Lucy / test41 harness")
+	d.muted("Lucy Score = Throughput x Availability x Acc / 10,000. Acc is learning. Availability is the live loop. LPD condenses that into Acc-champ RAM.")
 	h := o.Holistic
 	d.body(fmt.Sprintf("Generated %s. Tides up %d / %d. This-epoch cells %d / %d.",
 		o.Generated.Format("2006-01-02 15:04:05"), h.TidesUp, h.TidesTotal, h.CellsDone, h.CellsTotal))
@@ -124,8 +124,8 @@ func (d *doc) coverOcean(o OceanReport) {
 		if len(h.LPD.Gold) > 0 {
 			gold = fmt.Sprintf("%d  e.g. %s", len(h.LPD.Gold), PrettyCell(h.LPD.Gold[0].ID))
 		}
-		d.body(fmt.Sprintf("LPD goldilocks vs Score champ %s (%.1f KiB). Gold cells (Q>=80%% at <=20%% RAM): %s",
-			PrettyCell(h.LPD.Champ.ID), h.LPD.Champ.RAMKiB, gold))
+		d.body(fmt.Sprintf("Acc champ %s (%.1f Acc, %.1f KiB). Gold cells (trifecta >=80%% at <=20%% Acc-champ RAM): %s",
+			PrettyCell(h.LPD.AccChamp.ID), h.LPD.AccChamp.Acc, h.LPD.AccChamp.RAMKiB, gold))
 	}
 	d.gap(3)
 }
@@ -143,10 +143,10 @@ func (d *doc) bests(r TideReport) {
 		}
 		rows = append(rows, row{axis, res.Cell.ID, res.Snapshot.Score, res.Snapshot.SoftAcc, res.Snapshot.AvgAccuracy, res.Snapshot.Throughput, res.Snapshot.Availability})
 	}
-	add("score", r.Best.Score)
+	add("hard acc", r.Best.Accuracy)
 	add("throughput", r.Best.Throughput)
 	add("availability", r.Best.Availability)
-	add("accuracy", r.Best.Accuracy)
+	add("lucy score", r.Best.Score)
 	if r.BestMobile.Score != nil {
 		add("mobile score (trap)", r.BestMobile.Score)
 	}
@@ -439,47 +439,12 @@ func (d *doc) gap(mm float64) { d.pdf.Ln(mm) }
 
 func (d *doc) table(headers []string, row func(int) []string) {
 	cols := len(headers)
-	widths := make([]float64, cols)
-	left := 174.0
-	cellCol := -1
-	for i, h := range headers {
-		if strings.EqualFold(h, "cell") {
-			cellCol = i
-		}
-	}
-	if cellCol >= 0 && cols > 3 {
-		rest := left * 0.52
-		for i := range widths {
-			if i == cellCol {
-				widths[i] = left * 0.48
-			} else {
-				widths[i] = rest / float64(cols-1)
-			}
-		}
-	} else {
-		for i := range widths {
-			if i == 1 && cols > 3 {
-				widths[i] = left * 0.38
-			} else if i == 0 {
-				widths[i] = left * 0.18
-			} else {
-				widths[i] = left * (1 - 0.18 - 0.38) / float64(cols-2)
-				if cols <= 3 {
-					widths[i] = left / float64(cols)
-				}
-			}
-		}
-		if cols <= 3 {
-			for i := range widths {
-				widths[i] = 174 / float64(cols)
-			}
-		}
-	}
+	widths := tableColWidths(headers, 174)
 	d.pdf.SetFont("Helvetica", "B", 6)
 	d.pdf.SetFillColor(22, 40, 48)
 	d.pdf.SetTextColor(230, 240, 242)
 	for i, h := range headers {
-		d.pdf.CellFormat(widths[i], 6, latin(h), "1", 0, "L", true, 0, "")
+		d.pdf.CellFormat(widths[i], 6, d.fitText(h, widths[i]), "1", 0, "L", true, 0, "")
 	}
 	d.pdf.Ln(-1)
 	d.pdf.SetFont("Helvetica", "", 6)
@@ -495,7 +460,7 @@ func (d *doc) table(headers []string, row func(int) []string) {
 			d.pdf.SetFillColor(22, 40, 48)
 			d.pdf.SetTextColor(230, 240, 242)
 			for j, h := range headers {
-				d.pdf.CellFormat(widths[j], 6, latin(h), "1", 0, "L", true, 0, "")
+				d.pdf.CellFormat(widths[j], 6, d.fitText(h, widths[j]), "1", 0, "L", true, 0, "")
 			}
 			d.pdf.Ln(-1)
 			d.pdf.SetFont("Helvetica", "", 6)
@@ -506,11 +471,66 @@ func (d *doc) table(headers []string, row func(int) []string) {
 			d.pdf.SetFillColor(236, 242, 244)
 		}
 		for j := 0; j < cols && j < len(r); j++ {
-			d.pdf.CellFormat(widths[j], 5, latin(r[j]), "1", 0, "L", fill, 0, "")
+			d.pdf.CellFormat(widths[j], 5, d.fitText(r[j], widths[j]), "1", 0, "L", fill, 0, "")
 		}
 		d.pdf.Ln(-1)
 	}
 	d.gap(3)
+}
+
+func tableColWidths(headers []string, left float64) []float64 {
+	n := len(headers)
+	w := make([]float64, n)
+	if n == 0 {
+		return w
+	}
+	wt := make([]float64, n)
+	sum := 0.0
+	for i, h := range headers {
+		wt[i] = tableColWeight(h)
+		sum += wt[i]
+	}
+	if sum <= 0 {
+		sum = float64(n)
+		for i := range wt {
+			wt[i] = 1
+		}
+	}
+	for i := range w {
+		w[i] = left * wt[i] / sum
+	}
+	return w
+}
+
+func tableColWeight(h string) float64 {
+	low := strings.ToLower(strings.TrimSpace(h))
+	if strings.Contains(low, "cell") {
+		return 4.5
+	}
+	switch low {
+	case "mode", "winner mode", "winner dtype", "dtype", "tide", "key", "axis", "arch", "format":
+		return 2.4
+	}
+	return 1
+}
+
+func (d *doc) fitText(s string, mm float64) string {
+	s = latin(s)
+	max := mm - 1.4
+	if max < 3 {
+		max = 3
+	}
+	if d.pdf.GetStringWidth(s) <= max {
+		return s
+	}
+	const ell = "~"
+	for len(s) > 1 {
+		s = s[:len(s)-1]
+		if d.pdf.GetStringWidth(s+ell) <= max {
+			return s + ell
+		}
+	}
+	return ell
 }
 
 func nz(s, def string) string {

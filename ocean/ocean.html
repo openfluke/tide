@@ -47,7 +47,36 @@
   .kpi { background: rgba(0,0,0,0.28); border: 1px solid var(--grid); padding: 0.85rem 1rem; }
   .kpi b { display: block; font-size: 1.25rem; color: var(--accent); font-family: "IBM Plex Mono", ui-monospace, monospace; }
   .kpi span { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
-  section { background: rgba(0,0,0,0.22); border: 1px solid var(--grid); padding: 1rem; margin: 0 1.5rem 1rem; }
+  section { background: rgba(0,0,0,0.22); border: 1px solid var(--grid); padding: 1rem; margin: 0 1.5rem 1rem; min-width: 0; }
+  .heat-grid, .chart-stack {
+    display: flex; flex-direction: column; gap: 1rem; margin-top: 0.75rem;
+  }
+  .heat-grid > * { min-width: 0; }
+  .chart-panel {
+    background: rgba(0,0,0,0.18);
+    border: 1px solid var(--grid);
+    padding: 0.85rem 1rem 1rem;
+    min-width: 0;
+  }
+  .chart-panel h3 { margin: 0 0 0.55rem; font-size: 1rem; }
+  canvas.scatter { width: 100%; height: 440px; background: rgba(0,0,0,0.25); }
+  canvas.radar { width: 100%; height: 480px; background: rgba(0,0,0,0.25); }
+  .table-wrap {
+    overflow: auto;
+    max-height: min(70vh, 720px);
+    max-width: 100%;
+    overscroll-behavior: contain;
+  }
+  table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 0.3rem 0.35rem; border-bottom: 1px solid var(--grid); white-space: nowrap; position: sticky; top: 0; background: #0c1c28; z-index: 1; }
+  td { padding: 0.3rem 0.35rem; border-bottom: 1px solid rgba(36,49,58,0.6); font-family: "IBM Plex Mono", ui-monospace, monospace; white-space: nowrap; }
+  table.heat { font-size: 0.8rem; table-layout: auto; width: max-content; min-width: 100%; }
+  table.heat th, table.heat td { padding: 0.28rem 0.4rem; text-align: center; overflow: visible; white-space: nowrap; }
+  table.heat th:first-child, table.heat td:first-child, table.heat tbody th {
+    text-align: left; position: sticky; left: 0; z-index: 2; background: #0c1c28;
+  }
+  table.heat thead th { z-index: 3; }
+  table.heat thead th:first-child { z-index: 4; }
   h3 { margin: 0.85rem 0 0.35rem; font-size: 0.95rem; }
   h3 a { color: var(--tide); text-decoration: none; }
   .hint { font-size: 0.75rem; color: var(--muted); margin: 0 0 0.65rem; }
@@ -62,9 +91,6 @@
   .bar { height: 8px; background: #1a2a33; margin: 0.4rem 0; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--accent); max-width: 100%; }
   .tiny { font-size: 0.78rem; color: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; color: var(--muted); font-weight: 600; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--grid); }
-  td { padding: 0.32rem 0.4rem; border-bottom: 1px solid rgba(36,49,58,0.6); font-family: "IBM Plex Mono", ui-monospace, monospace; }
   .ok { color: var(--accent); }
   .bad { color: var(--bad); }
   .votes { display: flex; flex-wrap: wrap; gap: 0.4rem; }
@@ -78,12 +104,6 @@
     font-size: 0.88rem;
   }
   .lpd-callout.empty { border-color: var(--grid); background: rgba(0,0,0,0.18); color: var(--muted); }
-  table.heat { font-size: 0.72rem; }
-  table.heat th, table.heat td { padding: 0.18rem 0.28rem; text-align: center; }
-  table.heat th:first-child, table.heat td:first-child { text-align: left; }
-  .heat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.75rem; }
-  @media (max-width: 1100px) { .heat-grid { grid-template-columns: 1fr; } }
-  canvas.scatter { width: 100%; height: 220px; background: rgba(0,0,0,0.25); }
 </style>
 </head>
 <body>
@@ -91,7 +111,7 @@
   <h1><span>ocean</span> linked tides</h1>
   <div class="meta" id="status">connecting…</div>
 </header>
-<p class="score-eq">Each card is a live tide. Ocean polls <code>/api/board</code> — it does not retrain. Remote Pis <code>POST /api/register</code> then wait for <b>Start all</b>. Score = T × Availability% × SoftAcc% / 10,000. <b>LPD gold</b> is ≥80% of that Score champ at ≤20% of its RAM — that is the recipe, not raw Score/MiB (binary trap). A worker can pin <code>-modes sgd,step_sgd</code> so three Zeros split the train-mode axis.</p>
+<p class="score-eq">Ocean does not retrain — it polls <code>/api/board</code>. Lucy Score = Throughput × Availability × Acc / 10,000. Acc is learning. Availability is the live loop (SGD that blocks serve dies here). LPD condenses that live-fit into RAM. Honesty / test48 is where FastProxy and MeshTween show up. Remote Pis <code>POST /api/register</code> then <b>Start all</b>.</p>
 <div class="actions">
   <button type="button" id="startAll">Start all tides</button>
   <button type="button" class="ghost" id="refresh">Refresh now</button>
@@ -100,47 +120,56 @@
 <div class="holistic" id="kpis"></div>
 <section>
   <h2>Holistic winners</h2>
-  <p class="hint">Per-layer best-Score cells (Score &gt; 0) vote for train mode, dtype, and cameral arch. Suggested default is the mode/dtype/arch that wins the most Lucy axes below (score, acc, throughput, acc×thru, realtime, adapt, keep-learning, …).</p>
+  <p class="hint">Per-layer best-Score cells (Score &gt; 0) vote for train mode, dtype, and cameral arch. Suggested default is the mode/dtype/arch that wins the most Lucy axes below. Rank goldilocks by Acc/Thru/Avail density, not Score/MiB.</p>
   <div id="votes"></div>
 </section>
 <section>
   <h2>Lucy axis champions</h2>
-  <p class="hint">Ocean-wide best cell on each metric. <code>acc_thru</code> is accurate and fast. <code>realtime</code> is throughput × availability. <code>keep_learn</code> prefers SoftAcc that is still rising in the last third of pulses instead of peaking then flattening.</p>
-  <div style="overflow-x:auto"><table id="axes"><thead><tr>
+  <p class="hint">Ocean-wide best cell on each metric. First three axes are the consciousness pillars (hard Acc, Throughput, Availability). Lucy Score is the Welvet SoftAcc product. <code>acc_thru</code> is hard Acc × throughput.</p>
+  <div class="table-wrap"><table id="axes"><thead><tr>
     <th>axis</th><th>value</th><th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
-  <h2>Lucy Pareto (LPD) — goldilocks</h2>
-  <p class="hint">Q = Score/Thru vs the Score champ, Soft/Acc vs their own champs (Acc champ = highest hard Acc). Gold = Q ≥ 80% and Acc keep ≥ 80% and RAM ≤ 20% of the Score champ. Gold-std mode = smallest then fastest among Acc-keep ≥ 80%. Mix = geomean of Q, MSpeed, MAvail.</p>
+  <h2>Lucy density — synthetic organism</h2>
+  <p class="hint">Run and train at the same time, in a small box. Pure Acc is not enough — SGD can look accurate while it blocks serve. Score = Thru × Avail × Acc. Q = Acc/Thru/Avail vs learner peaks. Gold = all three ≥80% at ≤20% Acc-champ RAM. Honesty/test48 is the train-mode truth (FastProxy / MeshTween / Sparse vs SGD).</p>
   <div class="legend">
-    <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
-    <span><i style="background:#e6b35a"></i>near Q≥70% RAM≤50%</span>
-    <span><i style="background:#3dd6c6"></i>keep quality, not small</span>
-    <span><i style="background:#e06c75"></i>trap tiny RAM, Q&lt;70%</span>
+    <span><i style="background:#b7791f"></i>gold trifecta, small RAM</span>
+    <span><i style="background:#e6b35a"></i>near 2+ pillars, ≤50% RAM</span>
+    <span><i style="background:#3dd6c6"></i>keep 2+ pillars, fat</span>
+    <span><i style="background:#7aa2f7"></i>acc-only</span>
+    <span><i style="background:#e06c75"></i>trap tiny RAM, Acc&lt;70%</span>
   </div>
   <div id="lpdChamp" class="tiny" style="margin-bottom:0.5rem">—</div>
-  <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of Score+Acc champs at ≤20% of Score-champ RAM.</div>
+  <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need all three pillars at ≥80% of learner peaks in ≤20% of Acc-champ RAM.</div>
   <div id="lpdStd" class="tiny" style="margin-bottom:0.5rem">—</div>
-  <div class="heat-grid">
-    <div>
+  <div class="chart-stack">
+    <div class="chart-panel">
+      <h3>Consciousness radar — Acc / Thru / Avail</h3>
+      <canvas class="radar" id="radarLive" width="960" height="480"></canvas>
+    </div>
+    <div class="chart-panel">
+      <h3>Memory density radar — pillars × shrink</h3>
+      <canvas class="radar" id="radarDens" width="960" height="480"></canvas>
+    </div>
+    <div class="chart-panel">
       <h3>Q% vs RAM KiB — gold is top-left</h3>
-      <canvas class="scatter" id="scLpdRam" width="480" height="220"></canvas>
+      <canvas class="scatter" id="scLpdRam" width="960" height="440"></canvas>
     </div>
-    <div>
+    <div class="chart-panel">
       <h3>Acc keep % vs RAM — 80% Acc champ</h3>
-      <canvas class="scatter" id="scLpdAcc" width="480" height="220"></canvas>
+      <canvas class="scatter" id="scLpdAcc" width="960" height="440"></canvas>
     </div>
-    <div>
-      <h3>Q% vs shrink — gold is top-right</h3>
-      <canvas class="scatter" id="scLpdShrink" width="480" height="220"></canvas>
+    <div class="chart-panel">
+      <h3>Q% vs shrink vs Acc champ — gold is top-right</h3>
+      <canvas class="scatter" id="scLpdShrink" width="960" height="440"></canvas>
     </div>
   </div>
-  <div style="overflow-x:auto;margin-top:0.7rem"><table id="lpdModes"><thead><tr>
-    <th>mode</th><th>n</th><th>best Acc</th><th>smallest KiB</th><th>fastest Thru</th><th>smallest</th><th>fastest</th>
+  <div class="table-wrap"><table id="lpdModes"><thead><tr>
+    <th>mode</th><th>n</th><th>best Acc</th><th>smallest KiB</th><th>fastest Thru</th><th>cell</th>
   </tr></thead><tbody></tbody></table></div>
-  <div style="overflow-x:auto;margin-top:0.7rem"><table id="lpdTable"><thead><tr>
-    <th>band</th><th>tide</th><th>cell</th><th>Q%</th><th>Acc%</th><th>RAM%</th><th>×smaller</th><th>LPD</th><th>Spd%</th><th>Duty%</th><th>Mix</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>KiB</th>
+  <div class="table-wrap"><table id="lpdTable"><thead><tr>
+    <th>band</th><th>tide</th><th>cell</th><th>Acc%</th><th>Thru%</th><th>Avail%</th><th>Q%</th><th>RAM%</th><th>LPD</th><th>KiB</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
@@ -154,53 +183,51 @@
 </section>
 <section>
   <h2>Per-layer best (mode × dtype × arch)</h2>
-  <div style="overflow-x:auto"><table id="layers"><thead><tr>
+  <div class="table-wrap"><table id="layers"><thead><tr>
     <th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>adapt</th><th>done</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
   <h2>Combined leaderboard</h2>
-  <div style="overflow-x:auto"><table id="board"><thead><tr>
+  <div class="table-wrap"><table id="board"><thead><tr>
     <th>tide</th><th>cell</th><th>score</th><th>soft</th><th>acc</th><th>avail</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
   <h2>Honesty grids (test48)</h2>
-  <p class="hint">Mean Lucy metrics across registered tides. Soft is live fit; Acc is hard / argmax accuracy. Gold line on scatters is the Pareto front.</p>
-  <div class="heat-grid">
-    <div>
+  <p class="hint">Train-mode truth: SGD can win Acc and still block the live loop. FastProxy / MeshTween / Sparse are the candidates that keep Acc while serving. Acc is argmax. SoftAcc is serve-confidence, not Score.</p>
+  <div class="chart-stack">
+    <div class="chart-panel">
       <h3>Mean Score — mode × dtype</h3>
-      <div id="heatScore" style="overflow-x:auto"></div>
+      <div class="table-wrap" id="heatScore"></div>
     </div>
-    <div>
+    <div class="chart-panel">
       <h3>Mean hard Acc — mode × dtype</h3>
-      <div id="heatAcc" style="overflow-x:auto"></div>
+      <div class="table-wrap" id="heatAcc"></div>
     </div>
-    <div>
-      <h3>Mean SoftAcc — mode × dtype</h3>
-      <div id="heatSoft" style="overflow-x:auto"></div>
+    <div class="chart-panel">
+      <h3>Mean SoftAcc (serve-confidence) — mode × dtype</h3>
+      <div class="table-wrap" id="heatSoft"></div>
     </div>
-    <div>
+    <div class="chart-panel">
       <h3>Mean Score — layer × mode</h3>
-      <div id="heatLayer" style="overflow-x:auto"></div>
+      <div class="table-wrap" id="heatLayer"></div>
     </div>
-  </div>
-  <div class="heat-grid">
-    <div>
+    <div class="chart-panel">
       <h3>Avail vs hard Acc</h3>
-      <canvas class="scatter" id="scAvailAcc" width="480" height="220"></canvas>
+      <canvas class="scatter" id="scAvailAcc" width="960" height="440"></canvas>
     </div>
-    <div>
+    <div class="chart-panel">
       <h3>SoftAcc vs Score</h3>
-      <canvas class="scatter" id="scSoftScore" width="480" height="220"></canvas>
+      <canvas class="scatter" id="scSoftScore" width="960" height="440"></canvas>
     </div>
-    <div>
+    <div class="chart-panel">
       <h3>Hard Acc vs Score</h3>
-      <canvas class="scatter" id="scAccScore" width="480" height="220"></canvas>
+      <canvas class="scatter" id="scAccScore" width="960" height="440"></canvas>
     </div>
-    <div>
+    <div class="chart-panel">
       <h3>SoftAcc vs hard Acc</h3>
-      <canvas class="scatter" id="scSoftAcc" width="480" height="220"></canvas>
+      <canvas class="scatter" id="scSoftAcc" width="960" height="440"></canvas>
     </div>
   </div>
 </section>
@@ -208,6 +235,32 @@
 const $ = id => document.getElementById(id);
 function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
 function fmt(n, d=2) { return (n||0).toFixed(d); }
+function fitCanvas(c) {
+  if (!c) return false;
+  const w = Math.max(280, Math.round(c.clientWidth || c.width || 480));
+  const h = Math.max(160, Math.round(c.clientHeight || c.height || 220));
+  if (c.width !== w) c.width = w;
+  if (c.height !== h) c.height = h;
+  return true;
+}
+function axisName(k) {
+  return ({
+    availability: 'Avail %', avg_accuracy: 'Acc %', soft_acc: 'SoftAcc',
+    score: 'Score', ram: 'RAM KiB', qpct: 'Q %', accpct: 'Acc keep %',
+    shrink: 'shrink ×',
+  })[k] || k;
+}
+function strokeAxisLabels(ctx, w, h, padL, padB, xk, yk) {
+  ctx.fillStyle = '#8aa0ad';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(axisName(xk), padL + (w - padL - 12) / 2, h - 8);
+  ctx.save();
+  ctx.translate(14, h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(axisName(yk), 0, 0);
+  ctx.restore();
+}
 function prettyCell(id) {
   return String(id||'').replace(/\|cnn\|/g, '|single|');
 }
@@ -242,10 +295,10 @@ function render(j) {
     ['tides up', `${h.tides_up||0} / ${h.tides_total||0}`],
     ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
     ['LPD gold', (h.lpd && h.lpd.gold && h.lpd.gold.length) ? `${h.lpd.gold.length} · ${prettyCell(h.lpd.gold[0].id)}` : 'none yet'],
-    ['mix', (h.lpd && h.lpd.top_mix && h.lpd.top_mix[0] && h.lpd.top_mix[0].mix) ? `${prettyCell(h.lpd.top_mix[0].id)} · ${((h.lpd.top_mix[0].mix||0)*100).toFixed(0)}%` : '—'],
+    ['live-fit Q', (h.lpd && h.lpd.live_champ && h.lpd.live_champ.id) ? `${prettyCell(h.lpd.live_champ.id)}` : '—'],
     ['acc champ', (h.lpd && h.lpd.acc_champ && h.lpd.acc_champ.id) ? `${prettyCell(h.lpd.acc_champ.id)} · ${(h.lpd.acc_champ.avg_accuracy||0).toFixed(1)}%` : '—'],
     ['gold-std', (h.lpd && h.lpd.gold_std && h.lpd.gold_std.id) ? `${h.lpd.gold_std.mode||'—'} · ${prettyCell(h.lpd.gold_std.id)}` : 'none yet'],
-    ['LPD champ RAM', h.lpd && h.lpd.champ && h.lpd.champ.id ? `${(h.lpd.champ.ram_kib||0).toFixed(1)} KiB` : '—'],
+    ['Acc-champ RAM', h.lpd && h.lpd.acc_champ && h.lpd.acc_champ.id ? `${(h.lpd.acc_champ.ram_kib||0).toFixed(1)} KiB` : '—'],
   ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
   const chips = (votes, label) => {
     if (!votes || !votes.length) return `<p class="hint">No ${label} votes yet — wait for finished cells.</p>`;
@@ -274,7 +327,7 @@ function render(j) {
       <td>${prettyCell(a.cell_id||'')}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="tiny">no finished cells yet</td></tr>';
     return `<h3><a href="${publicURL(l.url)||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
-      <div style="overflow-x:auto"><table>
+      <div class="table-wrap"><table>
         <thead><tr><th>axis</th><th>value</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
@@ -349,6 +402,11 @@ function heatRGB(t) {
   const u = (t - 0.5) * 2;
   return [Math.round(231 + (45-231)*u), Math.round(179 + (166-179)*u), Math.round(90 + (150-90)*u)];
 }
+function clipHead(s, n) {
+  s = String(s || '');
+  if (s.length <= n) return s;
+  return s.slice(0, Math.max(1, n - 1)) + '~';
+}
 function heatTable(elId, rows, cols, grid) {
   const el = $(elId);
   if (!el) return;
@@ -360,9 +418,9 @@ function heatTable(elId, rows, cols, grid) {
   grid.forEach(r => (r||[]).forEach(v => { if (v) { if (v < min) min = v; if (v > max) max = v; } }));
   if (!isFinite(min)) { min = 0; max = 1; }
   if (max <= min) max = min + 1;
-  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th title="${c}">${c}</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach((r, i) => {
-    html += `<tr><th>${r}</th>`;
+    html += `<tr><th title="${r}">${r}</th>`;
     cols.forEach((_, j) => {
       const v = (grid[i] && grid[i][j]) || 0;
       if (!v) { html += '<td></td>'; return; }
@@ -378,23 +436,29 @@ function heatTable(elId, rows, cols, grid) {
 function drawScatter(canvasId, pts, xk, yk) {
   const c = $(canvasId);
   if (!c || !c.getContext) return;
+  fitCanvas(c);
   const ctx = c.getContext('2d');
   const w = c.width, h = c.height;
   ctx.clearRect(0, 0, w, h);
-  if (!pts.length) return;
+  if (!pts.length) {
+    ctx.fillStyle = '#8aa0ad';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('no finished cells yet', 20, 30);
+    return;
+  }
   const xs = pts.map(p => +p[xk] || 0), ys = pts.map(p => +p[yk] || 0);
   let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
   if (xmax <= xmin) xmax = xmin + 1;
   if (ymax <= ymin) ymax = ymin + 1;
-  const pad = 18;
-  const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
-  const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
+  const padL = 48, padR = 16, padT = 16, padB = 32;
+  const X = v => padL + (w - padL - padR) * (v - xmin) / (xmax - xmin);
+  const Y = v => h - padB - (h - padT - padB) * (v - ymin) / (ymax - ymin);
   ctx.strokeStyle = '#1d3342';
-  ctx.strokeRect(pad, pad, w-pad*2, h-pad*2);
+  ctx.strokeRect(padL, padT, w - padL - padR, h - padT - padB);
   pts.forEach((p, i) => {
     const arch = String(p.arch || '');
     ctx.fillStyle = /tri/i.test(arch) ? '#a882dc' : /bi/i.test(arch) ? '#4ea3ff' : '#3dd6c6';
-    ctx.fillRect(X(xs[i])-1.5, Y(ys[i])-1.5, 3, 3);
+    ctx.fillRect(X(xs[i])-3, Y(ys[i])-3, 6, 6);
   });
   const front = pts.slice().sort((a,b) => (+a[xk]||0) - (+b[xk]||0));
   let best = -Infinity;
@@ -404,12 +468,14 @@ function drawScatter(canvasId, pts, xk, yk) {
     if (y >= best) { best = y; gold.push(p); }
   });
   ctx.strokeStyle = '#b7791f';
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   gold.forEach((p, i) => {
     const x = X(+p[xk]||0), y = Y(+p[yk]||0);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
   ctx.stroke();
+  strokeAxisLabels(ctx, w, h, padL, padB, xk, yk);
 }
 function drawLucyCharts(h) {
   const heat = h.heat || {};
@@ -428,6 +494,7 @@ function bandColor(b) {
   if (b === 'near') return '#e6b35a';
   if (b === 'trap') return '#e06c75';
   if (b === 'keep') return '#3dd6c6';
+  if (b === 'acc') return '#7aa2f7';
   return '#8aa0ad';
 }
 function lpdMerged(l) {
@@ -441,52 +508,122 @@ function lpdMerged(l) {
   });
   return out;
 }
-function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
+function lpdRowById(l, id) {
+  if (!id) return null;
+  return lpdMerged(l).find(r => r.id === id) || (l.top||[]).find(r => r.id === id) || null;
+}
+function drawRadar(canvasId, series) {
   const c = $(canvasId);
   if (!c || !c.getContext) return;
+  fitCanvas(c);
   const ctx = c.getContext('2d');
   const w = c.width, h = c.height;
   ctx.clearRect(0, 0, w, h);
-  if (!rows || !rows.length) return;
+  const cx = Math.min(w * 0.42, h * 0.5), cy = h * 0.52, radius = Math.min(cx, cy) - 36;
+  const labels = ['Acc', 'Thru', 'Avail'];
+  const n = 3;
+  const ang = i => -Math.PI/2 + i * 2 * Math.PI / n;
+  ctx.strokeStyle = '#1d3342';
+  for (let ring = 1; ring <= 4; ring++) {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const r = radius * ring / 4;
+      const x = cx + r * Math.cos(ang(i)), y = cy + r * Math.sin(ang(i));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#8aa0ad';
+  ctx.font = '14px sans-serif';
+  ctx.textAlign = 'center';
+  labels.forEach((lab, i) => {
+    const x = cx + (radius + 22) * Math.cos(ang(i));
+    const y = cy + (radius + 22) * Math.sin(ang(i));
+    ctx.fillText(lab, x, y + 4);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + radius * Math.cos(ang(i)), cy + radius * Math.sin(ang(i)));
+    ctx.stroke();
+  });
+  (series || []).forEach(s => {
+    const vals = s.vals || [0, 0, 0];
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    vals.forEach((v, i) => {
+      const t = Math.max(0, Math.min(1, +v || 0));
+      const x = cx + radius * t * Math.cos(ang(i));
+      const y = cy + radius * t * Math.sin(ang(i));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  });
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'left';
+  const lx = Math.min(w * 0.68, cx + radius + 36);
+  (series || []).forEach((s, i) => {
+    ctx.fillStyle = s.color;
+    ctx.fillRect(lx, 22 + i * 22, 12, 12);
+    ctx.fillStyle = '#c8d6dc';
+    ctx.fillText(s.label || '', lx + 18, 33 + i * 22);
+  });
+}
+function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
+  const c = $(canvasId);
+  if (!c || !c.getContext) return;
+  fitCanvas(c);
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!rows || !rows.length) {
+    ctx.fillStyle = '#8aa0ad';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('no finished cells yet', 20, 30);
+    return;
+  }
   const xs = rows.map(p => +p[xk] || 0), ys = rows.map(p => +p[yk] || 0);
   let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
   if (xmax <= xmin) xmax = xmin + 1;
   if (ymax <= ymin) ymax = ymin + 1;
   if (ymin > 0) ymin = 0;
   if (ymax < 100 && (yk === 'qpct' || yk === 'accpct')) ymax = 100;
-  const pad = 22;
-  const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
-  const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
+  const padL = 48, padR = 16, padT = 16, padB = 32;
+  const X = v => padL + (w - padL - padR) * (v - xmin) / (xmax - xmin);
+  const Y = v => h - padB - (h - padT - padB) * (v - ymin) / (ymax - ymin);
   ctx.strokeStyle = '#1d3342';
-  ctx.strokeRect(pad, pad, w-pad*2, h-pad*2);
+  ctx.strokeRect(padL, padT, w - padL - padR, h - padT - padB);
   if (hline != null && vline != null) {
     ctx.fillStyle = 'rgba(183,121,31,0.12)';
-    const y1 = pad, y2 = Math.min(h-pad, Math.max(pad, Y(hline)));
+    const y1 = padT, y2 = Math.min(h-padB, Math.max(padT, Y(hline)));
     if (goldSide === 'left') {
-      const x2 = Math.min(w-pad, Math.max(pad, X(vline)));
-      ctx.fillRect(pad, y1, x2 - pad, y2 - y1);
+      const x2 = Math.min(w-padR, Math.max(padL, X(vline)));
+      ctx.fillRect(padL, y1, x2 - padL, y2 - y1);
     } else if (goldSide === 'right') {
-      const x1 = Math.min(w-pad, Math.max(pad, X(vline)));
-      ctx.fillRect(x1, y1, w-pad - x1, y2 - y1);
+      const x1 = Math.min(w-padR, Math.max(padL, X(vline)));
+      ctx.fillRect(x1, y1, w-padR - x1, y2 - y1);
     }
   }
   if (vline != null && vline >= xmin && vline <= xmax) {
     ctx.strokeStyle = 'rgba(183,121,31,0.7)';
     ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(X(vline), pad); ctx.lineTo(X(vline), h-pad); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(vline), padT); ctx.lineTo(X(vline), h-padB); ctx.stroke();
     ctx.setLineDash([]);
   }
   if (hline != null && hline >= ymin && hline <= ymax) {
     ctx.strokeStyle = 'rgba(183,121,31,0.7)';
     ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(pad, Y(hline)); ctx.lineTo(w-pad, Y(hline)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padL, Y(hline)); ctx.lineTo(w-padR, Y(hline)); ctx.stroke();
     ctx.setLineDash([]);
   }
   rows.forEach((p, i) => {
     ctx.fillStyle = bandColor(p.band);
-    const s = p.gold ? 5 : 3;
+    const s = p.gold ? 8 : 6;
     ctx.fillRect(X(xs[i])-s/2, Y(ys[i])-s/2, s, s);
   });
+  strokeAxisLabels(ctx, w, h, padL, padB, xk, yk);
 }
 function drawLPD(h) {
   const l = (h && h.lpd) || {};
@@ -501,39 +638,44 @@ function drawLPD(h) {
   if (champEl) {
     const c = l.champ || {};
     const ac = l.acc_champ || {};
-    champEl.innerHTML = c.id
-      ? `<span class="chip"><b>score</b></span> ${prettyCell(c.id)} · Score ${fmt(c.score,1)} · Acc ${fmt(c.avg_accuracy,1)} · Thru ${fmt(c.throughput,0)} · ${fmt(c.ram_kib,1)} KiB
-         · <span class="chip"><b>acc champ</b></span> ${prettyCell(ac.id||'—')} · Acc ${fmt(ac.avg_accuracy,1)} · Soft ${fmt(ac.soft_acc,1)} · ${fmt(ac.ram_kib,1)} KiB
+    const lc = l.live_champ || {};
+    champEl.innerHTML = ac.id || c.id
+      ? `<span class="chip"><b>acc champ</b></span> ${prettyCell(ac.id||'—')} · Acc ${fmt(ac.avg_accuracy,1)} · Thru ${fmt(ac.throughput,0)} · ${fmt(ac.ram_kib,1)} KiB
+         · <span class="chip"><b>lucy score</b></span> ${prettyCell(c.id||'—')} · Score ${fmt(c.score,1)} · Acc ${fmt(c.avg_accuracy,1)}
+         · <span class="chip"><b>live-fit</b></span> ${prettyCell(lc.id||'—')}
          · gold ${gold.length} · near ${near.length} · trap ${trap.length}
-         <div>fastest ${prettyCell(l.fast_id||'—')} · ${fmt(l.fast_thru,0)}/s · best duty ${prettyCell(l.avail_id||'—')} · ${fmt(l.best_avail,1)}% · mix ${(l.top_mix && l.top_mix[0]) ? prettyCell(l.top_mix[0].id)+' '+((l.top_mix[0].mix||0)*100).toFixed(0)+'%' : '—'}</div>`
+         <div>board fastest ${prettyCell(l.fast_id||'—')} · ${fmt(l.fast_thru,0)}/s · learner Thru ${fmt(l.peak_thru,0)} · learner Avail ${fmt(l.peak_avail,1)}%</div>`
       : 'Need finished ok cells.';
   }
   if (goldEl) {
     if (gold.length) {
       goldEl.className = 'lpd-callout';
       goldEl.innerHTML = '<b>Gold</b> — ' + gold.slice(0, 8).map(r =>
-        `${r.tide||'—'} · ${prettyCell(r.id)} · Q ${((r.q||0)*100).toFixed(0)}% · ${((r.ram_frac||0)*100).toFixed(0)}% RAM · ${(r.shrink||0).toFixed(1)}× smaller`
+        `${r.tide||'—'} · ${prettyCell(r.id)} · Q ${((r.q||0)*100).toFixed(0)}% · ${((r.ram_frac||0)*100).toFixed(0)}% Acc-champ RAM · ${(r.shrink||0).toFixed(1)}× smaller`
       ).join('<br>');
     } else {
       goldEl.className = 'lpd-callout empty';
-      goldEl.textContent = 'No gold cell yet. Need ≥80% of Score+Acc champs at ≤20% of Score-champ RAM.';
+      goldEl.textContent = 'No gold cell yet. Need all three pillars at ≥80% of learner peaks in ≤20% of Acc-champ RAM.';
     }
   }
   if (stdEl) {
     const s = l.gold_std || {};
     stdEl.innerHTML = s.id
       ? `<span class="chip"><b>gold-std</b></span> ${prettyCell(s.id)} · mode ${s.mode||'—'} · Acc ${fmt(s.avg_accuracy,1)} · ${fmt(s.throughput,0)}/s · ${fmt(s.ram_kib,1)} KiB`
-      : 'No gold-std yet — nothing has kept 80% of the Acc champ.';
+      : 'No gold-std yet — need Acc ≥80% plus at least one other pillar.';
   }
   if (modesTb) {
     const modes = l.gold_modes || [];
-    modesTb.innerHTML = modes.length ? modes.map(m => `<tr>
+    modesTb.innerHTML = modes.length ? modes.map(m => {
+      let cell = m.smallest || '';
+      if (m.fastest && m.fastest !== m.smallest) cell += ' / ' + m.fastest;
+      return `<tr>
       <td>${m.mode||'—'}</td><td>${m.n||0}</td>
       <td>${fmt(m.best_acc,1)}</td><td>${fmt(m.min_ram_kib,1)}</td>
       <td>${fmt(m.max_thru,0)}</td>
-      <td>${prettyCell(m.smallest||'')}</td>
-      <td>${prettyCell(m.fastest||'')}</td>
-    </tr>`).join('') : '<tr><td colspan="7">no Acc-keep ≥80% cells yet</td></tr>';
+      <td>${prettyCell(cell)}</td>
+    </tr>`;
+    }).join('') : '<tr><td colspan="6">no 2+ pillar Acc-keep cells yet</td></tr>';
   }
   const rows = l.top || [];
   if (tb) {
@@ -541,32 +683,51 @@ function drawLPD(h) {
       <td>${r.band||'—'}</td>
       <td>${r.tide||'—'}</td>
       <td>${prettyCell(r.id||'')}</td>
-      <td>${((r.q||0)*100).toFixed(0)}</td>
       <td>${((r.rel_acc||0)*100).toFixed(0)}</td>
+      <td>${((r.rel_thru||0)*100).toFixed(0)}</td>
+      <td>${((r.rel_avail||0)*100).toFixed(0)}</td>
+      <td>${((r.q||0)*100).toFixed(0)}</td>
       <td>${((r.ram_frac||0)*100).toFixed(0)}</td>
-      <td>${(r.shrink||0).toFixed(1)}×</td>
       <td>${fmt(r.lpd)}</td>
-      <td>${((r.mspeed||0)*100).toFixed(0)}</td>
-      <td>${((r.mavail||0)*100).toFixed(0)}</td>
-      <td>${((r.mix||0)*100).toFixed(0)}</td>
-      <td>${fmt(r.score,1)}</td>
-      <td>${fmt(r.soft_acc,0)}</td>
-      <td>${fmt(r.avg_accuracy,1)}</td>
-      <td>${fmt(r.throughput,0)}</td>
       <td>${fmt(r.ram_kib,1)}</td>
-    </tr>`).join('') : '<tr><td colspan="16">no finished ok cells yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="10">no finished ok cells yet</td></tr>';
   }
   const pts = lpdMerged(l).map(r => ({
     band: r.band, gold: r.gold,
     ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100, accpct: (r.rel_acc||0)*100,
   }));
-  const champRam = (l.champ && l.champ.ram_kib) || 0;
+  const champRam = (l.acc_champ && l.acc_champ.ram_kib) || 0;
   drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
   drawLPDScatter('scLpdAcc', pts, 'ram', 'accpct', champRam * 0.2, 80, 'left');
   drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
+  const nrm = (v, peak) => peak > 0 ? Math.max(0, Math.min(1, v / peak)) : 0;
+  const liveSeries = [];
+  const densSeries = [];
+  const push = (arr, label, color, row, dens) => {
+    if (!row) return;
+    const vals = dens
+      ? [nrm(row.dens_acc, l.peak_dens_acc), nrm(row.dens_thru, l.peak_dens_thru), nrm(row.dens_avail, l.peak_dens_avail)]
+      : [row.rel_acc||0, row.rel_thru||0, row.rel_avail||0];
+    arr.push({ label: label + ' ' + prettyCell(row.id||''), color, vals });
+  };
+  push(liveSeries, 'Acc champ', '#e6b35a', lpdRowById(l, (l.acc_champ||{}).id), false);
+  push(liveSeries, 'Gold-std', '#b7791f', l.gold_std && l.gold_std.id ? l.gold_std : null, false);
+  push(liveSeries, 'Live-fit', '#3dd6c6', lpdRowById(l, (l.live_champ||{}).id), false);
+  push(liveSeries, 'Lucy Score', '#e06c75', lpdRowById(l, (l.champ||{}).id), false);
+  push(densSeries, 'Gold-std', '#b7791f', l.gold_std && l.gold_std.id ? l.gold_std : null, true);
+  if (l.top && l.top[0] && l.top[0].lpd > 0) push(densSeries, 'LPD lead', '#3dd6c6', l.top[0], true);
+  push(densSeries, 'Acc champ', '#e6b35a', lpdRowById(l, (l.acc_champ||{}).id), true);
+  push(densSeries, 'Lucy Score', '#e06c75', lpdRowById(l, (l.champ||{}).id), true);
+  drawRadar('radarLive', liveSeries);
+  drawRadar('radarDens', densSeries);
 }
 setInterval(tick, 1000);
 tick();
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(tick, 120);
+});
 </script>
 </body>
 </html>

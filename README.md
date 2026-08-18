@@ -7,26 +7,43 @@ Tide is **dataset-agnostic**. A host supplies a `runner.Dataset` and a `chain.Sp
 the dashboard, Lucy metrics, permute matrix, and checkpoints stay the same.
 [`live_mnist`](../live_mnist) is one host (MNIST 80/20 classification).
 
-Aligned with [`test41_w_sine_ada_perm`](../loom/arcagitesting/test41_w_sine_ada_perm)
-Lucy measuring (SoftAcc, duty-cycle Availability, AdaptPct, WeightBytes).
+Aligned with [`test41_w_sine_ada_perm`](../loom/arcagitesting/test41_w_sine_ada_perm).
+
+Lucy Score is **live-fit**: can the net **learn while it still serves**, in a small
+box. That is the synthetic-organism metric. SoftAcc is serve-confidence, **not**
+the Acc pillar.
+
+```
+Score = T × Avail × Acc / 10,000
+```
 
 ---
 
 ## What you are measuring
 
-Three axes at once (same story as test41-w perm):
+In-house **consciousness benchmark**: what can **run and train at the same time**,
+then how far that live-fit can be **memory-condensed** (dtype / quant) without
+falling into a trap.
 
-| Axis | Metrics | Meaning |
+| View | Metrics | Meaning |
 |------|---------|---------|
-| Adaptation quality | SoftAcc, AdaptPct, Stability, Consistency | How well / how fast the net tracks after mid-stream label flips |
-| Duty-cycle availability | Availability, ZeroDowntime | Share of **busy** time spent inferring vs training |
-| Cost | WeightBytes, HeapBytes, MobileScore | How small the model is, and Score per MiB |
+| Pure Acc | Hard Acc (`avg_accuracy`) | Argmax learning. Acc champ is the RAM reference. |
+| Throughput | T = outputs / second | Actions per second while the sweep is live. |
+| Availability | `InferMs / (InferMs + TrainMs) × 100` | Duty cycle: can you still talk to the model while it trains. |
+| Lucy Score | `T × Availability × Acc / 10,000` | Live-fit. Acc is argmax. Availability dies when SGD blocks serve. SoftAcc is **not** this term. |
+| Consciousness Q | geomean of Acc/Thru/Avail keep vs **learner** peaks | Learner = Acc keep ≥70% of Acc champ. Chance-Acc tiny dtypes do **not** set Thru/Avail. |
+| Lucy density (LPD) | `Q × shrink` vs Acc-champ RAM | Memory intelligence. **0** unless Acc keep ≥70% (weeds Score/MiB traps). |
+| Gold | all 3 pillars ≥80% and RAM ≤20% of Acc champ | Trifecta in a small box. |
+| Gold-std | Acc ≥80% plus Thru or Avail ≥80%, then smallest then fastest | Two-or-more of the trifecta. |
+| Trap | RAM ≤20% of Acc champ and Acc keep &lt;70% | Binary / chance Acc looking dense. |
+
+SoftAcc, AdaptPct, Stability, Consistency remain Welvet adaptation traces. MobileScore (`Score / WeightMiB`) is the binary trap — use LPD.
 
 ### Pareto front
 
 A **Pareto front** is the set of options where improving one goal forces you to
-hurt another (e.g. Score ↔ WeightBytes, SoftAcc ↔ Availability). Dominated
-cells fall off; the interesting winners sit on the undominated edge.
+hurt another (e.g. Acc ↔ RAM, Acc ↔ Availability). Dominated cells fall off;
+goldilocks sits on the undominated edge of **learning vs size vs live duty**.
 
 ---
 
@@ -34,14 +51,16 @@ cells fall off; the interesting winners sit on the undominated edge.
 
 | Symbol | Formula |
 |--------|---------|
-| SoftAcc | SoftAcc formula on **true-class softmax prob vs 1.0** (scale 1 → ≈100×p); sine uses scale 0.10 on continuous targets |
-| Hard Acc | argmax accuracy % (still recorded as `avg_accuracy`) |
+| SoftAcc | SoftAcc formula on **true-class softmax prob vs 1.0** (scale 1 → ≈100×p); sine uses scale 0.10 on continuous targets. Serve-confidence — **not** the Acc pillar. |
+| Hard Acc | argmax accuracy % (`avg_accuracy`) — the Acc pillar |
 | Availability | `InferMs / (InferMs + TrainMs) × 100` |
 | AdaptPct | Mean SoftAcc in the first few pulse windows after each phase switch |
 | Throughput (T) | `TotalOutputs / duration_seconds` |
-| Score | `T × Availability × SoftAcc / 10_000` |
-| ZeroDowntime | `SoftAcc × Availability / 100` |
-| MobileScore | `Score / WeightMiB` |
+| Score | `T × Availability × Acc / 10_000` (hard Acc; SoftAcc is diagnostic) |
+| ZeroDowntime | `Acc × Availability / 100` |
+| MobileScore | `Score / WeightMiB` (trap — do not use for goldilocks) |
+| Q | geomean(RelAcc, RelThru, RelAvail) vs Acc champ and learner Thru/Avail peaks |
+| LPD | `Q × min(AccChampRAM / thisRAM, 32)` if RelAcc ≥ 70%, else 0 |
 
 Task (host-defined): classify while serving. MNIST host uses mid-stream flip
 phases **A → B (`label=(label+5)%10`) → A2** to force re-adaptation (same role as

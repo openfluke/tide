@@ -546,7 +546,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		snap.TimeToAcc25Sec = live.Current.Snapshot.TimeToAcc25Sec
 		snap.TimeToAcc50Sec = live.Current.Snapshot.TimeToAcc50Sec
 	}
-	// Fast cells can finish before a Lucy pulse, which left SoftAcc=0 and Score=0.
+	// Fast cells can finish before a Lucy pulse, which left Acc=0 and Score=0.
 	if snap.SoftAcc == 0 && failNote.Load() == nil {
 		p := "A"
 		if v := phase.Load(); v != nil {
@@ -554,12 +554,12 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 		}
 		s := remap(ds.NextServe(p), p)
 		mu.Lock()
-		_, soft, err := m.ServeEval(s.X, s.Target)
+		preds, soft, err := m.ServeEval(s.X, s.Target)
 		mu.Unlock()
 		if err == nil {
 			snap.SoftAcc = soft
-			if snap.AccuracyPulses == 0 {
-				snap.AccuracyPulses = 1
+			if snap.AvgAccuracy == 0 {
+				snap.AvgAccuracy = evalHardAcc(preds, s.Labels)
 			}
 		}
 	}
@@ -625,4 +625,21 @@ func remap(s Sample, phase string) Sample {
 		out.Target.Data[i*classes+n] = 1
 	}
 	return out
+}
+
+func evalHardAcc(preds []int, labels []int) float64 {
+	n := len(preds)
+	if len(labels) < n {
+		n = len(labels)
+	}
+	if n == 0 {
+		return 0
+	}
+	ok := 0
+	for i := 0; i < n; i++ {
+		if preds[i] == labels[i] {
+			ok++
+		}
+	}
+	return 100 * float64(ok) / float64(n)
 }
