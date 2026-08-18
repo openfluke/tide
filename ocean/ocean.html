@@ -112,7 +112,7 @@
 </section>
 <section>
   <h2>Lucy Pareto (LPD) — goldilocks</h2>
-  <p class="hint">Q = geomean of Score/Soft/Acc/Thru vs the ocean Score champion. Gold = Q ≥ 80% and RAM ≤ 20% of that champ. LPD is 0 if Q &lt; 70% — that is why binary Score/MiB is a trap. Gold is the recipe that still learns, at a fraction of the memory. MSpeed = Thru vs the ocean’s fastest (0 unless Q ≥ 70%). MAvail = infer/(infer+train) vs the best duty cycle, same Q gate. Mix = geomean of Q, MSpeed, MAvail.</p>
+  <p class="hint">Q = Score/Thru vs the Score champ, Soft/Acc vs their own champs (Acc champ = highest hard Acc). Gold = Q ≥ 80% and Acc keep ≥ 80% and RAM ≤ 20% of the Score champ. Gold-std mode = smallest then fastest among Acc-keep ≥ 80%. Mix = geomean of Q, MSpeed, MAvail.</p>
   <div class="legend">
     <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
     <span><i style="background:#e6b35a"></i>near Q≥70% RAM≤50%</span>
@@ -120,19 +120,27 @@
     <span><i style="background:#e06c75"></i>trap tiny RAM, Q&lt;70%</span>
   </div>
   <div id="lpdChamp" class="tiny" style="margin-bottom:0.5rem">—</div>
-  <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.</div>
+  <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of Score+Acc champs at ≤20% of Score-champ RAM.</div>
+  <div id="lpdStd" class="tiny" style="margin-bottom:0.5rem">—</div>
   <div class="heat-grid">
     <div>
       <h3>Q% vs RAM KiB — gold is top-left</h3>
       <canvas class="scatter" id="scLpdRam" width="480" height="220"></canvas>
     </div>
     <div>
+      <h3>Acc keep % vs RAM — 80% Acc champ</h3>
+      <canvas class="scatter" id="scLpdAcc" width="480" height="220"></canvas>
+    </div>
+    <div>
       <h3>Q% vs shrink — gold is top-right</h3>
       <canvas class="scatter" id="scLpdShrink" width="480" height="220"></canvas>
     </div>
   </div>
+  <div style="overflow-x:auto;margin-top:0.7rem"><table id="lpdModes"><thead><tr>
+    <th>mode</th><th>n</th><th>best Acc</th><th>smallest KiB</th><th>fastest Thru</th><th>smallest</th><th>fastest</th>
+  </tr></thead><tbody></tbody></table></div>
   <div style="overflow-x:auto;margin-top:0.7rem"><table id="lpdTable"><thead><tr>
-    <th>band</th><th>tide</th><th>cell</th><th>Q%</th><th>RAM%</th><th>×smaller</th><th>LPD</th><th>Spd%</th><th>Duty%</th><th>Mix</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>KiB</th>
+    <th>band</th><th>tide</th><th>cell</th><th>Q%</th><th>Acc%</th><th>RAM%</th><th>×smaller</th><th>LPD</th><th>Spd%</th><th>Duty%</th><th>Mix</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>KiB</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
@@ -235,6 +243,8 @@ function render(j) {
     ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
     ['LPD gold', (h.lpd && h.lpd.gold && h.lpd.gold.length) ? `${h.lpd.gold.length} · ${prettyCell(h.lpd.gold[0].id)}` : 'none yet'],
     ['mix', (h.lpd && h.lpd.top_mix && h.lpd.top_mix[0] && h.lpd.top_mix[0].mix) ? `${prettyCell(h.lpd.top_mix[0].id)} · ${((h.lpd.top_mix[0].mix||0)*100).toFixed(0)}%` : '—'],
+    ['acc champ', (h.lpd && h.lpd.acc_champ && h.lpd.acc_champ.id) ? `${prettyCell(h.lpd.acc_champ.id)} · ${(h.lpd.acc_champ.avg_accuracy||0).toFixed(1)}%` : '—'],
+    ['gold-std', (h.lpd && h.lpd.gold_std && h.lpd.gold_std.id) ? `${h.lpd.gold_std.mode||'—'} · ${prettyCell(h.lpd.gold_std.id)}` : 'none yet'],
     ['LPD champ RAM', h.lpd && h.lpd.champ && h.lpd.champ.id ? `${(h.lpd.champ.ram_kib||0).toFixed(1)} KiB` : '—'],
   ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
   const chips = (votes, label) => {
@@ -443,7 +453,7 @@ function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
   if (xmax <= xmin) xmax = xmin + 1;
   if (ymax <= ymin) ymax = ymin + 1;
   if (ymin > 0) ymin = 0;
-  if (ymax < 100 && yk === 'qpct') ymax = 100;
+  if (ymax < 100 && (yk === 'qpct' || yk === 'accpct')) ymax = 100;
   const pad = 22;
   const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
   const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
@@ -482,14 +492,18 @@ function drawLPD(h) {
   const l = (h && h.lpd) || {};
   const champEl = $('lpdChamp');
   const goldEl = $('lpdGold');
+  const stdEl = $('lpdStd');
   const tb = $('lpdTable') && $('lpdTable').querySelector('tbody');
+  const modesTb = $('lpdModes') && $('lpdModes').querySelector('tbody');
   const gold = l.gold || [];
   const near = l.near || [];
   const trap = l.trap || [];
   if (champEl) {
     const c = l.champ || {};
+    const ac = l.acc_champ || {};
     champEl.innerHTML = c.id
-      ? `<span class="chip"><b>champ</b></span> ${prettyCell(c.id)} · Score ${fmt(c.score,1)} · Soft ${fmt(c.soft_acc,0)} · Acc ${fmt(c.avg_accuracy,0)} · Thru ${fmt(c.throughput,0)} · ${fmt(c.ram_kib,1)} KiB
+      ? `<span class="chip"><b>score</b></span> ${prettyCell(c.id)} · Score ${fmt(c.score,1)} · Acc ${fmt(c.avg_accuracy,1)} · Thru ${fmt(c.throughput,0)} · ${fmt(c.ram_kib,1)} KiB
+         · <span class="chip"><b>acc champ</b></span> ${prettyCell(ac.id||'—')} · Acc ${fmt(ac.avg_accuracy,1)} · Soft ${fmt(ac.soft_acc,1)} · ${fmt(ac.ram_kib,1)} KiB
          · gold ${gold.length} · near ${near.length} · trap ${trap.length}
          <div>fastest ${prettyCell(l.fast_id||'—')} · ${fmt(l.fast_thru,0)}/s · best duty ${prettyCell(l.avail_id||'—')} · ${fmt(l.best_avail,1)}% · mix ${(l.top_mix && l.top_mix[0]) ? prettyCell(l.top_mix[0].id)+' '+((l.top_mix[0].mix||0)*100).toFixed(0)+'%' : '—'}</div>`
       : 'Need finished ok cells.';
@@ -502,8 +516,24 @@ function drawLPD(h) {
       ).join('<br>');
     } else {
       goldEl.className = 'lpd-callout empty';
-      goldEl.textContent = 'No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.';
+      goldEl.textContent = 'No gold cell yet. Need ≥80% of Score+Acc champs at ≤20% of Score-champ RAM.';
     }
+  }
+  if (stdEl) {
+    const s = l.gold_std || {};
+    stdEl.innerHTML = s.id
+      ? `<span class="chip"><b>gold-std</b></span> ${prettyCell(s.id)} · mode ${s.mode||'—'} · Acc ${fmt(s.avg_accuracy,1)} · ${fmt(s.throughput,0)}/s · ${fmt(s.ram_kib,1)} KiB`
+      : 'No gold-std yet — nothing has kept 80% of the Acc champ.';
+  }
+  if (modesTb) {
+    const modes = l.gold_modes || [];
+    modesTb.innerHTML = modes.length ? modes.map(m => `<tr>
+      <td>${m.mode||'—'}</td><td>${m.n||0}</td>
+      <td>${fmt(m.best_acc,1)}</td><td>${fmt(m.min_ram_kib,1)}</td>
+      <td>${fmt(m.max_thru,0)}</td>
+      <td>${prettyCell(m.smallest||'')}</td>
+      <td>${prettyCell(m.fastest||'')}</td>
+    </tr>`).join('') : '<tr><td colspan="7">no Acc-keep ≥80% cells yet</td></tr>';
   }
   const rows = l.top || [];
   if (tb) {
@@ -512,6 +542,7 @@ function drawLPD(h) {
       <td>${r.tide||'—'}</td>
       <td>${prettyCell(r.id||'')}</td>
       <td>${((r.q||0)*100).toFixed(0)}</td>
+      <td>${((r.rel_acc||0)*100).toFixed(0)}</td>
       <td>${((r.ram_frac||0)*100).toFixed(0)}</td>
       <td>${(r.shrink||0).toFixed(1)}×</td>
       <td>${fmt(r.lpd)}</td>
@@ -520,17 +551,18 @@ function drawLPD(h) {
       <td>${((r.mix||0)*100).toFixed(0)}</td>
       <td>${fmt(r.score,1)}</td>
       <td>${fmt(r.soft_acc,0)}</td>
-      <td>${fmt(r.avg_accuracy,0)}</td>
+      <td>${fmt(r.avg_accuracy,1)}</td>
       <td>${fmt(r.throughput,0)}</td>
       <td>${fmt(r.ram_kib,1)}</td>
-    </tr>`).join('') : '<tr><td colspan="15">no finished ok cells yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="16">no finished ok cells yet</td></tr>';
   }
   const pts = lpdMerged(l).map(r => ({
     band: r.band, gold: r.gold,
-    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100,
+    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100, accpct: (r.rel_acc||0)*100,
   }));
   const champRam = (l.champ && l.champ.ram_kib) || 0;
   drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
+  drawLPDScatter('scLpdAcc', pts, 'ram', 'accpct', champRam * 0.2, 80, 'left');
   drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
 }
 setInterval(tick, 1000);

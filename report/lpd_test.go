@@ -54,4 +54,47 @@ func TestBuildLPDGoldilocks(t *testing.T) {
 	if l.TopSpeed[0].ID == "bin" && l.TopSpeed[0].MSpeed > 0 {
 		t.Fatalf("binary must not win mspeed")
 	}
+	if l.AccChamp.ID != "f32" {
+		t.Fatalf("acc champ %s", l.AccChamp.ID)
+	}
+	if l.GoldStd.ID != "int8" {
+		t.Fatalf("gold-std smallest Acc-keep want int8, got %s", l.GoldStd.ID)
+	}
+}
+
+func TestBuildLPDUsesAccChamp(t *testing.T) {
+	pts := []CellPoint{
+		{ID: "fast", Mode: "tween", DType: "float32", Arch: "single", Score: 100, Soft: 50, Acc: 20, Thru: 200, Avail: 40, RAMKiB: 1000},
+		{ID: "learn", Mode: "sgd", DType: "bfloat16", Arch: "single", Score: 30, Soft: 70, Acc: 80, Thru: 80, Avail: 24, RAMKiB: 900},
+		{ID: "tiny", Mode: "tween", DType: "binary", Arch: "single", Score: 90, Soft: 50, Acc: 18, Thru: 180, Avail: 38, RAMKiB: 150},
+		{ID: "keep", Mode: "sgd", DType: "int8", Arch: "single", Score: 85, Soft: 65, Acc: 72, Thru: 170, Avail: 36, RAMKiB: 180},
+	}
+	l := BuildLPD(pts)
+	if l.Champ.ID != "fast" {
+		t.Fatalf("score champ %s", l.Champ.ID)
+	}
+	if l.AccChamp.ID != "learn" {
+		t.Fatalf("acc champ %s", l.AccChamp.ID)
+	}
+	var tiny, keep LPDRow
+	for _, r := range l.Top {
+		switch r.ID {
+		case "tiny":
+			tiny = r
+		case "keep":
+			keep = r
+		}
+	}
+	if tiny.Gold || tiny.LPD != 0 {
+		t.Fatalf("fast tiny with chance Acc vs Acc champ must not be gold: %+v", tiny)
+	}
+	if !keep.Gold {
+		t.Fatalf("int8 should be gold vs Acc champ: Q=%.2f relAcc=%.2f band=%s", keep.Q, keep.RelAcc, keep.Band)
+	}
+	if l.GoldStd.ID != "keep" {
+		t.Fatalf("gold-std want keep, got %s", l.GoldStd.ID)
+	}
+	if len(l.GoldModes) == 0 || l.GoldModes[0].Mode != "sgd" {
+		t.Fatalf("gold-std mode want sgd, got %+v", l.GoldModes)
+	}
 }

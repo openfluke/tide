@@ -56,17 +56,29 @@ func (d *doc) lpdBoard(l LPD) {
 	}
 	d.h2("Lucy Pareto (LPD) — goldilocks")
 	d.body(l.Formula)
-	d.body(fmt.Sprintf("Quality champ %s   Score %.1f  Soft %.0f  Acc %.0f  Thru %.0f  RAM %.1f KiB",
+	d.body(fmt.Sprintf("Score champ %s   Score %.1f  Soft %.0f  Acc %.0f  Thru %.0f  RAM %.1f KiB",
 		PrettyCell(l.Champ.ID), l.Champ.Score, l.Champ.Soft, l.Champ.Acc, l.Champ.Thru, l.Champ.RAMKiB))
+	if l.AccChamp.ID != "" {
+		d.body(fmt.Sprintf("Acc champ %s   Acc %.1f  Soft %.0f  Score %.1f  RAM %.1f KiB",
+			PrettyCell(l.AccChamp.ID), l.AccChamp.Acc, l.AccChamp.Soft, l.AccChamp.Score, l.AccChamp.RAMKiB))
+	}
+	if l.GoldStd.ID != "" {
+		d.body(fmt.Sprintf("Gold-std (smallest then fastest with Acc keep >= 80%%): %s  mode %s  Acc %.1f  Thru %.0f  %.1f KiB",
+			PrettyCell(l.GoldStd.ID), l.GoldStd.Mode, l.GoldStd.Acc, l.GoldStd.Thru, l.GoldStd.RAMKiB))
+	}
 	if l.FastID != "" {
 		d.body(fmt.Sprintf("Board fastest %s  Thru %.0f     Best availability %s  %.1f%%",
 			PrettyCell(l.FastID), l.FastThru, PrettyCell(l.AvailID), l.BestAvail))
 	}
 	if len(l.Gold) > 0 {
-		d.h2("Gold — Q >= 80% of champ, RAM <= 20%")
+		d.h2("Gold — Q>=80%, Acc keep >=80% of Acc champ, RAM <=20%")
 		d.lpdTable(l.Gold, 16)
 	} else {
-		d.body("No gold cell yet. Need a recipe that keeps 80% of the Score champ's Score/Soft/Acc/Thru at one fifth the RAM.")
+		d.body("No gold cell yet. Need 80% of Score+Acc champs at one fifth the Score-champ RAM.")
+	}
+	if len(l.GoldModes) > 0 {
+		d.h2("Gold-standard train modes — Acc keep >= 80%, smallest then fastest")
+		d.lpdModeTable(l.GoldModes)
 	}
 	if len(l.Near) > 0 {
 		d.h2("Near-gold — Q >= 70%, RAM <= 50%")
@@ -90,6 +102,9 @@ func (d *doc) lpdBoard(l LPD) {
 		d.h2("Trap — tiny RAM, Q < 70% (why Score/MiB lies)")
 		d.lpdTable(l.Trap, 10)
 	}
+	d.scatterLPD("LPD — Acc% vs RAM KiB (gold = high Acc keep, low RAM)", "RAM KiB", "Acc keep % vs Acc champ", l.Top,
+		func(r LPDRow) float64 { return r.RAMKiB },
+		func(r LPDRow) float64 { return r.RelAcc * 100 })
 	d.scatterLPD("LPD — Q% vs RAM KiB (gold = high Q, low RAM)", "RAM KiB", "Q %", l.Top,
 		func(r LPDRow) float64 { return r.RAMKiB },
 		func(r LPDRow) float64 { return r.Q * 100 })
@@ -107,7 +122,7 @@ func (d *doc) lpdBoard(l LPD) {
 }
 
 func (d *doc) lpdTable(rows []LPDRow, max int) {
-	d.table([]string{"Band", "Cell", "Q%", "RAM%", "xSmall", "LPD", "Soft", "Acc", "Score", "KiB"}, func(k int) []string {
+	d.table([]string{"Band", "Cell", "Q%", "Acc%", "RAM%", "xSmall", "LPD", "Soft", "Acc", "Score", "KiB"}, func(k int) []string {
 		if k >= len(rows) || k >= max {
 			return nil
 		}
@@ -115,6 +130,7 @@ func (d *doc) lpdTable(rows []LPDRow, max int) {
 		return []string{
 			r.Band, PrettyCell(r.ID),
 			fmt.Sprintf("%.0f", r.Q*100),
+			fmt.Sprintf("%.0f", r.RelAcc*100),
 			fmt.Sprintf("%.0f", r.RAMFrac*100),
 			fmt.Sprintf("%.1f", r.Shrink),
 			fmt.Sprintf("%.2f", r.LPD),
@@ -122,6 +138,24 @@ func (d *doc) lpdTable(rows []LPDRow, max int) {
 			fmt.Sprintf("%.0f", r.Acc),
 			fmt.Sprintf("%.1f", r.Score),
 			fmt.Sprintf("%.1f", r.RAMKiB),
+		}
+	})
+}
+
+func (d *doc) lpdModeTable(modes []LPDMode) {
+	d.table([]string{"Mode", "n", "best Acc", "smallest KiB", "fastest Thru", "smallest cell", "fastest cell"}, func(k int) []string {
+		if k >= len(modes) {
+			return nil
+		}
+		m := modes[k]
+		return []string{
+			m.Mode,
+			fmt.Sprintf("%d", m.N),
+			fmt.Sprintf("%.1f", m.BestAcc),
+			fmt.Sprintf("%.1f", m.MinRAM),
+			fmt.Sprintf("%.0f", m.MaxThru),
+			PrettyCell(m.Smallest),
+			PrettyCell(m.Fastest),
 		}
 	})
 }

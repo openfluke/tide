@@ -210,6 +210,13 @@ func (s *Server) Board() Board {
 	if ax := lpdPickAxis(out.LPD, "mix", "geomean of Q, MSpeed, MAvail — live mobile blend", func(r report.LPDRow) float64 { return r.Mix }); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
 	}
+	if s := out.LPD.GoldStd; s.ID != "" {
+		out.Axes = append(out.Axes, LucyAxis{
+			Name: "gold_std", Hint: "smallest then fastest cell with Acc keep ≥80% of Acc champ",
+			Value: s.RAMKiB, CellID: s.ID, Mode: s.Mode, DType: s.DType, Arch: s.Arch,
+			Score: s.Score, SoftAcc: s.Soft, Thru: s.Thru, Avail: s.Avail,
+		})
+	}
 	return out
 }
 
@@ -223,7 +230,7 @@ func lpdAxis(l report.LPD) LucyAxis {
 		return LucyAxis{}
 	}
 	return LucyAxis{
-		Name: "lpd", Hint: "goldilocks: ≥80% of Score champ quality at ≤20% RAM",
+		Name: "lpd", Hint: "goldilocks: ≥80% Q and ≥80% of Acc champ at ≤20% RAM",
 		Value: pick.LPD, CellID: pick.ID, Mode: pick.Mode, DType: pick.DType, Arch: pick.Arch,
 		Score: pick.Score, SoftAcc: pick.Soft, Thru: pick.Thru, Avail: pick.Avail,
 	}

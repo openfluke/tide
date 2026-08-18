@@ -360,12 +360,11 @@
   <section>
     <h2>Lucy Pareto (LPD) — goldilocks</h2>
     <p class="hint" id="lpdHint">
-      Q is how close a cell stays to the <b>Score champion</b> (geomean of Score, Soft, Acc, Thru).
-      Gold = Q ≥ 80% <b>and</b> RAM ≤ 20% of that champ — 80% of the best, at 1/5th the memory.
-      LPD is 0 below Q 70% so binary / chance Acc cannot win. Raw Score/MiB is the trap (tiny RAM, dead learner).
-      <b>MSpeed</b> = throughput vs the board’s fastest, but 0 unless Q ≥ 70%.
-      <b>MAvail</b> = infer/(infer+train) vs the board’s best duty cycle, same Q gate.
-      <b>Mix</b> = geomean of Q, MSpeed, MAvail — the live mobile blend.
+      Q is Score/Thru vs the <b>Score champ</b> and Soft/Acc vs their <b>own champs</b> (Acc champ is the highest hard Acc).
+      Gold = Q ≥ 80% <b>and</b> Acc keep ≥ 80% of the Acc champ <b>and</b> RAM ≤ 20% of the Score champ.
+      LPD is 0 unless Acc keep ≥ 70% — a fast cell at chance Acc cannot look like 94% Q.
+      <b>Gold-std mode</b> = smallest then fastest among cells that kept ≥80% of Acc champ.
+      <b>MSpeed</b> / <b>MAvail</b> / <b>Mix</b> still gate on that Q.
     </p>
     <div class="legend">
       <span><i style="background:#b7791f"></i>gold Q≥80% RAM≤20%</span>
@@ -374,21 +373,35 @@
       <span><i style="background:#e06c75"></i>trap tiny RAM, Q&lt;70%</span>
     </div>
     <div id="lpdChamp" class="meta" style="margin-bottom:0.5rem">—</div>
-    <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.</div>
+    <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need ≥80% of Score+Acc champs at ≤20% of Score-champ RAM.</div>
+    <div id="lpdStd" class="meta" style="margin-bottom:0.5rem">—</div>
     <div class="heat-grid">
       <div>
         <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Q% vs RAM KiB — gold is top-left</h3>
         <canvas class="scatter" id="scLpdRam" width="480" height="220"></canvas>
       </div>
       <div>
+        <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Acc keep % vs RAM — 80% Acc champ, 20% RAM</h3>
+        <canvas class="scatter" id="scLpdAcc" width="480" height="220"></canvas>
+      </div>
+      <div>
         <h3 style="margin:0 0 0.4rem;font-size:0.95rem">Q% vs shrink — gold is top-right</h3>
         <canvas class="scatter" id="scLpdShrink" width="480" height="220"></canvas>
       </div>
     </div>
+    <div class="table-wrap" style="max-height:240px;margin-top:0.8rem">
+      <table>
+        <thead><tr>
+          <th>Mode</th><th class="num">n</th><th class="num">best Acc</th><th class="num">smallest KiB</th>
+          <th class="num">fastest Thru</th><th>smallest cell</th><th>fastest cell</th>
+        </tr></thead>
+        <tbody id="lpdModes"></tbody>
+      </table>
+    </div>
     <div class="table-wrap" style="max-height:420px;margin-top:0.8rem">
       <table>
         <thead><tr>
-          <th>Band</th><th>Cell</th><th class="num">Q%</th><th class="num">RAM%</th><th class="num">×smaller</th>
+          <th>Band</th><th>Cell</th><th class="num">Q%</th><th class="num">Acc%</th><th class="num">RAM%</th><th class="num">×smaller</th>
           <th class="num">LPD</th><th class="num">Spd%</th><th class="num">Duty%</th><th class="num">Mix</th>
           <th class="num">Score</th><th class="num">Soft</th><th class="num">Acc</th><th class="num">Thru</th><th class="num">KiB</th>
         </tr></thead>
@@ -1643,7 +1656,7 @@ function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
   if (xmax <= xmin) xmax = xmin + 1;
   if (ymax <= ymin) ymax = ymin + 1;
   if (ymin > 0) ymin = 0;
-  if (ymax < 100 && yk === 'qpct') ymax = 100;
+  if (ymax < 100 && (yk === 'qpct' || yk === 'accpct')) ymax = 100;
   const pad = 22;
   const X = v => pad + (w - pad*2) * (v - xmin) / (xmax - xmin);
   const Y = v => h - pad - (h - pad*2) * (v - ymin) / (ymax - ymin);
@@ -1682,14 +1695,18 @@ function drawLPD() {
   const l = (lastLive && lastLive.lpd) || {};
   const champEl = document.getElementById('lpdChamp');
   const goldEl = document.getElementById('lpdGold');
+  const stdEl = document.getElementById('lpdStd');
   const tb = document.getElementById('lpdTable');
+  const modesEl = document.getElementById('lpdModes');
   const gold = l.gold || [];
   const near = l.near || [];
   const trap = l.trap || [];
   if (champEl) {
     const c = l.champ || {};
+    const ac = l.acc_champ || {};
     champEl.innerHTML = c.id
-      ? `<span class="pill">champ</span> ${prettyCellId(c.id)} · Score ${(c.score||0).toFixed(1)} · Soft ${(c.soft_acc||0).toFixed(0)} · Acc ${(c.avg_accuracy||0).toFixed(0)} · Thru ${(c.throughput||0).toFixed(0)} · ${(c.ram_kib||0).toFixed(1)} KiB
+      ? `<span class="pill">score</span> ${prettyCellId(c.id)} · Score ${(c.score||0).toFixed(1)} · Acc ${(c.avg_accuracy||0).toFixed(1)} · Thru ${(c.throughput||0).toFixed(0)} · ${(c.ram_kib||0).toFixed(1)} KiB
+         · <span class="pill">acc champ</span> ${prettyCellId(ac.id||'—')} · Acc ${(ac.avg_accuracy||0).toFixed(1)} · Soft ${(ac.soft_acc||0).toFixed(1)} · ${(ac.ram_kib||0).toFixed(1)} KiB
          · <span class="pill">gold ${gold.length}</span> <span class="pill">near ${near.length}</span> <span class="pill">trap ${trap.length}</span>
          <div style="margin-top:0.35rem">fastest ${prettyCellId(l.fast_id||'—')} · ${(l.fast_thru||0).toFixed(0)}/s
          · best duty ${prettyCellId(l.avail_id||'—')} · ${(l.best_avail||0).toFixed(1)}%
@@ -1704,8 +1721,26 @@ function drawLPD() {
       ).join('<br>');
     } else {
       goldEl.className = 'lpd-callout empty';
-      goldEl.textContent = 'No gold cell yet. Need ≥80% of the Score champ at ≤20% of its RAM.';
+      goldEl.textContent = 'No gold cell yet. Need ≥80% of Score+Acc champs at ≤20% of Score-champ RAM.';
     }
+  }
+  if (stdEl) {
+    const s = l.gold_std || {};
+    stdEl.innerHTML = s.id
+      ? `<span class="pill">gold-std</span> smallest+fastest with Acc keep ≥80%: ${prettyCellId(s.id)} · mode <b>${s.mode||'—'}</b> · Acc ${(s.avg_accuracy||0).toFixed(1)} · ${(s.throughput||0).toFixed(0)}/s · ${(s.ram_kib||0).toFixed(1)} KiB`
+      : 'No gold-std yet — nothing has kept 80% of the Acc champ.';
+  }
+  if (modesEl) {
+    const modes = l.gold_modes || [];
+    modesEl.innerHTML = modes.length ? modes.map(m => `<tr>
+      <td>${m.mode||'—'}</td>
+      <td class="num">${m.n||0}</td>
+      <td class="num">${(m.best_acc||0).toFixed(1)}</td>
+      <td class="num">${(m.min_ram_kib||0).toFixed(1)}</td>
+      <td class="num">${(m.max_thru||0).toFixed(0)}</td>
+      <td class="cellid">${formatCellHTML(null, m.smallest)}</td>
+      <td class="cellid">${formatCellHTML(null, m.fastest)}</td>
+    </tr>`).join('') : '<tr><td colspan="7">no Acc-keep ≥80% cells yet</td></tr>';
   }
   const rows = l.top || [];
   if (tb) {
@@ -1713,6 +1748,7 @@ function drawLPD() {
       <td>${r.band||'—'}</td>
       <td class="cellid">${formatCellHTML(null, r.id)}</td>
       <td class="num">${((r.q||0)*100).toFixed(0)}</td>
+      <td class="num">${((r.rel_acc||0)*100).toFixed(0)}</td>
       <td class="num">${((r.ram_frac||0)*100).toFixed(0)}</td>
       <td class="num">${(r.shrink||0).toFixed(1)}×</td>
       <td class="num">${(r.lpd||0).toFixed(2)}</td>
@@ -1721,18 +1757,19 @@ function drawLPD() {
       <td class="num">${((r.mix||0)*100).toFixed(0)}</td>
       <td class="num">${(r.score||0).toFixed(1)}</td>
       <td class="num">${(r.soft_acc||0).toFixed(0)}</td>
-      <td class="num">${(r.avg_accuracy||0).toFixed(0)}</td>
+      <td class="num">${(r.avg_accuracy||0).toFixed(1)}</td>
       <td class="num">${(r.throughput||0).toFixed(0)}</td>
       <td class="num">${(r.ram_kib||0).toFixed(1)}</td>
-    </tr>`).join('') : '<tr><td colspan="14">no finished ok cells yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="15">no finished ok cells yet</td></tr>';
     bindRowClicks(tb);
   }
   const pts = lpdMerged(l).map(r => ({
     band: r.band, gold: r.gold,
-    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100,
+    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100, accpct: (r.rel_acc||0)*100,
   }));
   const champRam = (l.champ && l.champ.ram_kib) || 0;
   drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
+  drawLPDScatter('scLpdAcc', pts, 'ram', 'accpct', champRam * 0.2, 80, 'left');
   drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
 }
 function drawLucyCharts() {
