@@ -614,7 +614,7 @@
 <div class="tables">
   <section>
     <h2>Best full cell per mode × arch</h2>
-    <p class="hint">Champion cell for each mode at each cameral width (single×1 / bi×2 / tri×3). That is head count, not the layer under test.</p>
+    <p class="hint">Champion cell for each mode at each cameral width (cameral×N). That is head count, not the layer under test.</p>
     <div class="table-wrap" style="max-height:360px">
       <table>
         <thead><tr><th>Mode</th><th>Score</th><th>Soft</th><th>Acc</th><th>t→50%</th><th>Acc/s</th><th>n</th><th>Cell</th></tr></thead>
@@ -1167,21 +1167,34 @@ function bindRowClicks(root) {
 function prettyCellId(id) {
   return String(id||'').replace(/\|cnn\|/g, '|single|');
 }
+function parseCamCount(arch) {
+  const s = String(arch || '').toLowerCase().replace(/×/g, 'x');
+  if (s === 'tricameral' || s === 'tri') return 3;
+  if (s === 'bicameral' || s === 'bi') return 2;
+  if (s === 'single' || s === 'cnn' || s === 'cnnx1' || s === '') return 1;
+  const m = s.match(/(\d+)\s*$/);
+  const n = m ? parseInt(m[1], 10) : 0;
+  return n >= 1 ? n : 0;
+}
+function archTagFor(n, arch) {
+  const a = String(arch || '');
+  if (n <= 1) return 'single×1';
+  if (n === 2 && /^(bicameral|bi)?$/i.test(a)) return 'bicameral×2';
+  if (n === 3 && /^(tricameral|tri)?$/i.test(a)) return 'tricameral×3';
+  return 'cameral×' + n;
+}
 function parseCell(cell, id) {
   id = prettyCellId(id || cell?.id || '');
   const p = String(id).split('|');
   let arch = (cell && cell.arch) || p[3] || 'single';
   if (arch === 'cnn') arch = 'single';
   let cams = (cell && cell.cams) || 0;
-  if (!cams) {
-    if (arch === 'tricameral') cams = 3;
-    else if (arch === 'bicameral') cams = 2;
-    else cams = 1;
-  }
+  if (!cams) cams = parseCamCount(arch);
+  if (!cams) cams = 1;
   const mode = (cell && cell.mode) || p[2] || '';
   const dtype = p[0] || '';
   const format = p[1] || '';
-  const tag = cams <= 1 ? 'single×1' : (cams === 2 ? 'bi×2' : (cams === 3 ? 'tri×3' : (arch + '×' + cams)));
+  const tag = archTagFor(cams, arch);
   return { id, arch, cams, mode, dtype, format, tag };
 }
 function archBadge(cell, id) {
