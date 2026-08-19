@@ -34,7 +34,8 @@ func TestPDFLatinNoMojibake(t *testing.T) {
 	b, err := PDFTide(TideReport{
 		Task:      "mha",
 		ID:        "mha",
-		Subtitle:  "token mixing on 8×8 patches · Lucy",
+		LR:        0.05,
+		Subtitle:  "token mixing on 8x8 patches · Lucy",
 		Status:    "done",
 		Generated: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC),
 		Axes: []AxisView{
@@ -57,6 +58,9 @@ func TestPDFLatinNoMojibake(t *testing.T) {
 	}
 	if !bytes.Contains(b, []byte("tide - mha")) {
 		t.Fatal("expected ascii title in pdf info")
+	}
+	if !bytes.Contains(b, []byte("lr 0.05")) {
+		t.Fatal("expected learning rate on cover")
 	}
 }
 
@@ -82,8 +86,11 @@ func TestPDFPrettyCellNoClip(t *testing.T) {
 	if bytes.Contains(b, []byte("|cnn|")) {
 		t.Fatal("pdf still contains |cnn|")
 	}
-	if !bytes.Contains(b, []byte("TweenSplitHeadProxy")) {
-		t.Fatal("cell id was clipped; missing TweenSplitHeadProxy")
+	if !bytes.Contains(b, []byte("[T][S][HP]")) {
+		t.Fatal("cell id missing short mode [T][S][HP]")
+	}
+	if !bytes.Contains(b, []byte("[T]=Tween")) {
+		t.Fatal("expected mode legend on cover")
 	}
 	if !bytes.Contains(b, []byte("single")) {
 		t.Fatal("expected single in pdf")
@@ -131,7 +138,7 @@ func TestPDFGoldModeTableFits(t *testing.T) {
 	if bytes.Contains(b, []byte("smallest cell")) || bytes.Contains(b, []byte("fastest cell")) {
 		t.Fatal("old overlapping gold-mode headers still present")
 	}
-	if !bytes.Contains(b, []byte("bfloat16 MeshTweenSplitSparse single")) {
+	if !bytes.Contains(b, []byte("bfloat16 Mesh[T][S]Sparse single")) {
 		t.Fatal("expected compact cell in gold-mode table")
 	}
 }
@@ -153,6 +160,44 @@ func TestPDFConsciousnessRadar(t *testing.T) {
 	if !bytes.Contains(b, []byte("Memory density radar")) {
 		t.Fatal("missing density radar")
 	}
+}
+
+func TestPDFKeepsAllTrainModes(t *testing.T) {
+	modes := []string{
+		"sgd", "step_sgd", "tween", "TweenChain", "StepTween", "StepTweenChain",
+		"TweenSplit", "StepTweenSplit", "TweenAlt", "StepTweenAlt",
+		"TweenSplitHeadProxy", "TweenSplitLinear", "TweenSplitFastProxy",
+		"TweenSplitLinearCache", "TweenSplitHeadProxyAsync", "TweenSplitSparse",
+		"MeshBP", "MeshTween", "MeshTweenChain", "MeshTweenSplit",
+		"MeshTweenAlt", "MeshTweenSplitFastProxy", "MeshTweenSplitSparse",
+		"NormalBP", "StepBP", "extraMode28", "extraMode29", "extraMode30",
+	}
+	var pts []CellPoint
+	var keys []string
+	var vals []float64
+	for i, m := range modes {
+		pts = append(pts, CellPoint{
+			ID: m, Mode: m, DType: "float32", Arch: "single",
+			Score: float64(i + 1), Acc: float64(i), Soft: 10, Avail: 20, Thru: 30,
+		})
+		keys = append(keys, m)
+		vals = append(vals, float64(i+1))
+	}
+	h := BuildHeat(pts)
+	b, err := PDFTide(TideReport{Task: "GPT-char", Cells: pts, Heat: h, Winners: WinnersView{
+		BestSettingsPerMode: []WinnerRow{{Mode: "TweenSplitHeadProxyAsync", DType: "float32", Format: "none", Score: 1}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"TweenSplitHeadProxyAsync", "MeshTweenSplitSparse", "extraMode30", "StepTweenSplit"} {
+		want := PrettyMode(m)
+		if !bytes.Contains(b, []byte(want)) {
+			t.Fatalf("pdf dropped train mode %s (want %s)", m, want)
+		}
+	}
+	_ = keys
+	_ = vals
 }
 
 func TestPDFVsBaseline(t *testing.T) {

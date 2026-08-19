@@ -46,6 +46,9 @@ func (s *Server) handleReportPDF(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "tide"
 	}
+	if s.LR > 0 {
+		name += "-lr" + report.FormatLR(s.LR)
+	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`-lucy-report.pdf"`)
 	w.Header().Set("Cache-Control", "no-store")
@@ -69,6 +72,7 @@ func (b Board) ToReport(history []pulse.HistoryPoint) report.TideReport {
 		ID:           b.ID,
 		Task:         b.Task,
 		Subtitle:     b.Subtitle,
+		LR:           b.LR,
 		Addr:         b.Addr,
 		Epoch:        b.Epoch,
 		Plan:         b.Plan,

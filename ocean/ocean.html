@@ -112,6 +112,7 @@
   <div class="meta" id="status">connecting…</div>
 </header>
 <p class="score-eq">Ocean does not retrain — it polls <code>/api/board</code>. Lucy Score = Throughput × Availability × Acc / 10,000. Acc is learning. Availability is the live loop (SGD that blocks serve dies here). LPD condenses that live-fit into RAM. Honesty / test48 is where FastProxy and MeshTween show up. Remote Pis <code>POST /api/register</code> then <b>Start all</b>.</p>
+<p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
 <div class="actions">
   <button type="button" id="startAll">Start all tides</button>
   <button type="button" class="ghost" id="refresh">Refresh now</button>
@@ -184,7 +185,7 @@
 <section>
   <h2>Per-layer best (mode × dtype × arch)</h2>
   <div class="table-wrap"><table id="layers"><thead><tr>
-    <th>tide</th><th>mode</th><th>dtype</th><th>arch</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>adapt</th><th>done</th>
+    <th>tide</th><th>lr</th><th>mode</th><th>dtype</th><th>arch</th><th>score</th><th>soft</th><th>acc</th><th>thru</th><th>adapt</th><th>done</th>
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
@@ -257,6 +258,7 @@
 const $ = id => document.getElementById(id);
 function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
 function fmt(n, d=2) { return (n||0).toFixed(d); }
+function fmtLR(n) { return (n != null && +n > 0) ? String(+n) : 'unset'; }
 function fitCanvas(c) {
   if (!c) return false;
   const w = Math.max(280, Math.round(c.clientWidth || c.width || 480));
@@ -283,8 +285,15 @@ function strokeAxisLabels(ctx, w, h, padL, padB, xk, yk) {
   ctx.fillText(axisName(yk), 0, 0);
   ctx.restore();
 }
+function prettyMode(s) {
+  s = String(s || '');
+  return s.replace(/FastProxy/g, '[FP]').replace(/HeadProxy/g, '[HP]').replace(/Linear/g, '[L]').replace(/Split/g, '[S]').replace(/Tween/g, '[T]');
+}
 function prettyCell(id) {
-  return String(id||'').replace(/\|cnn\|/g, '|single|');
+  id = String(id||'').replace(/\|cnn\|/g, '|single|');
+  const p = id.split('|');
+  if (p.length >= 3) p[2] = prettyMode(p[2]);
+  return p.join('|');
 }
 function prettyArch(a) {
   a = String(a||'');
@@ -310,22 +319,22 @@ function render(j) {
   const h = j.holistic || {};
   $('status').textContent = `${j.title||'ocean'} · ${h.tides_up||0}/${h.tides_total||0} up · ${h.cells_done||0}/${h.cells_total||0} cells · ${new Date(j.updated_at).toLocaleTimeString()}`;
   $('kpis').innerHTML = [
-    ['best mode', h.best_mode || '—'],
+    ['best mode', prettyMode(h.best_mode || '—')],
     ['best dtype', h.best_dtype || '—'],
     ['best arch', prettyArch(h.best_arch) || '—'],
-    ['default recipe', `${h.default_mode||'—'} · ${h.default_dtype||'—'} · ${prettyArch(h.default_arch)||'—'}`],
+    ['default recipe', `${prettyMode(h.default_mode||'—')} · ${h.default_dtype||'—'} · ${prettyArch(h.default_arch)||'—'}`],
     ['tides up', `${h.tides_up||0} / ${h.tides_total||0}`],
     ['cells done', `${h.cells_done||0} / ${h.cells_total||0}`],
     ['LPD gold', (h.lpd && h.lpd.gold && h.lpd.gold.length) ? `${h.lpd.gold.length} · ${prettyCell(h.lpd.gold[0].id)}` : 'none yet'],
     ['live-fit Q', (h.lpd && h.lpd.live_champ && h.lpd.live_champ.id) ? `${prettyCell(h.lpd.live_champ.id)}` : '—'],
     ['acc champ', (h.lpd && h.lpd.acc_champ && h.lpd.acc_champ.id) ? `${prettyCell(h.lpd.acc_champ.id)} · ${(h.lpd.acc_champ.avg_accuracy||0).toFixed(1)}%` : '—'],
-    ['gold-std', (h.lpd && h.lpd.gold_std && h.lpd.gold_std.id) ? `${h.lpd.gold_std.mode||'—'} · ${prettyCell(h.lpd.gold_std.id)}` : 'none yet'],
+    ['gold-std', (h.lpd && h.lpd.gold_std && h.lpd.gold_std.id) ? `${prettyMode(h.lpd.gold_std.mode||'—')} · ${prettyCell(h.lpd.gold_std.id)}` : 'none yet'],
     ['Acc-champ RAM', h.lpd && h.lpd.acc_champ && h.lpd.acc_champ.id ? `${(h.lpd.acc_champ.ram_kib||0).toFixed(1)} KiB` : '—'],
   ].map(([k,v]) => `<div class="kpi"><span>${k}</span><b>${v}</b></div>`).join('');
   const chips = (votes, label) => {
     if (!votes || !votes.length) return `<p class="hint">No ${label} votes yet — wait for finished cells.</p>`;
     return `<div class="hint">${label}</div><div class="votes">` +
-      votes.slice(0, 12).map(v => `<span class="chip"><b>${prettyArch(v.key)}</b> ×${v.count} · mean ${fmt(v.mean_score)}</span>`).join('') +
+      votes.slice(0, 12).map(v => `<span class="chip"><b>${prettyMode(prettyArch(v.key))}</b> ×${v.count} · mean ${fmt(v.mean_score)}</span>`).join('') +
       `</div>`;
   };
   $('votes').innerHTML = chips(h.mode_votes, 'train mode') + chips(h.dtype_votes, 'dtype') + chips(h.arch_votes, 'arch');
@@ -334,7 +343,7 @@ function render(j) {
     <td>${a.name}</td>
     <td class="ok">${fmt(a.value)}</td>
     <td>${a.tide||'—'}</td>
-    <td>${a.mode||'—'}</td>
+    <td>${prettyMode(a.mode||'—')}</td>
     <td>${a.dtype||'—'}</td>
     <td>${prettyArch(a.arch||'—')}</td>
     <td>${prettyCell(a.cell_id||'')}</td>
@@ -343,12 +352,12 @@ function render(j) {
     const rows = (l.axes||[]).map(a => `<tr>
       <td>${a.name}</td>
       <td class="ok">${fmt(a.value)}</td>
-      <td>${a.mode||'—'}</td>
+      <td>${prettyMode(a.mode||'—')}</td>
       <td>${a.dtype||'—'}</td>
       <td>${prettyArch(a.arch||'—')}</td>
       <td>${prettyCell(a.cell_id||'')}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="tiny">no finished cells yet</td></tr>';
-    return `<h3><a href="${publicURL(l.url)||'#'}" target="_blank" rel="noopener">${l.tide}</a></h3>
+    return `<h3><a href="${publicURL(l.url)||'#'}" target="_blank" rel="noopener">${l.tide}</a> <span class="tiny">lr ${fmtLR(l.lr)}</span></h3>
       <div class="table-wrap"><table>
         <thead><tr><th>axis</th><th>value</th><th>mode</th><th>dtype</th><th>arch</th><th>cell</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -366,7 +375,7 @@ function render(j) {
     const cls = !p.ok ? 'down' : (st === 'done' ? 'done' : (st === 'running' ? 'run' : (st === 'queued' ? 'queued' : '')));
     return `<article class="card ${cls}">
       <h3><a href="${publicURL(p.url)}" target="_blank" rel="noopener">${p.name}</a></h3>
-      <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms</div>
+      <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms · lr ${fmtLR(b.lr)}</div>
       <div class="bar"><i style="width:${pctBar}%"></i></div>
       <div class="tiny">epoch ${b.epoch||1} · ${done}/${tot}${rec > tot ? ` · ${rec} recorded` : ''} · ${b.ok||0} ok · ${b.gap||0} gap · ${b.fail||0} fail</div>
       <div class="tiny">now ${cur}</div>
@@ -377,7 +386,8 @@ function render(j) {
   const lt = $('layers').querySelector('tbody');
   lt.innerHTML = (h.layers||[]).map(l => `<tr>
     <td><a href="${publicURL(l.url)}" target="_blank">${l.tide}</a></td>
-    <td>${l.mode||'—'}</td><td>${l.dtype||'—'}</td><td>${prettyArch(l.arch||'—')}</td>
+    <td>${fmtLR(l.lr)}</td>
+    <td>${prettyMode(l.mode||'—')}</td><td>${l.dtype||'—'}</td><td>${prettyArch(l.arch||'—')}</td>
     <td class="ok">${fmt(l.score)}</td>
     <td>${fmt(l.soft_acc,1)}</td>
     <td>${fmt(l.avg_accuracy,1)}</td>
@@ -449,9 +459,9 @@ function heatTable(elId, rows, cols, grid, signed) {
   if (!isFinite(min)) { min = 0; max = 1; }
   if (max <= min) max = min + 1;
   if (maxAbs < 1e-9) maxAbs = 1;
-  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th title="${c}">${c}</th>`).join('') + '</tr></thead><tbody>';
+  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th title="${c}">${prettyMode(c)}</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach((r, i) => {
-    html += `<tr><th title="${r}">${r}</th>`;
+    html += `<tr><th title="${r}">${prettyMode(r)}</th>`;
     cols.forEach((_, j) => {
       const raw = grid[i] && grid[i][j];
       if (raw == null || raw === '') { html += '<td></td>'; return; }
@@ -511,7 +521,7 @@ function drawSignedBars(canvasId, rows, key) {
     ctx.fillStyle = '#c5d0d6';
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(String(r.mode || ''), padL - 8, y + barH);
+    ctx.fillText(prettyMode(r.mode || ''), padL - 8, y + barH);
     ctx.textAlign = 'left';
     ctx.fillText((v >= 0 ? '+' : '') + v.toFixed(1), mid + (v >= 0 ? bw + 6 : 6), y + barH);
   });
@@ -527,14 +537,14 @@ function renderVs(heat) {
   sec.style.display = '';
   const title = $('vsTitle');
   const hint = $('vsHint');
-  if (title) title.textContent = 'vs ' + vs.baseline + ' (matched dtype × format × arch)';
+  if (title) title.textContent = 'vs ' + prettyMode(vs.baseline) + ' (matched dtype × format × arch)';
   if (hint) hint.textContent = 'AccΔ is the honest column. ScoreΔ is usually Avail (duty clock). Baseline is discovered from this ocean, not a frozen StepBP list.';
   const wrap = $('vsTableWrap');
   if (wrap) {
     let html = '<table><thead><tr><th>mode</th><th>n</th><th>AccΔ</th><th>Acc win%</th><th>SoftΔ</th><th>AvailΔ</th><th>ThruΔ</th><th>ScoreΔ</th><th>Score win%</th></tr></thead><tbody>';
     vs.modes.forEach(m => {
       html += `<tr>
-        <td>${m.mode||''}</td><td>${m.n||0}</td>
+        <td>${prettyMode(m.mode||'')}</td><td>${m.n||0}</td>
         <td>${(m.acc_delta||0).toFixed(1)}</td><td>${(m.acc_win||0).toFixed(0)}</td>
         <td>${(m.soft_delta||0).toFixed(1)}</td><td>${(m.avail_delta||0).toFixed(1)}</td>
         <td>${(m.thru_delta||0).toFixed(0)}</td><td>${(m.score_delta||0).toFixed(1)}</td>
@@ -815,7 +825,7 @@ function drawLPD(h) {
   if (stdEl) {
     const s = l.gold_std || {};
     stdEl.innerHTML = s.id
-      ? `<span class="chip"><b>gold-std</b></span> ${prettyCell(s.id)} · mode ${s.mode||'—'} · Acc ${fmt(s.avg_accuracy,1)} · ${fmt(s.throughput,0)}/s · ${fmt(s.ram_kib,1)} KiB`
+      ? `<span class="chip"><b>gold-std</b></span> ${prettyCell(s.id)} · mode ${prettyMode(s.mode||'—')} · Acc ${fmt(s.avg_accuracy,1)} · ${fmt(s.throughput,0)}/s · ${fmt(s.ram_kib,1)} KiB`
       : 'No gold-std yet — need Acc ≥80% plus at least one other pillar.';
   }
   if (modesTb) {
@@ -824,7 +834,7 @@ function drawLPD(h) {
       let cell = m.smallest || '';
       if (m.fastest && m.fastest !== m.smallest) cell += ' / ' + m.fastest;
       return `<tr>
-      <td>${m.mode||'—'}</td><td>${m.n||0}</td>
+      <td>${prettyMode(m.mode||'—')}</td><td>${m.n||0}</td>
       <td>${fmt(m.best_acc,1)}</td><td>${fmt(m.min_ram_kib,1)}</td>
       <td>${fmt(m.max_thru,0)}</td>
       <td>${prettyCell(cell)}</td>

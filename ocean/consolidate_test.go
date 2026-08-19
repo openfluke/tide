@@ -13,6 +13,7 @@ func TestCollectOceanPointsDedup(t *testing.T) {
 	peers := []PeerState{{
 		OK: true, Name: "dense",
 		Board: dash.Board{
+			LR:   0.03,
 			Heat: report.Heat{Points: []report.CellPoint{pt, pt}},
 			LPD:  report.LPD{Top: []report.LPDRow{row}, Gold: []report.LPDRow{row}},
 		},
@@ -24,5 +25,12 @@ func TestCollectOceanPointsDedup(t *testing.T) {
 	lpd := report.BuildLPD(got)
 	if lpd.N != 1 || lpd.Champ.ID != "int8" {
 		t.Fatalf("rebuild %+v", lpd)
+	}
+}
+
+func TestLayerWinnerLR(t *testing.T) {
+	h := consolidate([]PeerState{{OK: true, Name: "dense", Board: dash.Board{LR: 0.03}}})
+	if len(h.Layers) != 1 || h.Layers[0].LR != 0.03 {
+		t.Fatalf("layers %+v", h.Layers)
 	}
 }

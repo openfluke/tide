@@ -57,6 +57,7 @@ type Model struct {
 	Para     *parallel.Layer
 	DenseOut *dense.Layer
 	stack    *parallel.Stack // Dense sandwich for TrainStackMSE (not CNN stem)
+	line     *parallel.Line[float32]
 	FlatIn   int
 	OutH1    int
 	OutW1    int
@@ -395,6 +396,14 @@ func (m *Model) denseSandwich() (*parallel.Stack, error) {
 	}
 	m.stack = s
 	return s, nil
+}
+
+func (m *Model) lineOps() []any {
+	ops := []any{m.CNN1, m.CNN2, &parallel.Flatten{Feat: m.FlatIn}}
+	if m.isCameral() {
+		return append(ops, m.DenseIn, m.Para, m.DenseOut)
+	}
+	return append(ops, m.Head)
 }
 
 // SoftAccScaleClass: SoftAcc on probabilities (MNIST). Sine test41 uses 0.10.

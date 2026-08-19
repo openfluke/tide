@@ -33,6 +33,7 @@ type Inflight struct {
 type Progress struct {
 	Version         int                   `json:"version"`
 	Mode            string                `json:"mode"`
+	LR              float64               `json:"lr,omitempty"`
 	Epoch           int                   `json:"epoch"` // 1-based; re-run after full sweep bumps this
 	UpdatedAt       time.Time             `json:"updated_at"`
 	CellTotal       int                   `json:"cell_total"`

@@ -313,6 +313,7 @@
   <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
 </header>
 <p class="score-eq">Synthetic organism metric — Lucy density. Score = Throughput × Availability × Acc / 10,000. Acc is argmax learning. Availability is infer/(infer+train): SGD that blocks the live loop dies here. SoftAcc is serve-confidence, not Score. LPD then condenses that live-fit into RAM. Honesty grids (test48) show which train modes (FastProxy / MeshTween / Sparse) keep Acc without stalling serve.</p>
+<p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
 <p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
   Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
 </p>
@@ -1147,7 +1148,7 @@ function modeColor(mode) {
 }
 function modeChip(mode) {
   const c = modeColor(mode || '');
-  return `<span class="mode-chip" style="color:${c};border-color:${c}66;background:${c}18">${mode || '—'}</span>`;
+  return `<span class="mode-chip" style="color:${c};border-color:${c}66;background:${c}18">${prettyMode(mode) || '—'}</span>`;
 }
 function escAttr(s) {
   return String(s||'').replace(/\\/g,'\\\\').replace(/"/g,'&quot;').replace(/'/g, '&#39;');
@@ -1164,8 +1165,15 @@ function bindRowClicks(root) {
   });
 }
 
+function prettyMode(s) {
+  s = String(s || '');
+  return s.replace(/FastProxy/g, '[FP]').replace(/HeadProxy/g, '[HP]').replace(/Linear/g, '[L]').replace(/Split/g, '[S]').replace(/Tween/g, '[T]');
+}
 function prettyCellId(id) {
-  return String(id||'').replace(/\|cnn\|/g, '|single|');
+  id = String(id||'').replace(/\|cnn\|/g, '|single|');
+  const p = id.split('|');
+  if (p.length >= 3) p[2] = prettyMode(p[2]);
+  return p.join('|');
 }
 function parseCamCount(arch) {
   const s = String(arch || '').toLowerCase().replace(/×/g, 'x');
@@ -1184,8 +1192,8 @@ function archTagFor(n, arch) {
   return 'cameral×' + n;
 }
 function parseCell(cell, id) {
-  id = prettyCellId(id || cell?.id || '');
-  const p = String(id).split('|');
+  const raw = String(id || cell?.id || '').replace(/\|cnn\|/g, '|single|');
+  const p = raw.split('|');
   let arch = (cell && cell.arch) || p[3] || 'single';
   if (arch === 'cnn') arch = 'single';
   let cams = (cell && cell.cams) || 0;
@@ -1195,7 +1203,7 @@ function parseCell(cell, id) {
   const dtype = p[0] || '';
   const format = p[1] || '';
   const tag = archTagFor(cams, arch);
-  return { id, arch, cams, mode, dtype, format, tag };
+  return { id: prettyCellId(raw), arch, cams, mode, dtype, format, tag };
 }
 function archBadge(cell, id) {
   const c = parseCell(cell, id);
@@ -1638,11 +1646,18 @@ async function syncHistoryTip(serverLen, tip) {
 function applyTaskMeta(j) {
   const task = (j && j.task) ? String(j.task).trim() : '';
   const sub = (j && j.subtitle) ? String(j.subtitle).trim() : '';
+  const lr = (j && j.lr != null && +j.lr > 0) ? String(+j.lr) : '';
   const titleEl = document.getElementById('taskTitle');
   const subEl = document.getElementById('taskSub');
-  if (titleEl) titleEl.textContent = task ? (task + ' · live adaptation') : 'live adaptation';
-  document.title = task ? ('tide — ' + task) : 'tide — live adaptation';
-  if (subEl && sub) subEl.textContent = sub;
+  let title = task ? (task + ' · live adaptation') : 'live adaptation';
+  if (lr) title += ' · lr ' + lr;
+  if (titleEl) titleEl.textContent = title;
+  document.title = task ? ('tide — ' + task + (lr ? (' · lr ' + lr) : '')) : 'tide — live adaptation';
+  if (subEl) {
+    if (sub && lr) subEl.textContent = sub + ' · lr ' + lr;
+    else if (sub) subEl.textContent = sub;
+    else if (lr) subEl.textContent = 'lr ' + lr;
+  }
 }
 
 function heatRGB(t) {
@@ -1678,9 +1693,9 @@ function heatTable(elId, rows, cols, grid, signed) {
   if (!isFinite(min)) { min = 0; max = 1; }
   if (max <= min) max = min + 1;
   if (maxAbs < 1e-9) maxAbs = 1;
-  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th title="${c}">${c}</th>`).join('') + '</tr></thead><tbody>';
+  let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th title="${c}">${prettyMode(c)}</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach((r, i) => {
-    html += `<tr><th title="${r}">${r}</th>`;
+    html += `<tr><th title="${r}">${prettyMode(r)}</th>`;
     cols.forEach((_, j) => {
       const raw = grid[i] && grid[i][j];
       if (raw == null || raw === '') { html += '<td></td>'; return; }
@@ -1741,7 +1756,7 @@ function drawSignedBars(canvasId, rows, key) {
     ctx.fillStyle = '#c5d0d6';
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(String(r.mode || ''), padL - 8, y + barH);
+    ctx.fillText(prettyMode(r.mode || ''), padL - 8, y + barH);
     ctx.textAlign = 'left';
     ctx.fillText((v >= 0 ? '+' : '') + v.toFixed(1), mid + (v >= 0 ? bw + 6 : 6), y + barH);
   });
@@ -1757,14 +1772,14 @@ function renderVs(heat) {
   sec.style.display = '';
   const title = document.getElementById('vsTitle');
   const hint = document.getElementById('vsHint');
-  if (title) title.textContent = 'vs ' + vs.baseline + ' (matched dtype × format × arch)';
+  if (title) title.textContent = 'vs ' + prettyMode(vs.baseline) + ' (matched dtype × format × arch)';
   if (hint) hint.textContent = 'AccΔ is the honest column. ScoreΔ is usually Avail (duty clock), not a better chain rule. Acc win = AccΔ > 0.5. Score win = ScoreΔ > 1. Baseline is discovered (sgd / NormalBP / StepBP) from this board.';
   const wrap = document.getElementById('vsTableWrap');
   if (wrap) {
     let html = '<table><thead><tr><th>mode</th><th class="num">n</th><th class="num">AccΔ</th><th class="num">Acc win%</th><th class="num">SoftΔ</th><th class="num">AvailΔ</th><th class="num">ThruΔ</th><th class="num">ScoreΔ</th><th class="num">Score win%</th></tr></thead><tbody>';
     vs.modes.forEach(m => {
       html += `<tr>
-        <td>${m.mode||''}</td>
+        <td>${prettyMode(m.mode||'')}</td>
         <td class="num">${m.n||0}</td>
         <td class="num">${(m.acc_delta||0).toFixed(1)}</td>
         <td class="num">${(m.acc_win||0).toFixed(0)}</td>
@@ -2051,7 +2066,7 @@ function drawLPD() {
   if (stdEl) {
     const s = l.gold_std || {};
     stdEl.innerHTML = s.id
-      ? `<span class="pill">gold-std</span> Acc ≥80% plus Thru or Avail ≥80%, then smallest+fastest: ${prettyCellId(s.id)} · mode <b>${s.mode||'—'}</b> · Acc ${(s.avg_accuracy||0).toFixed(1)} · ${(s.throughput||0).toFixed(0)}/s · ${(s.ram_kib||0).toFixed(1)} KiB`
+      ? `<span class="pill">gold-std</span> Acc ≥80% plus Thru or Avail ≥80%, then smallest+fastest: ${prettyCellId(s.id)} · mode <b>${prettyMode(s.mode||'—')}</b> · Acc ${(s.avg_accuracy||0).toFixed(1)} · ${(s.throughput||0).toFixed(0)}/s · ${(s.ram_kib||0).toFixed(1)} KiB`
       : 'No gold-std yet — need Acc ≥80% of Acc champ plus at least one other pillar.';
   }
   if (modesEl) {
@@ -2060,7 +2075,7 @@ function drawLPD() {
       let cell = m.smallest || '';
       if (m.fastest && m.fastest !== m.smallest) cell += ' / ' + m.fastest;
       return `<tr>
-      <td>${m.mode||'—'}</td>
+      <td>${prettyMode(m.mode||'—')}</td>
       <td class="num">${m.n||0}</td>
       <td class="num">${(m.best_acc||0).toFixed(1)}</td>
       <td class="num">${(m.min_ram_kib||0).toFixed(1)}</td>
@@ -2195,7 +2210,7 @@ async function tick() {
       axEl.innerHTML = axes.length ? axes.map(a => `<tr>
         <td>${a.name||''}</td>
         <td class="num">${(a.value||0).toFixed(2)}</td>
-        <td>${a.mode||'—'}</td>
+        <td>${prettyMode(a.mode||'—')}</td>
         <td>${a.dtype||'—'}</td>
         <td>${(a.arch||'—').replace(/^cnn$/i,'single')}</td>
         <td>${prettyCellId(a.cell_id||'')}</td>

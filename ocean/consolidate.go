@@ -13,6 +13,7 @@ import (
 type LayerWinner struct {
 	Tide      string      `json:"tide"`
 	URL       string      `json:"url"`
+	LR        float64     `json:"lr"`
 	Mode      string      `json:"mode"`
 	DType     string      `json:"dtype"`
 	Format    string      `json:"format"`
@@ -112,6 +113,7 @@ func consolidate(peers []PeerState) Holistic {
 		w := LayerWinner{
 			Tide:     p.Name,
 			URL:      p.URL,
+			LR:       b.LR,
 			Ok:       b.Ok,
 			Gap:      b.Gap,
 			Fail:     b.Fail,

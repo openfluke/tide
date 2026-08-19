@@ -14,6 +14,7 @@ type TideReport struct {
 	ID           string               `json:"id"`
 	Task         string               `json:"task"`
 	Subtitle     string               `json:"subtitle"`
+	LR           float64              `json:"lr"`
 	Addr         string               `json:"addr"`
 	Epoch        int                  `json:"epoch"`
 	Plan         int                  `json:"plan"`
@@ -75,6 +76,7 @@ type Vote struct {
 
 type LayerRow struct {
 	Tide     string     `json:"tide"`
+	LR       float64    `json:"lr"`
 	Mode     string     `json:"mode"`
 	DType    string     `json:"dtype"`
 	Arch     string     `json:"arch"`

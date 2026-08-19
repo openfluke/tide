@@ -79,7 +79,7 @@ func (d *doc) vsBoard(heat Heat) {
 	if vs == nil || vs.Baseline == "" || len(vs.Modes) == 0 {
 		return
 	}
-	d.h2("vs " + vs.Baseline + " — matched dtype x format x arch")
+	d.h2("vs " + PrettyMode(vs.Baseline) + " — matched dtype x format x arch")
 	d.body("AccDelta is the honest column. ScoreDelta is usually Availability (duty clock), not a better chain rule. Acc win = AccDelta > 0.5. Score win = ScoreDelta > 1. Baseline is discovered from the board, not a frozen StepBP list.")
 	modes := vs.Modes
 	d.table([]string{"mode", "n", "AccD", "Acc win%", "SoftD", "AvailD", "ThruD", "ScoreD", "Score win%"}, func(i int) []string {
@@ -88,7 +88,7 @@ func (d *doc) vsBoard(heat Heat) {
 		}
 		m := modes[i]
 		return []string{
-			m.Mode,
+			PrettyMode(m.Mode),
 			fmt.Sprintf("%d", m.N),
 			fmt.Sprintf("%+.1f", m.AccDelta),
 			fmt.Sprintf("%.0f", m.AccWin),
@@ -99,26 +99,26 @@ func (d *doc) vsBoard(heat Heat) {
 			fmt.Sprintf("%.0f", m.ScoreWin),
 		}
 	})
-	d.signedBars("mean AccD vs "+vs.Baseline, vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AccDelta }))
-	d.signedBars("mean ScoreD vs "+vs.Baseline+" (duty clock)", vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.ScoreDelta }))
-	d.signedBars("mean AvailD vs "+vs.Baseline, vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AvailDelta }))
-	d.deltaHeat("AccD vs "+vs.Baseline+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Acc })
-	d.deltaHeat("ScoreD vs "+vs.Baseline+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Score })
-	d.deltaHeat("AvailD vs "+vs.Baseline+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Avail })
-	d.deltaHeat("AccD vs "+vs.Baseline+", every mode x arch", vs.ByArch, func(b DeltaBin) float64 { return b.Acc })
+	d.signedBars("mean AccD vs "+PrettyMode(vs.Baseline), vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AccDelta }))
+	d.signedBars("mean ScoreD vs "+PrettyMode(vs.Baseline)+" (duty clock)", vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.ScoreDelta }))
+	d.signedBars("mean AvailD vs "+PrettyMode(vs.Baseline), vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AvailDelta }))
+	d.deltaHeat("AccD vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Acc })
+	d.deltaHeat("ScoreD vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Score })
+	d.deltaHeat("AvailD vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Avail })
+	d.deltaHeat("AccD vs "+PrettyMode(vs.Baseline)+", every mode x arch", vs.ByArch, func(b DeltaBin) float64 { return b.Acc })
 	if len(vs.ByLayer) > 0 {
-		d.deltaHeat("AccD vs "+vs.Baseline+", every mode x layer", vs.ByLayer, func(b DeltaBin) float64 { return b.Acc })
+		d.deltaHeat("AccD vs "+PrettyMode(vs.Baseline)+", every mode x layer", vs.ByLayer, func(b DeltaBin) float64 { return b.Acc })
 	}
 	if len(vs.Families) > 0 {
 		fams := vs.Families
-		d.h2("Family collapse - Step* vs non-Step (same update on Stack)")
-		d.body("On a sandwich, Step and non-Step of the same family should match. Large |AccD| is lottery or a real scheduler split, not a new Jacobian.")
+		d.h2("Family collapse - Step* vs non-Step")
+		d.body("Step* is a 1D pipe (one sample enters layer 0 per tick; output is the sample that entered depth ticks ago). Non-Step of the same family is a full-chain update. AccD is a real scheduler split, not leftover warm-up forwards.")
 		d.table([]string{"step", "plain", "n", "mean |AccD|"}, func(i int) []string {
 			if i >= len(fams) {
 				return nil
 			}
 			f := fams[i]
-			return []string{f.Step, f.Plain, fmt.Sprintf("%d", f.N), fmt.Sprintf("%.2f", f.MeanAbsAcc)}
+			return []string{PrettyMode(f.Step), PrettyMode(f.Plain), fmt.Sprintf("%d", f.N), fmt.Sprintf("%.2f", f.MeanAbsAcc)}
 		})
 	}
 }
@@ -126,7 +126,7 @@ func (d *doc) vsBoard(heat Heat) {
 func vsDeltaKV(modes []VsMode, val func(VsMode) float64) []kv {
 	out := make([]kv, 0, len(modes))
 	for _, m := range modes {
-		out = append(out, kv{m.Mode, val(m)})
+		out = append(out, kv{PrettyMode(m.Mode), val(m)})
 	}
 	return out
 }
@@ -152,18 +152,18 @@ func (d *doc) signedBars(title string, items []kv) {
 	labelW := 52.0
 	barW := 110.0
 	barH := 4.2
-	need := float64(len(items))*barH + 8
-	if d.pdf.GetY()+need > 275 {
-		d.pdf.AddPage()
-		d.h2(title)
-	}
 	mid := left + labelW + barW/2
+	d.pdf.SetFont("Helvetica", "", 6)
 	for _, it := range items {
+		if d.pdf.GetY()+barH > 278 {
+			d.pdf.AddPage()
+			d.h2(title)
+			d.pdf.SetFont("Helvetica", "", 6)
+		}
 		y := d.pdf.GetY()
-		d.pdf.SetFont("Helvetica", "", 6)
 		d.pdf.SetTextColor(40, 50, 55)
 		d.pdf.SetXY(left, y)
-		d.pdf.CellFormat(labelW, barH, latin(it.Label), "", 0, "L", false, 0, "")
+		d.pdf.CellFormat(labelW, barH, d.fitText(it.Label, labelW), "", 0, "L", false, 0, "")
 		w := (barW / 2) * math.Abs(it.Val) / maxAbs
 		if it.Val >= 0 {
 			d.pdf.SetFillColor(45, 166, 150)
@@ -196,7 +196,7 @@ func (d *doc) lpdBoard(l LPD) {
 	}
 	if l.GoldStd.ID != "" {
 		d.body(fmt.Sprintf("Gold-std (2+ pillars, Acc keep >= 80%%, then smallest then fastest): %s  mode %s  Acc %.1f  Thru %.0f  %.1f KiB",
-			PrettyCell(l.GoldStd.ID), l.GoldStd.Mode, l.GoldStd.Acc, l.GoldStd.Thru, l.GoldStd.RAMKiB))
+			PrettyCell(l.GoldStd.ID), PrettyMode(l.GoldStd.Mode), l.GoldStd.Acc, l.GoldStd.Thru, l.GoldStd.RAMKiB))
 	}
 	if l.FastID != "" {
 		d.body(fmt.Sprintf("Board fastest %s  Thru %.0f (traps may own this)     Best availability %s  %.1f%%",
@@ -407,7 +407,7 @@ func (d *doc) lpdModeTable(modes []LPDMode) {
 			cell += " / " + fast
 		}
 		return []string{
-			m.Mode,
+			PrettyMode(m.Mode),
 			fmt.Sprintf("%d", m.N),
 			fmt.Sprintf("%.1f", m.BestAcc),
 			fmt.Sprintf("%.1f", m.MinRAM),
@@ -456,20 +456,18 @@ func zipKV(keys []string, vals []float64) []kv {
 	}
 	out := make([]kv, 0, n)
 	for i := 0; i < n; i++ {
-		out = append(out, kv{keys[i], vals[i]})
+		out = append(out, kv{PrettyMode(keys[i]), vals[i]})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Val > out[j].Val })
-	if len(out) > 28 {
-		out = out[:28]
-	}
 	return out
 }
 
 func (d *doc) heatmap(title string, rows, cols []string, grid [][]float64) {
+	rows, cols = PrettyModes(rows), PrettyModes(cols)
 	if len(rows) == 0 || len(cols) == 0 || len(grid) == 0 {
 		return
 	}
-	const maxCols = 16
+	const maxCols = 12
 	for start := 0; start < len(cols); start += maxCols {
 		end := start + maxCols
 		if end > len(cols) {
@@ -496,10 +494,11 @@ func (d *doc) heatmap(title string, rows, cols []string, grid [][]float64) {
 }
 
 func (d *doc) heatmapSigned(title string, rows, cols []string, grid [][]float64, hit [][]bool) {
+	rows, cols = PrettyModes(rows), PrettyModes(cols)
 	if len(rows) == 0 || len(cols) == 0 || len(grid) == 0 {
 		return
 	}
-	const maxCols = 16
+	const maxCols = 12
 	for start := 0; start < len(cols); start += maxCols {
 		end := start + maxCols
 		if end > len(cols) {
@@ -530,15 +529,31 @@ func (d *doc) heatmapSigned(title string, rows, cols []string, grid [][]float64,
 	}
 }
 
+func (d *doc) heatColHeads(left, labelW, cw, headH float64, cols []string) {
+	y0 := d.pdf.GetY()
+	d.pdf.SetFont("Helvetica", "", 5)
+	d.pdf.SetTextColor(90, 100, 110)
+	for j, c := range cols {
+		x := left + labelW + float64(j)*cw + 1.2
+		d.pdf.TransformBegin()
+		d.pdf.TransformRotate(90, x, y0+headH)
+		d.pdf.SetXY(x, y0+headH)
+		d.pdf.CellFormat(headH, 3.2, latin(c), "", 0, "L", false, 0, "")
+		d.pdf.TransformEnd()
+	}
+	d.pdf.SetY(y0 + headH)
+}
+
 func (d *doc) heatmapSignedPage(title string, rows, cols []string, grid [][]float64, hit [][]bool) {
 	d.h2(title)
-	need := 12.0 + float64(len(rows))*5.2
+	const headH = 34.0
+	need := headH + 8.0 + float64(len(rows))*5.2
 	if d.pdf.GetY()+need > 270 {
 		d.pdf.AddPage()
 		d.h2(title)
 	}
 	left := 18.0
-	labelW := 32.0
+	labelW := 46.0
 	avail := 174.0 - labelW
 	cw := avail / float64(len(cols))
 	if cw > 12 {
@@ -556,23 +571,18 @@ func (d *doc) heatmapSignedPage(title string, rows, cols []string, grid [][]floa
 			}
 		}
 	}
-	d.pdf.SetFont("Helvetica", "", 5)
-	d.pdf.SetTextColor(90, 100, 110)
-	d.pdf.SetXY(left+labelW, d.pdf.GetY())
-	for _, c := range cols {
-		d.pdf.CellFormat(cw, 6, latin(clipHead(c, 8)), "", 0, "C", false, 0, "")
-	}
-	d.pdf.Ln(-1)
+	d.heatColHeads(left, labelW, cw, headH, cols)
 	for i, r := range rows {
 		y := d.pdf.GetY()
 		if y > 278 {
 			d.pdf.AddPage()
+			d.heatColHeads(left, labelW, cw, headH, cols)
 			y = d.pdf.GetY()
 		}
-		d.pdf.SetFont("Helvetica", "", 6)
+		d.pdf.SetFont("Helvetica", "", 5)
 		d.pdf.SetTextColor(40, 50, 55)
 		d.pdf.SetXY(left, y)
-		d.pdf.CellFormat(labelW, rh, latin(clipHead(r, 16)), "", 0, "L", false, 0, "")
+		d.pdf.CellFormat(labelW, rh, d.fitText(r, labelW), "", 0, "L", false, 0, "")
 		for j := range cols {
 			present := i < len(hit) && j < len(hit[i]) && hit[i][j]
 			v := 0.0
@@ -605,13 +615,14 @@ func (d *doc) heatmapSignedPage(title string, rows, cols []string, grid [][]floa
 
 func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 	d.h2(title)
-	need := 12.0 + float64(len(rows))*5.2
+	const headH = 34.0
+	need := headH + 8.0 + float64(len(rows))*5.2
 	if d.pdf.GetY()+need > 270 {
 		d.pdf.AddPage()
 		d.h2(title)
 	}
 	left := 18.0
-	labelW := 32.0
+	labelW := 46.0
 	avail := 174.0 - labelW
 	cw := avail / float64(len(cols))
 	if cw > 12 {
@@ -619,23 +630,18 @@ func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 	}
 	rh := 5.0
 	min, max := heatRange(grid)
-	d.pdf.SetFont("Helvetica", "", 5)
-	d.pdf.SetTextColor(90, 100, 110)
-	d.pdf.SetXY(left+labelW, d.pdf.GetY())
-	for _, c := range cols {
-		d.pdf.CellFormat(cw, 6, latin(clipHead(c, 8)), "", 0, "C", false, 0, "")
-	}
-	d.pdf.Ln(-1)
+	d.heatColHeads(left, labelW, cw, headH, cols)
 	for i, r := range rows {
 		y := d.pdf.GetY()
 		if y > 278 {
 			d.pdf.AddPage()
+			d.heatColHeads(left, labelW, cw, headH, cols)
 			y = d.pdf.GetY()
 		}
-		d.pdf.SetFont("Helvetica", "", 6)
+		d.pdf.SetFont("Helvetica", "", 5)
 		d.pdf.SetTextColor(40, 50, 55)
 		d.pdf.SetXY(left, y)
-		d.pdf.CellFormat(labelW, rh, latin(clipHead(r, 16)), "", 0, "L", false, 0, "")
+		d.pdf.CellFormat(labelW, rh, d.fitText(r, labelW), "", 0, "L", false, 0, "")
 		for j := range cols {
 			v := 0.0
 			if i < len(grid) && j < len(grid[i]) {

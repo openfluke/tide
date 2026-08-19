@@ -27,6 +27,8 @@ type Server struct {
 	// Empty keeps the generic "live adaptation" title.
 	Task     string
 	Subtitle string
+	// LR is the host learning rate for this sweep (shown on dash, ocean, PDF).
+	LR float64
 	// ID is the ocean peer name. Empty → Task, then Addr.
 	ID string
 

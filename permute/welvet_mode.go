@@ -72,7 +72,7 @@ func (m TrainMode) Welvet() (parallel.TrainMode, error) {
 	}
 }
 
-// IsStepSched is the Lucy 3-forward / 1-update schedule (legacy step_* only).
+// IsStepSched is a Step* train mode: one layer hop per TrainStep (Welvet line pipe).
 func (m TrainMode) IsStepSched() bool {
 	switch m {
 	case ModeStepSGD, ModeStepTween, ModeStepTweenChain:
@@ -104,7 +104,18 @@ func ParseModes(spec string) ([]TrainMode, error) {
 		if tok == "" {
 			continue
 		}
-		m, ok := by[strings.ToLower(tok)]
+		low := strings.ToLower(tok)
+		if low == "step" || low == "step*" {
+			for _, m := range StepModes() {
+				if seen[m] {
+					continue
+				}
+				seen[m] = true
+				out = append(out, m)
+			}
+			continue
+		}
+		m, ok := by[low]
 		if !ok {
 			return nil, fmt.Errorf("unknown train mode %q", tok)
 		}

@@ -44,6 +44,17 @@ func LucyModes() []TrainMode {
 	}
 }
 
+// StepModes is every AllModes token that uses the 1D line pipe (not Mesh*).
+func StepModes() []TrainMode {
+	var out []TrainMode
+	for _, m := range AllModes() {
+		if m.IsStepSched() {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // AllArches is single + Bi + Tri cameral.
 func AllArches() []ArchKind {
 	return []ArchKind{ArchSingle, ArchBicameral, ArchTricameral}

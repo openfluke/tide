@@ -48,3 +48,18 @@ func TestBoardCountsAndIdentity(t *testing.T) {
 		t.Fatalf("meta %+v", m)
 	}
 }
+
+func TestBoardLR(t *testing.T) {
+	tr := pulse.New()
+	s := &Server{Tracker: tr, Task: "dense", ID: "dense", LR: 0.07, Cells: make([]permute.Cell, 1)}
+	b := s.Board()
+	if b.LR != 0.07 {
+		t.Fatalf("board lr %v", b.LR)
+	}
+	if s.Meta().LR != 0.07 {
+		t.Fatalf("meta lr %v", s.Meta().LR)
+	}
+	if r := b.ToReport(nil); r.LR != 0.07 {
+		t.Fatalf("report lr %v", r.LR)
+	}
+}

@@ -9,22 +9,24 @@ import (
 	"github.com/openfluke/welvet/runtime/training"
 )
 
-const stepTicks = 3
-
-// TrainStep runs one training step for the given Lucy-style mode (SIMD-only matrix).
+// TrainStep runs one training step. Step* modes inject one batch and advance
+// every in-flight sample one layer (CNN stem included). Other modes still
+// run a full-chain forward then one update.
 func (m *Model) TrainStep(x, target *core.Tensor[float32], lr float64, mode permute.TrainMode) (loss float64, err error) {
-	ticks := 1
 	if mode.IsStepSched() {
-		ticks = stepTicks
+		wv, werr := mode.Welvet()
+		if werr != nil {
+			return 0, werr
+		}
+		if m.line == nil {
+			m.line = &parallel.Line[float32]{}
+		}
+		return parallel.TrainLineMSE(m.lineOps(), m.line, x, target, wv, lr)
 	}
 
-	var tp *tape
-	var out *core.Tensor[float32]
-	for i := 0; i < ticks; i++ {
-		out, tp, err = m.Forward(x)
-		if err != nil {
-			return 0, err
-		}
+	out, tp, err := m.Forward(x)
+	if err != nil {
+		return 0, err
 	}
 	loss, err = training.MSE(out, target)
 	if err != nil {

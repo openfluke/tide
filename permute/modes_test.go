@@ -175,4 +175,29 @@ func TestParseModes(t *testing.T) {
 	if err != nil || all != nil {
 		t.Fatalf("all: %v %v", all, err)
 	}
+	step, err := ParseModes("step")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := StepModes()
+	if len(step) != len(want) {
+		t.Fatalf("step alias %d want %d", len(step), len(want))
+	}
+	for i := range want {
+		if step[i] != want[i] || !step[i].IsStepSched() {
+			t.Fatalf("step[%d]=%s", i, step[i])
+		}
+	}
+	seen := map[TrainMode]bool{}
+	for _, m := range want {
+		seen[m] = true
+	}
+	for _, name := range []string{
+		"StepTweenSplitHeadProxy", "StepTweenSplitLinear", "StepTweenSplitFastProxy",
+		"StepTweenSplitLinearCache", "StepTweenSplitHeadProxyAsync", "StepTweenSplitSparse",
+	} {
+		if !seen[TrainMode(name)] {
+			t.Fatalf("missing %s in StepModes", name)
+		}
+	}
 }

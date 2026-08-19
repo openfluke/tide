@@ -170,6 +170,7 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 	}
 	p := &checkpoint.Progress{
 		Epoch:           cfg.Epoch,
+		LR:              cfg.LR,
 		CellTotal:       len(cfg.Cells),
 		NextCellIndex:   nextIdx,
 		DoneIDs:         doneIDs,

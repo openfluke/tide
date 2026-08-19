@@ -1,6 +1,41 @@
 package report
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+
+	"github.com/openfluke/welvet/layers/parallel"
+)
+
+// FormatLR is the learning-rate label for dash / ocean / PDF (e.g. 0.02).
+func FormatLR(lr float64) string {
+	if lr <= 0 {
+		return "unset"
+	}
+	return strconv.FormatFloat(lr, 'g', 6, 64)
+}
+
+// ModeLegend is the compact train-mode key printed on dash / ocean / PDF covers.
+func ModeLegend() string {
+	return parallel.ShortTrainModeLegend
+}
+
+// PrettyMode shortens train-mode titles for tables, heatmaps, and chips.
+func PrettyMode(s string) string {
+	return parallel.ShortTrainMode(s)
+}
+
+// PrettyModes maps PrettyMode over a slice (heat axis labels).
+func PrettyModes(xs []string) []string {
+	if len(xs) == 0 {
+		return xs
+	}
+	out := make([]string, len(xs))
+	for i, x := range xs {
+		out[i] = PrettyMode(x)
+	}
+	return out
+}
 
 // PrettyCell rewrites legacy |cnn| cameral tokens to |single|.
 func PrettyCell(id string) string {
@@ -8,7 +43,16 @@ func PrettyCell(id string) string {
 	if id == "" {
 		return id
 	}
-	return strings.ReplaceAll(id, "|cnn|", "|single|")
+	return shortenCellMode(strings.ReplaceAll(id, "|cnn|", "|single|"))
+}
+
+func shortenCellMode(id string) string {
+	parts := strings.Split(id, "|")
+	if len(parts) < 3 {
+		return id
+	}
+	parts[2] = PrettyMode(parts[2])
+	return strings.Join(parts, "|")
 }
 
 // CompactCell is PrettyCell with filler tokens dropped so IDs fit PDF tables.

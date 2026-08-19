@@ -24,6 +24,7 @@ type Meta struct {
 	ID            string            `json:"id"`
 	Task          string            `json:"task"`
 	Subtitle      string            `json:"subtitle"`
+	LR            float64           `json:"lr"`
 	Addr          string            `json:"addr"`
 	Epoch         int               `json:"epoch"`
 	Started       bool              `json:"started"`
@@ -39,6 +40,7 @@ type Board struct {
 	ID               string            `json:"id"`
 	Task             string            `json:"task"`
 	Subtitle         string            `json:"subtitle"`
+	LR               float64           `json:"lr"`
 	Addr             string            `json:"addr"`
 	Epoch            int               `json:"epoch"`
 	Started          bool              `json:"started"`
@@ -107,6 +109,7 @@ func (s *Server) Meta() Meta {
 		ID:            s.identityID(),
 		Task:          s.Task,
 		Subtitle:      s.Subtitle,
+		LR:            s.LR,
 		Addr:          s.Addr,
 		Epoch:         s.Epoch,
 		Started:       started,
@@ -159,6 +162,7 @@ func (s *Server) Board() Board {
 		ID:               s.identityID(),
 		Task:             s.Task,
 		Subtitle:         s.Subtitle,
+		LR:               s.LR,
 		Addr:             s.Addr,
 		Epoch:            epoch,
 		Started:          started,
@@ -349,6 +353,7 @@ func (s *Server) livePayload() map[string]any {
 		"epoch":                    b.Epoch,
 		"task":                     s.Task,
 		"subtitle":                 s.Subtitle,
+		"lr":                       s.LR,
 		"id":                       meta.ID,
 		"addr":                     s.Addr,
 		"apis":                     meta.APIs,

@@ -77,7 +77,7 @@ func (s *Server) BuildReport() report.OceanReport {
 	}
 	for _, l := range snap.Holistic.Layers {
 		out.Holistic.Layers = append(out.Holistic.Layers, report.LayerRow{
-			Tide: l.Tide, Mode: l.Mode, DType: l.DType, Arch: report.PrettyArch(l.Arch), CellID: report.PrettyCell(l.CellID),
+			Tide: l.Tide, LR: l.LR, Mode: l.Mode, DType: l.DType, Arch: report.PrettyArch(l.Arch), CellID: report.PrettyCell(l.CellID),
 			Score: l.Score, SoftAcc: l.SoftAcc, Acc: l.Accuracy, Thru: l.Thru, Avail: l.Avail, Adapt: l.Adapt,
 			Done: l.Done, Total: l.Total, Recorded: l.Recorded,
 			Axes: axisViews(l.Axes),
