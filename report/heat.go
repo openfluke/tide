@@ -69,8 +69,21 @@ func BuildHeat(pts []CellPoint) Heat {
 		)
 	}
 	h.ModeMeanScore, h.ModeMeanSoft, h.ModeMeanAcc = means(pts, h.Modes, func(p CellPoint) string { return p.Mode })
+	h.ModeMeanAvail = meanOf(pts, h.Modes, func(p CellPoint) string { return p.Mode }, func(p CellPoint) float64 { return p.Avail })
+	h.ModeMeanThru = meanOf(pts, h.Modes, func(p CellPoint) string { return p.Mode }, func(p CellPoint) float64 { return p.Thru })
 	h.DTypeMeanScore, _, h.DTypeMeanAcc = means(pts, h.DTypes, func(p CellPoint) string { return p.DType })
 	h.ArchMeanScore, _, h.ArchMeanAcc = means(pts, h.Arches, func(p CellPoint) string { return p.Arch })
+	h.ModeDTypeAvail = grid1(pts, h.Modes, h.DTypes,
+		func(p CellPoint) string { return p.Mode },
+		func(p CellPoint) string { return p.DType },
+		func(p CellPoint) float64 { return p.Avail },
+	)
+	h.ModeArchAvail = grid1(pts, h.Modes, h.Arches,
+		func(p CellPoint) string { return p.Mode },
+		func(p CellPoint) string { return p.Arch },
+		func(p CellPoint) float64 { return p.Avail },
+	)
+	fillVs(&h, pts)
 	return h
 }
 
@@ -165,6 +178,68 @@ func means(pts []CellPoint, keys []string, keyOf func(CellPoint) string) (score,
 		acc[i] = bucket[i].a / n
 	}
 	return
+}
+
+func grid1(pts []CellPoint, rows, cols []string, rowOf, colOf func(CellPoint) string, val func(CellPoint) float64) [][]float64 {
+	type accu struct {
+		n int
+		s float64
+	}
+	idxR := indexOf(rows)
+	idxC := indexOf(cols)
+	bucket := make([][]accu, len(rows))
+	for i := range bucket {
+		bucket[i] = make([]accu, len(cols))
+	}
+	for _, p := range pts {
+		i, ok := idxR[rowOf(p)]
+		if !ok {
+			continue
+		}
+		j, ok := idxC[colOf(p)]
+		if !ok {
+			continue
+		}
+		b := &bucket[i][j]
+		b.n++
+		b.s += val(p)
+	}
+	out := make([][]float64, len(rows))
+	for i := range rows {
+		out[i] = make([]float64, len(cols))
+		for j := range cols {
+			if bucket[i][j].n == 0 {
+				continue
+			}
+			out[i][j] = bucket[i][j].s / float64(bucket[i][j].n)
+		}
+	}
+	return out
+}
+
+func meanOf(pts []CellPoint, keys []string, keyOf func(CellPoint) string, val func(CellPoint) float64) []float64 {
+	type accu struct {
+		n int
+		s float64
+	}
+	idx := indexOf(keys)
+	bucket := make([]accu, len(keys))
+	for _, p := range pts {
+		i, ok := idx[keyOf(p)]
+		if !ok {
+			continue
+		}
+		bucket[i].n++
+		bucket[i].s += val(p)
+	}
+	out := make([]float64, len(keys))
+	for i := range keys {
+		if bucket[i].n == 0 {
+			continue
+		}
+		out[i] = bucket[i].s / float64(bucket[i].n)
+	}
+	return out
 }
 
 func indexOf(xs []string) map[string]int {

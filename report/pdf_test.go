@@ -154,3 +154,21 @@ func TestPDFConsciousnessRadar(t *testing.T) {
 		t.Fatal("missing density radar")
 	}
 }
+
+func TestPDFVsBaseline(t *testing.T) {
+	pts := []CellPoint{
+		{Mode: "sgd", DType: "float32", Arch: "cameralx4", Acc: 50, Soft: 20, Avail: 12, Thru: 100, Score: 6},
+		{Mode: "Sparse", DType: "float32", Arch: "cameralx4", Acc: 48, Soft: 22, Avail: 45, Thru: 200, Score: 40},
+	}
+	h := BuildHeat(pts)
+	b, err := PDFTide(TideReport{Task: "GPT-char", Cells: pts, Heat: h})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte("vs sgd")) {
+		t.Fatal("missing vs baseline heading")
+	}
+	if !bytes.Contains(b, []byte("Sparse")) {
+		t.Fatal("missing Sparse row")
+	}
+}

@@ -194,8 +194,8 @@
   </tr></thead><tbody></tbody></table></div>
 </section>
 <section>
-  <h2>Honesty grids (test48)</h2>
-  <p class="hint">Train-mode truth: SGD can win Acc and still block the live loop. FastProxy / MeshTween / Sparse are the candidates that keep Acc while serving. Acc is argmax. SoftAcc is serve-confidence, not Score.</p>
+  <h2>Honesty grids</h2>
+  <p class="hint">Train-mode truth: Acc is argmax. SoftAcc is serve-confidence, not Score. Avail is the duty clock. Axes come from finished cells across tides — not a frozen mode list.</p>
   <div class="chart-stack">
     <div class="chart-panel">
       <h3>Mean Score — mode × dtype</h3>
@@ -208,6 +208,10 @@
     <div class="chart-panel">
       <h3>Mean SoftAcc (serve-confidence) — mode × dtype</h3>
       <div class="table-wrap" id="heatSoft"></div>
+    </div>
+    <div class="chart-panel">
+      <h3>Mean Avail — mode × dtype</h3>
+      <div class="table-wrap" id="heatAvail"></div>
     </div>
     <div class="chart-panel">
       <h3>Mean Score — layer × mode</h3>
@@ -229,7 +233,25 @@
       <h3>SoftAcc vs hard Acc</h3>
       <canvas class="scatter" id="scSoftAcc" width="960" height="440"></canvas>
     </div>
+    <div class="chart-panel">
+      <h3>Thru vs hard Acc</h3>
+      <canvas class="scatter" id="scThruAcc" width="960" height="440"></canvas>
+    </div>
+    <div class="chart-panel">
+      <h3>Thru vs Avail</h3>
+      <canvas class="scatter" id="scThruAvail" width="960" height="440"></canvas>
+    </div>
+    <div class="chart-panel" id="adaptPanel" style="display:none">
+      <h3>AdaptPct vs hard Acc</h3>
+      <canvas class="scatter" id="scAdaptAcc" width="960" height="440"></canvas>
+    </div>
   </div>
+</section>
+<section id="vsSection" style="display:none">
+  <h2 id="vsTitle">vs baseline</h2>
+  <p class="hint" id="vsHint"></p>
+  <div class="table-wrap" id="vsTableWrap"></div>
+  <div class="chart-stack" id="vsStack"></div>
 </section>
 <script>
 const $ = id => document.getElementById(id);
@@ -247,7 +269,7 @@ function axisName(k) {
   return ({
     availability: 'Avail %', avg_accuracy: 'Acc %', soft_acc: 'SoftAcc',
     score: 'Score', ram: 'RAM KiB', qpct: 'Q %', accpct: 'Acc keep %',
-    shrink: 'shrink ×',
+    shrink: 'shrink ×', throughput: 'Thru /s', adapt_pct: 'AdaptPct %',
   })[k] || k;
 }
 function strokeAxisLabels(ctx, w, h, padL, padB, xk, yk) {
@@ -407,31 +429,155 @@ function clipHead(s, n) {
   if (s.length <= n) return s;
   return s.slice(0, Math.max(1, n - 1)) + '~';
 }
-function heatTable(elId, rows, cols, grid) {
+function heatTable(elId, rows, cols, grid, signed) {
   const el = $(elId);
   if (!el) return;
   if (!rows || !cols || !grid || !rows.length) {
     el.innerHTML = '<p class="hint">no finished cells yet</p>';
     return;
   }
-  let min = Infinity, max = -Infinity;
-  grid.forEach(r => (r||[]).forEach(v => { if (v) { if (v < min) min = v; if (v > max) max = v; } }));
+  let min = Infinity, max = -Infinity, maxAbs = 0;
+  rows.forEach((_, i) => (cols||[]).forEach((_, j) => {
+    const v = grid[i] && grid[i][j];
+    if (v == null || v === '') return;
+    const n = +v;
+    if (!isFinite(n)) return;
+    if (n < min) min = n;
+    if (n > max) max = n;
+    if (Math.abs(n) > maxAbs) maxAbs = Math.abs(n);
+  }));
   if (!isFinite(min)) { min = 0; max = 1; }
   if (max <= min) max = min + 1;
+  if (maxAbs < 1e-9) maxAbs = 1;
   let html = '<table class="heat"><thead><tr><th></th>' + cols.map(c => `<th title="${c}">${c}</th>`).join('') + '</tr></thead><tbody>';
   rows.forEach((r, i) => {
     html += `<tr><th title="${r}">${r}</th>`;
     cols.forEach((_, j) => {
-      const v = (grid[i] && grid[i][j]) || 0;
-      if (!v) { html += '<td></td>'; return; }
-      const t = (v - min) / (max - min);
+      const raw = grid[i] && grid[i][j];
+      if (raw == null || raw === '') { html += '<td></td>'; return; }
+      const v = +raw;
+      if (!signed && !v) { html += '<td></td>'; return; }
+      const t = signed ? 0.5 + 0.5 * (v / maxAbs) : (v - min) / (max - min);
       const [cr,cg,cb] = heatRGB(t);
       const ink = (cr*3+cg*5+cb*2) > 1400 ? '#1a2024' : '#f4f7f8';
-      html += `<td style="background:rgb(${cr},${cg},${cb});color:${ink}">${v.toFixed(0)}</td>`;
+      const lab = signed ? ((v>=0?'+':'') + v.toFixed(1)) : v.toFixed(0);
+      html += `<td style="background:rgb(${cr},${cg},${cb});color:${ink}">${lab}</td>`;
     });
     html += '</tr>';
   });
   el.innerHTML = html + '</tbody></table>';
+}
+function pivotBins(bins, valueKey) {
+  const rows = [], cols = [], seenR = {}, seenC = {};
+  (bins || []).forEach(b => {
+    if (!b || !b.n || !b.mode || !b.key) return;
+    if (!seenR[b.mode]) { seenR[b.mode] = 1; rows.push(b.mode); }
+    if (!seenC[b.key]) { seenC[b.key] = 1; cols.push(b.key); }
+  });
+  rows.sort(); cols.sort();
+  const grid = rows.map(() => cols.map(() => null));
+  const ri = {}, ci = {};
+  rows.forEach((r, i) => { ri[r] = i; });
+  cols.forEach((c, i) => { ci[c] = i; });
+  (bins || []).forEach(b => {
+    if (!b || !b.n) return;
+    if (ri[b.mode] == null || ci[b.key] == null) return;
+    grid[ri[b.mode]][ci[b.key]] = b[valueKey];
+  });
+  return { rows, cols, grid };
+}
+function drawSignedBars(canvasId, rows, key) {
+  const c = $(canvasId);
+  if (!c || !c.getContext) return;
+  fitCanvas(c);
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!rows || !rows.length) return;
+  const vals = rows.map(r => +r[key] || 0);
+  let maxAbs = Math.max(...vals.map(v => Math.abs(v)), 1);
+  const padL = 110, padR = 48, padT = 8, padB = 8;
+  const barH = Math.max(8, Math.min(22, (h - padT - padB) / rows.length - 3));
+  const mid = padL + (w - padL - padR) / 2;
+  ctx.strokeStyle = '#8aa0ad';
+  ctx.beginPath(); ctx.moveTo(mid, padT); ctx.lineTo(mid, h - padB); ctx.stroke();
+  rows.forEach((r, i) => {
+    const y = padT + i * ((h - padT - padB) / rows.length);
+    const v = vals[i];
+    const bw = ((w - padL - padR) / 2) * (Math.abs(v) / maxAbs);
+    ctx.fillStyle = v >= 0 ? '#2da696' : '#c53030';
+    if (v >= 0) ctx.fillRect(mid, y + 2, bw, barH);
+    else ctx.fillRect(mid - bw, y + 2, bw, barH);
+    ctx.fillStyle = '#c5d0d6';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(r.mode || ''), padL - 8, y + barH);
+    ctx.textAlign = 'left';
+    ctx.fillText((v >= 0 ? '+' : '') + v.toFixed(1), mid + (v >= 0 ? bw + 6 : 6), y + barH);
+  });
+}
+function renderVs(heat) {
+  const sec = $('vsSection');
+  const vs = heat && heat.vs;
+  if (!sec) return;
+  if (!vs || !vs.baseline || !(vs.modes || []).length) {
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = '';
+  const title = $('vsTitle');
+  const hint = $('vsHint');
+  if (title) title.textContent = 'vs ' + vs.baseline + ' (matched dtype × format × arch)';
+  if (hint) hint.textContent = 'AccΔ is the honest column. ScoreΔ is usually Avail (duty clock). Baseline is discovered from this ocean, not a frozen StepBP list.';
+  const wrap = $('vsTableWrap');
+  if (wrap) {
+    let html = '<table><thead><tr><th>mode</th><th>n</th><th>AccΔ</th><th>Acc win%</th><th>SoftΔ</th><th>AvailΔ</th><th>ThruΔ</th><th>ScoreΔ</th><th>Score win%</th></tr></thead><tbody>';
+    vs.modes.forEach(m => {
+      html += `<tr>
+        <td>${m.mode||''}</td><td>${m.n||0}</td>
+        <td>${(m.acc_delta||0).toFixed(1)}</td><td>${(m.acc_win||0).toFixed(0)}</td>
+        <td>${(m.soft_delta||0).toFixed(1)}</td><td>${(m.avail_delta||0).toFixed(1)}</td>
+        <td>${(m.thru_delta||0).toFixed(0)}</td><td>${(m.score_delta||0).toFixed(1)}</td>
+        <td>${(m.score_win||0).toFixed(0)}</td>
+      </tr>`;
+    });
+    wrap.innerHTML = html + '</tbody></table>';
+  }
+  const stack = $('vsStack');
+  if (!stack) return;
+  const heats = [
+    ['AccΔ vs ' + vs.baseline + ' — mode × dtype', vs.by_dtype, 'acc'],
+    ['ScoreΔ vs ' + vs.baseline + ' — mode × dtype', vs.by_dtype, 'score'],
+    ['AvailΔ vs ' + vs.baseline + ' — mode × dtype', vs.by_dtype, 'avail'],
+    ['AccΔ vs ' + vs.baseline + ' — mode × arch', vs.by_arch, 'acc'],
+  ];
+  if ((vs.by_layer || []).length) {
+    heats.push(['AccΔ vs ' + vs.baseline + ' — mode × layer', vs.by_layer, 'acc']);
+  }
+  let html = `
+    <div class="chart-panel"><h3>mean AccΔ vs ${vs.baseline}</h3><canvas id="vsBarAcc" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
+    <div class="chart-panel"><h3>mean ScoreΔ vs ${vs.baseline}</h3><canvas id="vsBarScore" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
+    <div class="chart-panel"><h3>mean AvailΔ vs ${vs.baseline}</h3><canvas id="vsBarAvail" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>`;
+  heats.forEach((spec, i) => {
+    html += `<div class="chart-panel"><h3>${spec[0]}</h3><div class="table-wrap" id="vsHeat${i}"></div></div>`;
+  });
+  if ((vs.families || []).length) {
+    html += `<div class="chart-panel"><h3>Family collapse — Step* vs non-Step</h3><div class="table-wrap" id="vsFam"></div></div>`;
+  }
+  stack.innerHTML = html;
+  drawSignedBars('vsBarAcc', vs.modes, 'acc_delta');
+  drawSignedBars('vsBarScore', vs.modes, 'score_delta');
+  drawSignedBars('vsBarAvail', vs.modes, 'avail_delta');
+  heats.forEach((spec, i) => {
+    const p = pivotBins(spec[1], spec[2]);
+    heatTable('vsHeat' + i, p.rows, p.cols, p.grid, true);
+  });
+  const famEl = $('vsFam');
+  if (famEl) {
+    famEl.innerHTML = '<table><thead><tr><th>step</th><th>plain</th><th>n</th><th>mean |AccΔ|</th></tr></thead><tbody>' +
+      vs.families.map(f => `<tr><td>${f.step||''}</td><td>${f.plain||''}</td><td>${f.n||0}</td><td>${(f.mean_abs_acc||0).toFixed(2)}</td></tr>`).join('') +
+      '</tbody></table>';
+  }
 }
 function drawScatter(canvasId, pts, xk, yk) {
   const c = $(canvasId);
@@ -482,12 +628,20 @@ function drawLucyCharts(h) {
   heatTable('heatScore', heat.modes, heat.dtypes, heat.mode_dtype_score);
   heatTable('heatAcc', heat.modes, heat.dtypes, heat.mode_dtype_acc);
   heatTable('heatSoft', heat.modes, heat.dtypes, heat.mode_dtype_soft);
+  heatTable('heatAvail', heat.modes, heat.dtypes, heat.mode_dtype_avail);
   heatTable('heatLayer', heat.layers, heat.modes, heat.layer_mode_score);
   const pts = heat.points || [];
   drawScatter('scAvailAcc', pts, 'availability', 'avg_accuracy');
   drawScatter('scSoftScore', pts, 'soft_acc', 'score');
   drawScatter('scAccScore', pts, 'avg_accuracy', 'score');
   drawScatter('scSoftAcc', pts, 'soft_acc', 'avg_accuracy');
+  drawScatter('scThruAcc', pts, 'throughput', 'avg_accuracy');
+  drawScatter('scThruAvail', pts, 'throughput', 'availability');
+  const hasAdapt = pts.some(p => (+p.adapt_pct || 0) > 0.05);
+  const adaptPanel = $('adaptPanel');
+  if (adaptPanel) adaptPanel.style.display = hasAdapt ? '' : 'none';
+  if (hasAdapt) drawScatter('scAdaptAcc', pts, 'adapt_pct', 'avg_accuracy');
+  renderVs(heat);
 }
 function bandColor(b) {
   if (b === 'gold') return '#b7791f';

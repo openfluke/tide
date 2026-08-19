@@ -19,14 +19,18 @@ func (d *doc) lucyCharts(cells []CellPoint, heat Heat) {
 	d.bars("Mean Score by train mode", zipKV(heat.Modes, heat.ModeMeanScore))
 	d.bars("Mean hard Acc by train mode", zipKV(heat.Modes, heat.ModeMeanAcc))
 	d.bars("Mean SoftAcc by train mode", zipKV(heat.Modes, heat.ModeMeanSoft))
+	d.bars("Mean Availability by train mode", zipKV(heat.Modes, heat.ModeMeanAvail))
+	d.bars("Mean Throughput by train mode", zipKV(heat.Modes, heat.ModeMeanThru))
 	d.bars("Mean Score by dtype", zipKV(heat.DTypes, heat.DTypeMeanScore))
 	d.bars("Mean hard Acc by dtype", zipKV(heat.DTypes, heat.DTypeMeanAcc))
 	d.bars("Mean Score by arch", zipKV(heat.Arches, heat.ArchMeanScore))
 	d.heatmap("Honesty — mean Score, every mode × dtype", heat.Modes, heat.DTypes, heat.ModeDTypeScore)
 	d.heatmap("Honesty — mean hard Acc, every mode × dtype", heat.Modes, heat.DTypes, heat.ModeDTypeAcc)
 	d.heatmap("Honesty — mean SoftAcc, every mode × dtype", heat.Modes, heat.DTypes, heat.ModeDTypeSoft)
+	d.heatmap("Honesty — mean Avail, every mode × dtype", heat.Modes, heat.DTypes, heat.ModeDTypeAvail)
 	d.heatmap("Mean Score, every mode × arch", heat.Modes, heat.Arches, heat.ModeArchScore)
 	d.heatmap("Mean hard Acc, every mode × arch", heat.Modes, heat.Arches, heat.ModeArchAcc)
+	d.heatmap("Mean Avail, every mode × arch", heat.Modes, heat.Arches, heat.ModeArchAvail)
 	if len(heat.Layers) > 1 {
 		d.heatmap("Mean Score, every layer × mode", heat.Layers, heat.Modes, heat.LayerModeScore)
 		d.heatmap("Mean hard Acc, every layer × mode", heat.Layers, heat.Modes, heat.LayerModeAcc)
@@ -50,6 +54,130 @@ func (d *doc) lucyCharts(cells []CellPoint, heat Heat) {
 	d.scatter("Avail vs Lucy Score (duty clock)", "Availability %", "Lucy Score", pts,
 		func(p CellPoint) float64 { return p.Avail },
 		func(p CellPoint) float64 { return p.Score })
+	d.scatter("Pillars — Throughput vs Availability", "Throughput /s", "Availability %", pts,
+		func(p CellPoint) float64 { return p.Thru },
+		func(p CellPoint) float64 { return p.Avail })
+	if anyAdapt(pts) {
+		d.scatter("AdaptPct vs hard Acc", "AdaptPct %", "Hard Acc %", pts,
+			func(p CellPoint) float64 { return p.Adapt },
+			func(p CellPoint) float64 { return p.Acc })
+	}
+	d.vsBoard(heat)
+}
+
+func anyAdapt(pts []CellPoint) bool {
+	for _, p := range pts {
+		if p.Adapt > 0.05 {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *doc) vsBoard(heat Heat) {
+	vs := heat.Vs
+	if vs == nil || vs.Baseline == "" || len(vs.Modes) == 0 {
+		return
+	}
+	d.h2("vs " + vs.Baseline + " — matched dtype x format x arch")
+	d.body("AccDelta is the honest column. ScoreDelta is usually Availability (duty clock), not a better chain rule. Acc win = AccDelta > 0.5. Score win = ScoreDelta > 1. Baseline is discovered from the board, not a frozen StepBP list.")
+	modes := vs.Modes
+	d.table([]string{"mode", "n", "AccD", "Acc win%", "SoftD", "AvailD", "ThruD", "ScoreD", "Score win%"}, func(i int) []string {
+		if i >= len(modes) {
+			return nil
+		}
+		m := modes[i]
+		return []string{
+			m.Mode,
+			fmt.Sprintf("%d", m.N),
+			fmt.Sprintf("%+.1f", m.AccDelta),
+			fmt.Sprintf("%.0f", m.AccWin),
+			fmt.Sprintf("%+.1f", m.SoftDelta),
+			fmt.Sprintf("%+.1f", m.AvailDelta),
+			fmt.Sprintf("%+.0f", m.ThruDelta),
+			fmt.Sprintf("%+.1f", m.ScoreDelta),
+			fmt.Sprintf("%.0f", m.ScoreWin),
+		}
+	})
+	d.signedBars("mean AccD vs "+vs.Baseline, vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AccDelta }))
+	d.signedBars("mean ScoreD vs "+vs.Baseline+" (duty clock)", vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.ScoreDelta }))
+	d.signedBars("mean AvailD vs "+vs.Baseline, vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AvailDelta }))
+	d.deltaHeat("AccD vs "+vs.Baseline+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Acc })
+	d.deltaHeat("ScoreD vs "+vs.Baseline+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Score })
+	d.deltaHeat("AvailD vs "+vs.Baseline+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Avail })
+	d.deltaHeat("AccD vs "+vs.Baseline+", every mode x arch", vs.ByArch, func(b DeltaBin) float64 { return b.Acc })
+	if len(vs.ByLayer) > 0 {
+		d.deltaHeat("AccD vs "+vs.Baseline+", every mode x layer", vs.ByLayer, func(b DeltaBin) float64 { return b.Acc })
+	}
+	if len(vs.Families) > 0 {
+		fams := vs.Families
+		d.h2("Family collapse - Step* vs non-Step (same update on Stack)")
+		d.body("On a sandwich, Step and non-Step of the same family should match. Large |AccD| is lottery or a real scheduler split, not a new Jacobian.")
+		d.table([]string{"step", "plain", "n", "mean |AccD|"}, func(i int) []string {
+			if i >= len(fams) {
+				return nil
+			}
+			f := fams[i]
+			return []string{f.Step, f.Plain, fmt.Sprintf("%d", f.N), fmt.Sprintf("%.2f", f.MeanAbsAcc)}
+		})
+	}
+}
+
+func vsDeltaKV(modes []VsMode, val func(VsMode) float64) []kv {
+	out := make([]kv, 0, len(modes))
+	for _, m := range modes {
+		out = append(out, kv{m.Mode, val(m)})
+	}
+	return out
+}
+
+func (d *doc) deltaHeat(title string, bins []DeltaBin, val func(DeltaBin) float64) {
+	rows, cols, grid, hit := pivotDelta(bins, val)
+	d.heatmapSigned(title, rows, cols, grid, hit)
+}
+
+func (d *doc) signedBars(title string, items []kv) {
+	if len(items) == 0 {
+		return
+	}
+	d.h2(title)
+	maxAbs := 1.0
+	for _, it := range items {
+		a := math.Abs(it.Val)
+		if a > maxAbs {
+			maxAbs = a
+		}
+	}
+	left := 18.0
+	labelW := 52.0
+	barW := 110.0
+	barH := 4.2
+	need := float64(len(items))*barH + 8
+	if d.pdf.GetY()+need > 275 {
+		d.pdf.AddPage()
+		d.h2(title)
+	}
+	mid := left + labelW + barW/2
+	for _, it := range items {
+		y := d.pdf.GetY()
+		d.pdf.SetFont("Helvetica", "", 6)
+		d.pdf.SetTextColor(40, 50, 55)
+		d.pdf.SetXY(left, y)
+		d.pdf.CellFormat(labelW, barH, latin(it.Label), "", 0, "L", false, 0, "")
+		w := (barW / 2) * math.Abs(it.Val) / maxAbs
+		if it.Val >= 0 {
+			d.pdf.SetFillColor(45, 166, 150)
+			d.pdf.Rect(mid, y+0.7, w, barH-1.4, "F")
+		} else {
+			d.pdf.SetFillColor(197, 48, 48)
+			d.pdf.Rect(mid-w, y+0.7, w, barH-1.4, "F")
+		}
+		d.pdf.SetDrawColor(90, 100, 110)
+		d.pdf.Line(mid, y+0.4, mid, y+barH-0.4)
+		d.pdf.SetXY(left+labelW+barW+2, y)
+		d.pdf.CellFormat(22, barH, fmt.Sprintf("%+.1f", it.Val), "", 1, "L", false, 0, "")
+	}
+	d.gap(3)
 }
 
 func (d *doc) lpdBoard(l LPD) {
@@ -365,6 +493,114 @@ func (d *doc) heatmap(title string, rows, cols []string, grid [][]float64) {
 		}
 		d.heatmapPage(label, rows, subCols, sub)
 	}
+}
+
+func (d *doc) heatmapSigned(title string, rows, cols []string, grid [][]float64, hit [][]bool) {
+	if len(rows) == 0 || len(cols) == 0 || len(grid) == 0 {
+		return
+	}
+	const maxCols = 16
+	for start := 0; start < len(cols); start += maxCols {
+		end := start + maxCols
+		if end > len(cols) {
+			end = len(cols)
+		}
+		subCols := cols[start:end]
+		sub := make([][]float64, len(rows))
+		subHit := make([][]bool, len(rows))
+		for i := range rows {
+			row := make([]float64, len(subCols))
+			hs := make([]bool, len(subCols))
+			if i < len(grid) {
+				for j := start; j < end && j < len(grid[i]); j++ {
+					row[j-start] = grid[i][j]
+					if i < len(hit) && j < len(hit[i]) {
+						hs[j-start] = hit[i][j]
+					}
+				}
+			}
+			sub[i] = row
+			subHit[i] = hs
+		}
+		label := title
+		if len(cols) > maxCols {
+			label = fmt.Sprintf("%s  (cols %d-%d)", title, start+1, end)
+		}
+		d.heatmapSignedPage(label, rows, subCols, sub, subHit)
+	}
+}
+
+func (d *doc) heatmapSignedPage(title string, rows, cols []string, grid [][]float64, hit [][]bool) {
+	d.h2(title)
+	need := 12.0 + float64(len(rows))*5.2
+	if d.pdf.GetY()+need > 270 {
+		d.pdf.AddPage()
+		d.h2(title)
+	}
+	left := 18.0
+	labelW := 32.0
+	avail := 174.0 - labelW
+	cw := avail / float64(len(cols))
+	if cw > 12 {
+		cw = 12
+	}
+	rh := 5.0
+	maxAbs := 1.0
+	for i := range grid {
+		for j, v := range grid[i] {
+			if i < len(hit) && j < len(hit[i]) && !hit[i][j] {
+				continue
+			}
+			if a := math.Abs(v); a > maxAbs {
+				maxAbs = a
+			}
+		}
+	}
+	d.pdf.SetFont("Helvetica", "", 5)
+	d.pdf.SetTextColor(90, 100, 110)
+	d.pdf.SetXY(left+labelW, d.pdf.GetY())
+	for _, c := range cols {
+		d.pdf.CellFormat(cw, 6, latin(clipHead(c, 8)), "", 0, "C", false, 0, "")
+	}
+	d.pdf.Ln(-1)
+	for i, r := range rows {
+		y := d.pdf.GetY()
+		if y > 278 {
+			d.pdf.AddPage()
+			y = d.pdf.GetY()
+		}
+		d.pdf.SetFont("Helvetica", "", 6)
+		d.pdf.SetTextColor(40, 50, 55)
+		d.pdf.SetXY(left, y)
+		d.pdf.CellFormat(labelW, rh, latin(clipHead(r, 16)), "", 0, "L", false, 0, "")
+		for j := range cols {
+			present := i < len(hit) && j < len(hit[i]) && hit[i][j]
+			v := 0.0
+			if i < len(grid) && j < len(grid[i]) {
+				v = grid[i][j]
+			}
+			x := left + labelW + float64(j)*cw
+			if !present {
+				d.pdf.SetFillColor(36, 48, 56)
+				d.pdf.Rect(x, y, cw-0.3, rh-0.3, "F")
+				continue
+			}
+			t := 0.5 + 0.5*(v/maxAbs)
+			cr, cg, cb := heatRGB(t)
+			d.pdf.SetFillColor(cr, cg, cb)
+			d.pdf.Rect(x, y, cw-0.3, rh-0.3, "F")
+			d.pdf.SetFont("Helvetica", "", 5)
+			if tlight(cr, cg, cb) {
+				d.pdf.SetTextColor(20, 24, 28)
+			} else {
+				d.pdf.SetTextColor(240, 244, 246)
+			}
+			d.pdf.SetXY(x, y)
+			d.pdf.CellFormat(cw-0.3, rh-0.3, fmt.Sprintf("%+.0f", v), "", 0, "C", false, 0, "")
+		}
+		d.pdf.SetY(y + rh)
+	}
+	d.gap(3)
 }
 
 func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
