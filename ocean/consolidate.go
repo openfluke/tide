@@ -205,7 +205,7 @@ func collectOceanPoints(peers []PeerState, top []Tagged) []report.CellPoint {
 		rows = append(rows, p.Board.LPD.Trap...)
 		rows = append(rows, p.Board.LPD.Top...)
 		for _, r := range rows {
-			pt := r.Point()
+			pt := report.CellPointOf(r)
 			if pt.Tide == "" {
 				pt.Tide = p.Name
 			}

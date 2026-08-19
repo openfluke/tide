@@ -31,6 +31,12 @@ type Window = lucy.Window
 // Snapshot is the Lucy-style aggregate for one permutation run.
 type Snapshot = lucy.Snapshot
 
+// Sample is one finished cell for lucy.BuildLPD.
+type Sample = lucy.Sample
+
+// LPD is the consciousness / density board.
+type LPD = lucy.LPD
+
 // SoftAccOne is SoftAcc for a single pred/target pair (test41 formula).
 func SoftAccOne(pred, target float32) float64 {
 	return lucy.SoftAccOne(pred, target)
@@ -62,4 +68,14 @@ func Finalize(s *Snapshot) {
 // WindowAccuracy returns 0–100 hard accuracy for a window.
 func WindowAccuracy(correct, outputs int64) float64 {
 	return lucy.WindowAccuracy(correct, outputs)
+}
+
+// Realtime is Throughput × Availability / 100.
+func Realtime(throughput, availability float64) float64 {
+	return lucy.Realtime(throughput, availability)
+}
+
+// BuildLPD ranks finished cells for consciousness then Lucy density.
+func BuildLPD(samples []lucy.Sample) lucy.LPD {
+	return lucy.BuildLPD(samples)
 }

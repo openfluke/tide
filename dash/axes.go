@@ -43,7 +43,7 @@ func AccThru(s metrics.Snapshot) float64 {
 
 // Realtime is Throughput × Availability / 100 — serve+train duty cycle speed.
 func Realtime(s metrics.Snapshot) float64 {
-	return s.Throughput * s.Availability / 100
+	return metrics.Realtime(s.Throughput, s.Availability)
 }
 
 // KeepLearn prefers cells that keep rising in late SoftAcc windows instead of peaking then flattening.

@@ -13,6 +13,9 @@ Lucy Score is **live-fit**: can the net **learn while it still serves**, in a sm
 box. That is the synthetic-organism metric. SoftAcc is serve-confidence, **not**
 the Acc pillar.
 
+Measuring math lives in [`welvet/lucy`](../welvet/lucy) (`Finalize`, `BuildLPD`).
+Tide dash / Lucy PDF only display it. A new host does not copy these formulas.
+
 ```
 Score = T × Avail × Acc / 10,000
 ```
@@ -105,7 +108,7 @@ Credit modes (FastProxy, Sparse, …) run `TrainStackMSE` on the Dense sandwich;
 
 | Package | Role |
 |---------|------|
-| `metrics` | SoftAcc + duty-cycle Availability + Score |
+| `metrics` | Re-export of `welvet/lucy` (SoftAcc, Score, `BuildLPD`) |
 | `permute` | dtype × format × mode × arch @ SIMD |
 | `pulse` | live run state for the dashboard |
 | `dash` | HTTP + HTML charts (1s poll). JSON: `/api/live`, `/api/board`, `/api/meta`, `/api/winners`, `/api/start` (CORS `*`) |
