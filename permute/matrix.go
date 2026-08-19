@@ -23,8 +23,8 @@ const (
 	ModeStepTweenChain TrainMode = "step_tween_chain" // StepTweenChain
 )
 
-// ArchKind is cameral topology (1 / 2 / 3 heads). It is not a layer type —
-// live_mnist uses a CNN stem, live_gpt uses MHA; both are "single" at cams=1.
+// ArchKind is cameral topology. 1/2/3 keep named tokens (single / bicameral /
+// tricameral) for old cell IDs. Anything else is cameral×N from Welvet Parallel.
 type ArchKind string
 
 const (
@@ -56,7 +56,7 @@ type Cell struct {
 	Format  quant.Format `json:"format"`
 	Mode    TrainMode    `json:"mode"`
 	Arch    ArchKind     `json:"arch"`
-	Cams    int          `json:"cams,omitempty"` // 1=single, 2=bi, 3=tri
+	Cams    int          `json:"cams,omitempty"` // Welvet Parallel branch count
 	Backend core.Backend `json:"backend"`
 	UseSIMD bool         `json:"use_simd"`
 }
@@ -65,14 +65,19 @@ func (c Cell) String() string {
 	return fmt.Sprintf("%s|%s|%s|%s|simd", c.DType, c.Format, c.Mode, CanonicalArch(c.Arch))
 }
 
-// CanonicalArch maps legacy "cnn" (and empty) onto single.
+// CanonicalArch maps legacy "cnn" (and empty) onto single, and cameral×N onto
+// the matching ArchForCams token.
 func CanonicalArch(a ArchKind) ArchKind {
-	switch strings.ToLower(strings.TrimSpace(string(a))) {
-	case "", "cnn", "single", "1":
+	if n := parseCamCount(string(a)); n > 0 {
+		return ArchForCams(n)
+	}
+	s := strings.ToLower(strings.TrimSpace(string(a)))
+	switch s {
+	case "", "cnn", "single":
 		return ArchSingle
-	case "bicameral", "bi", "2":
+	case "bicameral", "bi":
 		return ArchBicameral
-	case "tricameral", "tri", "3":
+	case "tricameral", "tri":
 		return ArchTricameral
 	default:
 		return a
@@ -122,6 +127,7 @@ type Config struct {
 	Formats []quant.Format
 	Modes   []TrainMode
 	Arches  []ArchKind
+	Cams    []int // if set, Welvet Parallel branch counts win over Arches
 }
 
 // Smoke is a fast dashboard-friendly subset.
@@ -192,7 +198,7 @@ func KQuant() Config {
 // Expand builds the cartesian product. Always BackendSIMD.
 // FormatNone cells use DType demotion; packed-format cells keep float32 source then Pack.
 func Expand(cfg Config) []Cell {
-	arches := cfg.Arches
+	arches := expandArchList(cfg)
 	if len(arches) == 0 {
 		arches = AllArches()
 	}

@@ -76,15 +76,14 @@ sine frequency switches in test41).
 | DType | `core.AllDTypes` (full) |
 | Quant | `quant.AllFormats` |
 | Modes | Lucy 6 (`sgd`…`step_tween_chain`) **plus** every other named Welvet TrainMode (Split / Alt / FastProxy / Sparse / Mesh*). Old Lucy tokens stay frozen so checkpoints resume. |
-| Arch | `single` (×1), `bicameral` (×2), `tricameral` (×3) — cameral width, not a layer type |
+| Arch | `Config.Cams` (Welvet Parallel branches) or named `single`/`bicameral`/`tricameral` for 1/2/3. Hosts pass `-cams 4-15` etc. |
 
 **Removed:** `tween_head` / `*_simd` twin modes / CPU-tiled backends.
 
 ### Architectures
 
-**single** — host stem (live_mnist: `CNN2 → CNN2 → Dense → 10`; live_gpt: causal MHA) + 1 head  
-**bicameral** — same stem with **2** hemispheres  
-**tricameral** — same with **3** hemispheres
+**single / bicameral / tricameral** — 1 / 2 / 3 hemispheres (legacy names, live_mnist)  
+**cameral×N** — same stem with **N** Welvet Parallel branches (live_gpt default 4–15; any host can set a range)
 
 Old cell IDs used `cnn` for single; checkpoints still resume (`|cnn|` ≡ `|single|`).
 

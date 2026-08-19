@@ -26,19 +26,15 @@ func AllModes() []TrainMode {
 	return out
 }
 
-// CamsOf is 1 for single, 2 for bicameral, 3 for tricameral.
+// CamsOf is the Welvet Parallel branch count for an arch token.
 func CamsOf(arch ArchKind) int {
-	switch CanonicalArch(arch) {
-	case ArchTricameral:
-		return 3
-	case ArchBicameral:
-		return 2
-	default:
-		return 1
+	if n := parseCamCount(string(arch)); n > 0 {
+		return n
 	}
+	return 1
 }
 
-// ArchTag is a short dashboard label: "single×1", "bicameral×2", "tricameral×3".
+// ArchTag is a short dashboard label: "single×1", "bicameral×2", "cameral×12".
 func (c Cell) ArchTag() string {
 	n := c.Cams
 	if n <= 0 {
@@ -47,11 +43,13 @@ func (c Cell) ArchTag() string {
 	if n <= 1 {
 		return "single×1"
 	}
-	arch := string(c.Arch)
-	if arch == "" {
-		arch = "cameral"
+	if n == 2 {
+		return "bicameral×2"
 	}
-	return fmt.Sprintf("%s×%d", arch, n)
+	if n == 3 {
+		return "tricameral×3"
+	}
+	return fmt.Sprintf("cameral×%d", n)
 }
 
 // Welvet maps a permute train token onto layers/parallel.TrainMode.

@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openfluke/welvet/core"
 	"github.com/openfluke/welvet/layers/parallel"
+	"github.com/openfluke/welvet/quant"
 )
 
 func TestAllModesKeepsLucyIDs(t *testing.T) {
@@ -52,6 +54,58 @@ func TestArchTag(t *testing.T) {
 	}
 	if g := (Cell{Arch: ArchTricameral}).ArchTag(); g != "tricameral×3" {
 		t.Fatalf("tri: %s", g)
+	}
+	wide := Cell{Arch: ArchForCams(12), Cams: 12}
+	if g := wide.ArchTag(); g != "cameral×12" {
+		t.Fatalf("cam12: %s", g)
+	}
+}
+
+func TestParseCamsAndExpand(t *testing.T) {
+	got, err := ParseCams("4-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := CamsRange(4, 15)
+	if len(got) != len(want) {
+		t.Fatalf("4-15 len %d want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("4-15[%d]=%d", i, got[i])
+		}
+	}
+	named, err := ParseCams("single,tri,cameral×8")
+	if err != nil || len(named) != 3 || named[0] != 1 || named[1] != 3 || named[2] != 8 {
+		t.Fatalf("named %v %v", named, err)
+	}
+	if _, err := ParseCams("nope"); err == nil {
+		t.Fatal("expected unknown cameral")
+	}
+	cells := Expand(Config{
+		DTypes:  []core.DType{core.DTypeFloat32},
+		Formats: []quant.Format{quant.FormatNone},
+		Modes:   []TrainMode{ModeSGD},
+		Cams:    []int{4, 15},
+	})
+	if len(cells) != 2 {
+		t.Fatalf("expand cams %d", len(cells))
+	}
+	if cells[0].Cams != 4 || cells[0].Arch != ArchForCams(4) || !strings.Contains(cells[0].ID, "|cameral×4|") {
+		t.Fatalf("cam4 %+v", cells[0])
+	}
+	if cells[1].Cams != 15 || cells[1].ArchTag() != "cameral×15" {
+		t.Fatalf("cam15 %+v", cells[1])
+	}
+	// Named 1–3 still win when Cams is empty (live_mnist / Sprint).
+	legacy := Expand(Config{
+		DTypes:  []core.DType{core.DTypeFloat32},
+		Formats: []quant.Format{quant.FormatNone},
+		Modes:   []TrainMode{ModeSGD},
+		Arches:  AllArches(),
+	})
+	if len(legacy) != 3 || legacy[0].Arch != ArchSingle || legacy[2].Arch != ArchTricameral {
+		t.Fatalf("legacy %+v", legacy)
 	}
 }
 
