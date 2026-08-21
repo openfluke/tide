@@ -21,7 +21,8 @@ type Server struct {
 	Tracker *pulse.Tracker
 	Cells   []permute.Cell // full sweep plan (for remaining-by-mode)
 	Addr    string
-	Epoch   int // 1-based; shown on Resume button
+	Epoch    int // 1-based; shown on Resume button
+	EpochMax int // total epochs planned for this LR (0 = unknown / single)
 
 	// Task is the host workload name shown in the header (e.g. "MNIST").
 	// Empty keeps the generic "live adaptation" title.

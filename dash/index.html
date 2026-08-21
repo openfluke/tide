@@ -329,7 +329,7 @@
 <div class="top-row">
   <section>
     <h2>Sweep progress</h2>
-    <p class="hint">Finished vs still queued + ETA. New Welvet modes (Split / FastProxy / Sparse / Mesh*…) run after the original Lucy six. Finished cell IDs are skipped on resume.</p>
+    <p class="hint">Finished vs still queued + ETA. Shows this-epoch % and epochs left when the host sets a multi-epoch plan. Finished cell IDs are skipped on resume.</p>
     <canvas id="pieChart" width="240" height="180"></canvas>
     <div class="pie-aside" id="pieAside">—</div>
     <h2 style="margin-top:1rem">Queue by train mode</h2>
@@ -963,12 +963,28 @@ function drawProgressPie() {
     { value: left, color: '#3a4a55' },
   ].filter(s => s.value > 0);
   const pct = total > 0 ? (100*Math.min(done,total)/total).toFixed(1) + '%' : '—';
-  drawDonut(pieCtx, pieCanvas, slices, [pct + ' done', fmtDur(etaSec) + ' ETA']);
+  const ep = lastLive.epoch || 1;
+  const epMax = lastLive.epoch_max || 0;
+  const epLeft = lastLive.epochs_left != null ? lastLive.epochs_left
+    : (epMax > 0 ? Math.max(0, epMax - ep + 1) : 0);
+  const overall = lastLive.epoch_overall_pct != null
+    ? Number(lastLive.epoch_overall_pct).toFixed(0) + '%'
+    : null;
+  const epLabel = epMax > 0
+    ? `epoch ${ep}/${epMax}`
+    : `epoch ${ep}`;
+  const centerLines = epMax > 0
+    ? [pct + ' this ep', (overall || '—') + ' overall']
+    : [pct + ' done', fmtDur(etaSec) + ' ETA'];
+  drawDonut(pieCtx, pieCanvas, slices, centerLines);
   const rec = lastLive.recorded || 0;
   document.getElementById('pieAside').innerHTML =
     `<div><span class="swatch" style="background:#3dd6c6"></span>done <b>${done}</b></div>` +
     `<div><span class="swatch" style="background:#e6b35a"></span>running <b>${running}</b></div>` +
-    `<div><span class="swatch" style="background:#3a4a55"></span>left <b>${left}</b> / ${total}  (epoch ${lastLive.epoch||1})</div>` +
+    `<div><span class="swatch" style="background:#3a4a55"></span>left <b>${left}</b> / ${total}  (${epLabel})</div>` +
+    (epMax > 0
+      ? `<div>epochs left <b>${epLeft}</b> · overall <b>${overall || '—'}</b></div>`
+      : '') +
     (fail ? `<div><span class="swatch" style="background:#e06c75"></span>fail <b>${fail}</b></div>` : '') +
     (rec > total ? `<div>recorded ${rec} across epochs</div>` : '') +
     `<div class="eta">ETA ~ ${fmtDur(etaSec)}</div>`;
@@ -2162,21 +2178,29 @@ async function tick() {
     const doneN = (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
     const totalN = j.cell_total || 0;
     const epochN = j.epoch || 1;
+    const epochMax = j.epoch_max || 0;
+    const epochsLeft = j.epochs_left != null ? j.epochs_left
+      : (epochMax > 0 ? Math.max(0, epochMax - epochN + 1) : 0);
+    const epochLabel = epochMax > 0 ? `epoch ${epochN}/${epochMax}` : `epoch ${epochN}`;
     const canResume = doneN > 0;
     const startBtnLive = document.getElementById('startBtn');
     const startTitle = document.getElementById('startTitle');
     const startSub = document.getElementById('startSub');
     if (awaiting && startBtnLive && !startBtnLive.disabled) {
       startBtnLive.textContent = canResume
-        ? `Resume epoch ${epochN} — ${doneN}/${totalN} done`
+        ? `Resume ${epochLabel} — ${doneN}/${totalN} done`
         : 'Start training';
     }
     if (startTitle) startTitle.textContent = canResume ? 'Resume training' : 'Training paused';
     if (startSub) startSub.textContent = canResume
-      ? `Finished cells keep their epoch-${epochN} scores. Only new modes / arches / leftover IDs will run.`
+      ? `Finished cells keep their ${epochLabel} scores. Only new modes / arches / leftover IDs will run.` +
+        (epochMax > 0 ? ` ${epochsLeft} epoch(s) left for this LR.` : '')
       : 'Nothing trains until you press Start. Checkpoint is not written while paused.';
+    const overallPct = j.epoch_overall_pct != null ? Number(j.epoch_overall_pct).toFixed(0) + '%' : null;
     document.getElementById('status').textContent =
-      `${prettyCellId(j.message || '')} · phase ${j.phase || '—'} · hist ${j.history_len||0} · ${
+      `${prettyCellId(j.message || '')} · phase ${j.phase || '—'} · ${epochLabel}` +
+      (epochMax > 0 ? ` · ${epochsLeft} left · ${overallPct || '—'} overall` : '') +
+      ` · hist ${j.history_len||0} · ${
         awaiting ? 'PAUSED' : (j.running ? 'RUNNING' : 'idle')
       }`;
 

@@ -7,6 +7,19 @@ import (
 	"github.com/openfluke/tide/pulse"
 )
 
+func TestEpochProgressMulti(t *testing.T) {
+	tr := pulse.New()
+	s := &Server{Tracker: tr, Task: "yap", Epoch: 2, EpochMax: 5, Cells: make([]permute.Cell, 10)}
+	b := s.Board()
+	if b.EpochMax != 5 || b.EpochsLeft != 4 {
+		t.Fatalf("epoch_max=%d left=%d want 5/4", b.EpochMax, b.EpochsLeft)
+	}
+	// 0 cells done → overall = (1 + 0)/5 * 100 = 20%
+	if b.EpochOverallPct < 19.9 || b.EpochOverallPct > 20.1 {
+		t.Fatalf("overall pct %v want ~20", b.EpochOverallPct)
+	}
+}
+
 func TestCountResultsThisEpoch(t *testing.T) {
 	tr := pulse.New()
 	s := &Server{Tracker: tr, Task: "cnn2", ID: "cnn2", Epoch: 2, Cells: make([]permute.Cell, 782)}

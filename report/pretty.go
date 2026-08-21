@@ -15,6 +15,30 @@ func FormatLR(lr float64) string {
 	return strconv.FormatFloat(lr, 'g', 6, 64)
 }
 
+// formatEpoch is "3/5 (2 left, 48% overall)" when EpochMax is set.
+func formatEpoch(r TideReport) string {
+	ep := r.Epoch
+	if ep < 1 {
+		ep = 1
+	}
+	if r.EpochMax < 1 {
+		return strconv.Itoa(ep)
+	}
+	left := r.EpochsLeft
+	if left < 1 && r.EpochMax >= ep {
+		left = r.EpochMax - ep + 1
+	}
+	s := strconv.Itoa(ep) + "/" + strconv.Itoa(r.EpochMax)
+	if left > 0 {
+		s += " (" + strconv.Itoa(left) + " left"
+		if r.EpochOverallPct > 0 {
+			s += ", " + strconv.FormatFloat(r.EpochOverallPct, 'f', 0, 64) + "% overall"
+		}
+		s += ")"
+	}
+	return s
+}
+
 // ModeLegend is the compact train-mode key printed on dash / ocean / PDF covers.
 func ModeLegend() string {
 	return parallel.ShortTrainModeLegend

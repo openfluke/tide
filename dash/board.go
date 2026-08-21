@@ -27,6 +27,9 @@ type Meta struct {
 	LR            float64           `json:"lr"`
 	Addr          string            `json:"addr"`
 	Epoch         int               `json:"epoch"`
+	EpochMax      int               `json:"epoch_max"`
+	EpochsLeft    int               `json:"epochs_left"`
+	EpochOverallPct float64         `json:"epoch_overall_pct"`
 	Started       bool              `json:"started"`
 	AwaitingStart bool              `json:"awaiting_start"`
 	CellTotal     int               `json:"cell_total"`
@@ -43,6 +46,9 @@ type Board struct {
 	LR               float64           `json:"lr"`
 	Addr             string            `json:"addr"`
 	Epoch            int               `json:"epoch"`
+	EpochMax         int               `json:"epoch_max"`
+	EpochsLeft       int               `json:"epochs_left"`
+	EpochOverallPct  float64           `json:"epoch_overall_pct"`
 	Started          bool              `json:"started"`
 	AwaitingStart    bool              `json:"awaiting_start"`
 	Running          bool              `json:"running"`
@@ -105,19 +111,54 @@ func (s *Server) Meta() Meta {
 		total = len(s.Cells)
 	}
 	started := s != nil && s.Started()
+	epoch, emax, left, overall := s.epochProgress(0)
 	return Meta{
-		ID:            s.identityID(),
-		Task:          s.Task,
-		Subtitle:      s.Subtitle,
-		LR:            s.LR,
-		Addr:          s.Addr,
-		Epoch:         s.Epoch,
-		Started:       started,
-		AwaitingStart: !started,
-		CellTotal:     total,
-		Ocean:         false,
-		APIs:          APIPaths(),
+		ID:              s.identityID(),
+		Task:            s.Task,
+		Subtitle:        s.Subtitle,
+		LR:              s.LR,
+		Addr:            s.Addr,
+		Epoch:           epoch,
+		EpochMax:        emax,
+		EpochsLeft:      left,
+		EpochOverallPct: overall,
+		Started:         started,
+		AwaitingStart:   !started,
+		CellTotal:       total,
+		Ocean:           false,
+		APIs:            APIPaths(),
 	}
+}
+
+// epochProgress returns current epoch, planned max, epochs still to finish
+// (including the current one), and overall % across epochs for this LR.
+// withinPct is ProgressPct of the current epoch (0–100).
+// When EpochMax is unset (0), emax/left/overall stay 0 so the UI hides multi-epoch chrome.
+func (s *Server) epochProgress(withinPct float64) (epoch, emax, left int, overall float64) {
+	epoch = 1
+	if s != nil && s.Epoch > 0 {
+		epoch = s.Epoch
+	}
+	if s == nil || s.EpochMax < 1 {
+		return epoch, 0, 0, 0
+	}
+	emax = s.EpochMax
+	if emax < epoch {
+		emax = epoch
+	}
+	left = emax - epoch + 1
+	if left < 0 {
+		left = 0
+	}
+	frac := float64(epoch-1) + withinPct/100
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > float64(emax) {
+		frac = float64(emax)
+	}
+	overall = 100 * frac / float64(emax)
+	return epoch, emax, left, overall
 }
 
 func (s *Server) Board() Board {
@@ -158,6 +199,7 @@ func (s *Server) Board() Board {
 	pts := report.PointsFromResults(live.Completed, s.Task)
 	lpd := report.BuildLPD(pts)
 	heat := report.BuildHeat(pts)
+	_, emax, eleft, eoverall := s.epochProgress(pct)
 	out := Board{
 		ID:               s.identityID(),
 		Task:             s.Task,
@@ -165,6 +207,9 @@ func (s *Server) Board() Board {
 		LR:               s.LR,
 		Addr:             s.Addr,
 		Epoch:            epoch,
+		EpochMax:         emax,
+		EpochsLeft:       eleft,
+		EpochOverallPct:  eoverall,
 		Started:          started,
 		AwaitingStart:    !started,
 		Running:          live.Running,
@@ -351,6 +396,9 @@ func (s *Server) livePayload() map[string]any {
 		"awaiting_start":           meta.AwaitingStart,
 		"started":                  meta.Started,
 		"epoch":                    b.Epoch,
+		"epoch_max":                b.EpochMax,
+		"epochs_left":              b.EpochsLeft,
+		"epoch_overall_pct":        b.EpochOverallPct,
 		"task":                     s.Task,
 		"subtitle":                 s.Subtitle,
 		"lr":                       s.LR,

@@ -101,7 +101,7 @@ func (d *doc) coverTide(r TideReport) {
 	d.h1("tide  " + nz(r.Task, r.ID))
 	d.muted(r.Formula)
 	d.muted(ModeLegend())
-	d.muted(fmt.Sprintf("%s  ·  epoch %d  ·  lr %s  ·  %s  ·  %s", r.Status, r.Epoch, FormatLR(r.LR), r.Generated.Format("2006-01-02 15:04:05"), r.Addr))
+	d.muted(fmt.Sprintf("%s  ·  epoch %s  ·  lr %s  ·  %s  ·  %s", r.Status, formatEpoch(r), FormatLR(r.LR), r.Generated.Format("2006-01-02 15:04:05"), r.Addr))
 	d.body(fmt.Sprintf("This epoch %d / %d cells. Recorded %d results. Learning rate %s.",
 		r.EpochDone, r.Plan, r.Recorded, FormatLR(r.LR)))
 	d.body("Score 0 usually means the cell finished before a Lucy pulse (Acc never sampled). Score is live-fit: Throughput x Availability x Acc. SGD that blocks serve dies on Availability. SoftAcc is serve-confidence only.")

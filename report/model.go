@@ -17,8 +17,12 @@ type TideReport struct {
 	LR           float64              `json:"lr"`
 	Addr         string               `json:"addr"`
 	Epoch        int                  `json:"epoch"`
+	EpochMax     int                  `json:"epoch_max,omitempty"`
+	EpochsLeft   int                  `json:"epochs_left,omitempty"`
+	EpochOverallPct float64           `json:"epoch_overall_pct,omitempty"`
 	Plan         int                  `json:"plan"`
 	EpochDone    int                  `json:"epoch_done"`
+	ProgressPct  float64              `json:"progress_pct,omitempty"`
 	Recorded     int                  `json:"recorded"`
 	Status       string               `json:"status"`
 	Formula      string               `json:"formula"`
