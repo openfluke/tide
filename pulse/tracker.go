@@ -294,11 +294,50 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 	t.live.Current.Snapshot.Windows = nil
 	t.live.Current.Ended = time.Now()
 	done := *t.live.Current
+	t.commitLocked(done)
+	return done
+}
+
+// Commit records a finished cell with explicit wall-clock times.
+// Use this for multi-worker hosts where Begin/Finish on a shared Current
+// would clobber siblings and report ~0s durations.
+func (t *Tracker) Commit(cell permute.Cell, epoch int, status, note string, snap metrics.Snapshot, started, ended time.Time) Result {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if ended.IsZero() {
+		ended = time.Now()
+	}
+	if started.IsZero() {
+		started = ended
+	}
+	if epoch < 1 {
+		epoch = 1
+	}
+	snap.Windows = nil
+	done := Result{
+		Cell:     cell,
+		Epoch:    epoch,
+		Status:   status,
+		Note:     note,
+		Snapshot: snap,
+		Started:  started,
+		Ended:    ended,
+	}
+	// Drop matching in-flight row if host had Begin'd this cell.
+	if t.live.Current != nil && t.live.Current.Cell.ID == cell.ID {
+		t.live.Current = nil
+		t.live.Running = false
+	}
+	t.commitLocked(done)
+	return done
+}
+
+func (t *Tracker) commitLocked(done Result) {
 	t.live.Completed = append(t.live.Completed, done)
-	t.live.Current = nil
-	t.live.Running = false
+	if t.live.Current == nil {
+		t.live.Running = false
+	}
 	t.refreshBoardsLocked()
-	// Committed winners: ok cells only (rebuild from completed).
 	t.live.Best = Best{}
 	t.live.BestMobile = BestMobile{}
 	t.live.BestLearn = BestLearn{}
@@ -313,16 +352,15 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 		At:           time.Now(),
 		CellID:       done.Cell.ID,
 		Phase:        t.live.Phase,
-		Score:        snap.Score,
-		Accuracy:     snap.SoftAcc,
-		Throughput:   snap.Throughput,
-		Availability: snap.Availability,
+		Score:        done.Snapshot.Score,
+		Accuracy:     done.Snapshot.SoftAcc,
+		Throughput:   done.Snapshot.Throughput,
+		Availability: done.Snapshot.Availability,
 		CellIndex:    t.live.CellIndex,
-		Outputs:      snap.TotalOutputs,
-		Status:       status,
+		Outputs:      done.Snapshot.TotalOutputs,
+		Status:       done.Status,
 	})
 	t.live.UpdatedAt = time.Now()
-	return done
 }
 
 // refreshBoardsLocked ranks completed + current in-flight row.

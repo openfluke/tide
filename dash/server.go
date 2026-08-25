@@ -36,6 +36,11 @@ type Server struct {
 	startMu sync.Mutex
 	started bool
 	startCh chan struct{} // closed when Start is pressed
+
+	// Pace anchor: wall-clock ETA from cells finished after Start.
+	paceMu       sync.Mutex
+	paceAt       time.Time
+	paceDoneBase int
 }
 
 // ModeProgress is done/left counts for one train mode in the plan.
@@ -128,25 +133,21 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
 	})
-	mux.HandleFunc("/api/live", func(w http.ResponseWriter, r *http.Request) {
-		live := s.Tracker.SnapshotLive()
-		live.UpdatedAt = time.Now()
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		payload := s.livePayload()
-		payload["updated_at"] = live.UpdatedAt
-		payload["live"] = live
-		_ = json.NewEncoder(w).Encode(payload)
-	})
+	mux.HandleFunc("/api/live", s.handleLive)
+	mux.HandleFunc("/api/cell", s.handleCell)
+	mux.HandleFunc("/api/charts/", s.handleChart)
 	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(s.Meta())
 	})
 	mux.HandleFunc("/api/board", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(s.Board())
+		b := s.Board()
+		b.Leaderboard = SlimResults(b.Leaderboard)
+		b.LeaderboardLearn = SlimResults(b.LeaderboardLearn)
+		b.Heat.Points = nil
+		etag := `"board-` + strconv.FormatInt(s.Tracker.SnapshotLive().UpdatedAt.UnixNano(), 10) + `"`
+		WriteJSON(w, r, etag, b)
 	})
 	mux.HandleFunc("/api/winners", func(w http.ResponseWriter, r *http.Request) {
 		live := s.Tracker.SnapshotLive()
@@ -186,7 +187,7 @@ func (s *Server) Handler() http.Handler {
 			"history": s.Tracker.HistoryFrom(from),
 		})
 	})
-	return withCORS(mux)
+	return WithGzip(withCORS(mux))
 }
 
 // ListenAndServe blocks on Addr.

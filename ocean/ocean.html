@@ -61,6 +61,7 @@
   .chart-panel h3 { margin: 0 0 0.55rem; font-size: 1rem; }
   canvas.scatter { width: 100%; height: 440px; background: rgba(0,0,0,0.25); }
   canvas.radar { width: 100%; height: 480px; background: rgba(0,0,0,0.25); }
+  img.srv-chart { width: 100%; height: auto; display: block; background: rgba(0,0,0,0.25); min-height: 200px; }
   .table-wrap {
     overflow: auto;
     max-height: min(70vh, 720px);
@@ -147,23 +148,23 @@
   <div class="chart-stack">
     <div class="chart-panel">
       <h3>Consciousness radar — Acc / Thru / Avail</h3>
-      <canvas class="radar" id="radarLive" width="960" height="480"></canvas>
+      <img class="srv-chart" data-chart="radar-live" alt="Consciousness radar" width="960" height="480"/>
     </div>
     <div class="chart-panel">
       <h3>Memory density radar — pillars × shrink</h3>
-      <canvas class="radar" id="radarDens" width="960" height="480"></canvas>
+      <img class="srv-chart" data-chart="radar-dens" alt="Memory density radar" width="960" height="480"/>
     </div>
     <div class="chart-panel">
       <h3>Q% vs RAM KiB — gold is top-left</h3>
-      <canvas class="scatter" id="scLpdRam" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="lpd-ram" alt="Q% vs RAM" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>Acc keep % vs RAM — 80% Acc champ</h3>
-      <canvas class="scatter" id="scLpdAcc" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="lpd-acc" alt="Acc keep vs RAM" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>Q% vs shrink vs Acc champ — gold is top-right</h3>
-      <canvas class="scatter" id="scLpdShrink" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="lpd-shrink" alt="Q% vs shrink" width="960" height="440"/>
     </div>
   </div>
   <div class="table-wrap"><table id="lpdModes"><thead><tr>
@@ -200,51 +201,51 @@
   <div class="chart-stack">
     <div class="chart-panel">
       <h3>Mean Score — mode × dtype</h3>
-      <div class="table-wrap" id="heatScore"></div>
+      <img class="srv-chart" data-chart="heat-score" alt="Mean Score heatmap" width="960" height="320"/>
     </div>
     <div class="chart-panel">
       <h3>Mean hard Acc — mode × dtype</h3>
-      <div class="table-wrap" id="heatAcc"></div>
+      <img class="srv-chart" data-chart="heat-acc" alt="Mean Acc heatmap" width="960" height="320"/>
     </div>
     <div class="chart-panel">
       <h3>Mean SoftAcc (serve-confidence) — mode × dtype</h3>
-      <div class="table-wrap" id="heatSoft"></div>
+      <img class="srv-chart" data-chart="heat-soft" alt="Mean SoftAcc heatmap" width="960" height="320"/>
     </div>
     <div class="chart-panel">
       <h3>Mean Avail — mode × dtype</h3>
-      <div class="table-wrap" id="heatAvail"></div>
+      <img class="srv-chart" data-chart="heat-avail" alt="Mean Avail heatmap" width="960" height="320"/>
     </div>
     <div class="chart-panel">
       <h3>Mean Score — layer × mode</h3>
-      <div class="table-wrap" id="heatLayer"></div>
+      <img class="srv-chart" data-chart="heat-layer" alt="Mean Score layer x mode" width="960" height="320"/>
     </div>
     <div class="chart-panel">
       <h3>Avail vs hard Acc</h3>
-      <canvas class="scatter" id="scAvailAcc" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-avail-acc" alt="Avail vs hard Acc" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>SoftAcc vs Score</h3>
-      <canvas class="scatter" id="scSoftScore" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-soft-score" alt="SoftAcc vs Score" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>Hard Acc vs Score</h3>
-      <canvas class="scatter" id="scAccScore" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-acc-score" alt="Hard Acc vs Score" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>SoftAcc vs hard Acc</h3>
-      <canvas class="scatter" id="scSoftAcc" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-soft-acc" alt="SoftAcc vs hard Acc" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>Thru vs hard Acc</h3>
-      <canvas class="scatter" id="scThruAcc" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-thru-acc" alt="Thru vs hard Acc" width="960" height="440"/>
     </div>
     <div class="chart-panel">
       <h3>Thru vs Avail</h3>
-      <canvas class="scatter" id="scThruAvail" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-thru-avail" alt="Thru vs Avail" width="960" height="440"/>
     </div>
     <div class="chart-panel" id="adaptPanel" style="display:none">
       <h3>AdaptPct vs hard Acc</h3>
-      <canvas class="scatter" id="scAdaptAcc" width="960" height="440"></canvas>
+      <img class="srv-chart" data-chart="scatter-adapt-acc" alt="AdaptPct vs hard Acc" width="960" height="440"/>
     </div>
   </div>
 </section>
@@ -256,6 +257,22 @@
 </section>
 <script>
 const $ = id => document.getElementById(id);
+let oceanChartRev = 0;
+const OCEAN_CHARTS = [
+  'radar-live', 'radar-dens', 'lpd-ram', 'lpd-acc', 'lpd-shrink',
+  'heat-score', 'heat-acc', 'heat-soft', 'heat-avail', 'heat-layer',
+  'scatter-avail-acc', 'scatter-soft-score', 'scatter-acc-score', 'scatter-soft-acc',
+  'scatter-thru-acc', 'scatter-thru-avail', 'scatter-adapt-acc',
+];
+function refreshOceanCharts(rev) {
+  if (!rev || rev === oceanChartRev) return;
+  oceanChartRev = rev;
+  OCEAN_CHARTS.forEach(name => {
+    const el = document.querySelector(`[data-chart="${name}"]`);
+    if (!el) return;
+    el.src = '/api/charts/' + name + '.svg?v=' + rev;
+  });
+}
 function pct(n, d) { return d ? Math.round(100 * n / d) : 0; }
 function fmt(n, d=2) { return (n||0).toFixed(d); }
 function fmtLR(n) { return (n != null && +n > 0) ? String(+n) : 'unset'; }
@@ -364,22 +381,16 @@ function render(j) {
       </table></div>`;
   }).join('') || '<p class="hint">No layers up yet.</p>';
   $('tides').innerHTML = (j.peers||[]).map(p => {
-    const b = p.board || {};
-    const tot = b.plan || b.cell_total || 0;
-    const done = b.epoch_done != null ? b.epoch_done : ((b.ok||0)+(b.gap||0)+(b.fail||0));
-    const rec = b.recorded || done;
-    const pctBar = tot ? Math.min(100, Math.round(100 * done / tot)) : 0;
-    const cur = b.current && b.current.cell ? prettyCell(b.current.cell.id) : (b.message || 'idle');
-    const best = b.best && b.best.score ? `${fmt(b.best.score.snapshot.score)} · ${prettyCell(b.best.score.cell?.id||'')}` : '—';
-    const st = p.ok ? (b.status || (b.awaiting_start ? 'paused' : (b.running ? 'running' : 'idle'))) : 'down';
+    const tot = p.plan || 0;
+    const done = p.done || 0;
+    const pctBar = tot ? Math.min(100, Math.round(p.progress_pct || (100 * done / tot))) : 0;
+    const st = p.ok ? (p.status || 'idle') : 'down';
     const cls = !p.ok ? 'down' : (st === 'done' ? 'done' : (st === 'running' ? 'run' : (st === 'queued' ? 'queued' : '')));
     return `<article class="card ${cls}">
       <h3><a href="${publicURL(p.url)}" target="_blank" rel="noopener">${p.name}</a></h3>
-      <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms · lr ${fmtLR(b.lr)}</div>
+      <div class="tiny">${st}${p.ok?'':(' · '+p.error)} · ${p.age_ms||0}ms · lr ${fmtLR(p.lr)} · ${p.task||p.id||''}</div>
       <div class="bar"><i style="width:${pctBar}%"></i></div>
-      <div class="tiny">epoch ${b.epoch||1} · ${done}/${tot}${rec > tot ? ` · ${rec} recorded` : ''} · ${b.ok||0} ok · ${b.gap||0} gap · ${b.fail||0} fail</div>
-      <div class="tiny">now ${cur}</div>
-      <div class="tiny">best ${best}</div>
+      <div class="tiny">${done}/${tot} · ${p.running ? 'running' : 'idle'}</div>
       <div class="tiny"><a href="${publicURL(p.url)}" target="_blank" rel="noopener">open tide dashboard</a></div>
     </article>`;
   }).join('') || '<p class="hint">No peers configured.</p>';
@@ -407,12 +418,15 @@ function render(j) {
       <td>${fmt(s.availability,1)}</td>
     </tr>`;
   }).join('');
-  drawLucyCharts(h);
+  renderVs(h);
   drawLPD(h);
+  refreshOceanCharts(j.chart_rev || Date.now());
 }
 async function tick() {
   try {
-    const r = await fetch('/api/ocean');
+    const r = await fetch('/api/ocean', { headers: { 'Accept-Encoding': 'gzip' } });
+    if (r.status === 304) return;
+    if (!r.ok) throw new Error('ocean unavailable');
     render(await r.json());
   } catch (e) {
     $('status').textContent = 'waiting for /api/ocean…';
@@ -856,34 +870,6 @@ function drawLPD(h) {
       <td>${fmt(r.ram_kib,1)}</td>
     </tr>`).join('') : '<tr><td colspan="10">no finished ok cells yet</td></tr>';
   }
-  const pts = lpdMerged(l).map(r => ({
-    band: r.band, gold: r.gold,
-    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100, accpct: (r.rel_acc||0)*100,
-  }));
-  const champRam = (l.acc_champ && l.acc_champ.ram_kib) || 0;
-  drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
-  drawLPDScatter('scLpdAcc', pts, 'ram', 'accpct', champRam * 0.2, 80, 'left');
-  drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
-  const nrm = (v, peak) => peak > 0 ? Math.max(0, Math.min(1, v / peak)) : 0;
-  const liveSeries = [];
-  const densSeries = [];
-  const push = (arr, label, color, row, dens) => {
-    if (!row) return;
-    const vals = dens
-      ? [nrm(row.dens_acc, l.peak_dens_acc), nrm(row.dens_thru, l.peak_dens_thru), nrm(row.dens_avail, l.peak_dens_avail)]
-      : [row.rel_acc||0, row.rel_thru||0, row.rel_avail||0];
-    arr.push({ label: label + ' ' + prettyCell(row.id||''), color, vals });
-  };
-  push(liveSeries, 'Acc champ', '#e6b35a', lpdRowById(l, (l.acc_champ||{}).id), false);
-  push(liveSeries, 'Gold-std', '#b7791f', l.gold_std && l.gold_std.id ? l.gold_std : null, false);
-  push(liveSeries, 'Live-fit', '#3dd6c6', lpdRowById(l, (l.live_champ||{}).id), false);
-  push(liveSeries, 'Lucy Score', '#e06c75', lpdRowById(l, (l.champ||{}).id), false);
-  push(densSeries, 'Gold-std', '#b7791f', l.gold_std && l.gold_std.id ? l.gold_std : null, true);
-  if (l.top && l.top[0] && l.top[0].lpd > 0) push(densSeries, 'LPD lead', '#3dd6c6', l.top[0], true);
-  push(densSeries, 'Acc champ', '#e6b35a', lpdRowById(l, (l.acc_champ||{}).id), true);
-  push(densSeries, 'Lucy Score', '#e06c75', lpdRowById(l, (l.champ||{}).id), true);
-  drawRadar('radarLive', liveSeries);
-  drawRadar('radarDens', densSeries);
 }
 setInterval(tick, 1000);
 tick();

@@ -49,11 +49,43 @@
   }
   .top-row {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 1fr;
     gap: 1rem;
     padding: 0 1.5rem 1rem;
   }
-  @media (max-width: 900px) { .top-row { grid-template-columns: 1fr; } }
+  .sweep-panel {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) 1fr;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 760px) { .sweep-panel { grid-template-columns: 1fr; } }
+  .sweep-left { display: flex; flex-direction: column; gap: 0.85rem; }
+  .mode-mix-block h3 {
+    margin: 0 0 0.35rem; font-size: 0.82rem; color: var(--muted);
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .mode-mix-block .hint { margin-bottom: 0.4rem; }
+  .sweep-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.55rem 1rem;
+    font-size: 0.82rem;
+  }
+  .sweep-stats .stat {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--grid);
+    padding: 0.45rem 0.55rem;
+    border-radius: 4px;
+  }
+  .sweep-stats .stat b { display: block; font-size: 1.05rem; color: var(--accent); margin-top: 0.15rem; }
+  .sweep-stats .stat span { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .progress-bar {
+    height: 10px; background: rgba(255,255,255,0.08); border-radius: 5px; overflow: hidden; margin: 0.65rem 0;
+  }
+  .progress-bar i { display: block; height: 100%; background: linear-gradient(90deg, #2a9d8f, #3dd6c6); transition: width 0.4s; }
+  .pulse-panel { padding: 0 1.5rem 1rem; }
+  .pulse-panel section { background: rgba(0,0,0,0.22); border: 1px solid var(--grid); padding: 1rem; }
   section {
     background: rgba(0,0,0,0.22);
     border: 1px solid var(--grid);
@@ -304,6 +336,9 @@
   .chart-panel h3 { margin: 0 0 0.55rem; font-size: 1rem; color: var(--ink); text-transform: none; letter-spacing: 0; }
   canvas.scatter { width: 100%; height: 440px; background: rgba(0,0,0,0.25); }
   canvas.radar { width: 100%; height: 480px; background: rgba(0,0,0,0.25); }
+  img.srv-chart { width: 100%; height: auto; display: block; background: rgba(0,0,0,0.25); min-height: 160px; }
+  img.srv-chart[data-chart="pulse"] { min-height: 420px; }
+  img.srv-chart[data-chart^="heat-"] { min-height: 48px; }
 </style>
 </head>
 <body>
@@ -329,18 +364,37 @@
 <div class="top-row">
   <section>
     <h2>Sweep progress</h2>
-    <p class="hint">Finished vs still queued + ETA. Shows this-epoch % and epochs left when the host sets a multi-epoch plan. Finished cell IDs are skipped on resume.</p>
-    <canvas id="pieChart" width="240" height="180"></canvas>
-    <div class="pie-aside" id="pieAside">—</div>
-    <h2 style="margin-top:1rem">Queue by train mode</h2>
-    <p class="hint">Done / running / left for each mode in plan order.</p>
-    <div class="table-wrap" style="max-height:280px">
-      <table>
-        <thead><tr><th>Mode</th><th>Done</th><th>Run</th><th>Left</th><th>Total</th><th></th></tr></thead>
-        <tbody id="modeQueue"></tbody>
-      </table>
+    <p class="hint">This epoch vs full plan. ETA uses average cell duration from finished runs.</p>
+    <div class="sweep-panel">
+      <div class="sweep-left">
+        <div>
+          <canvas id="pieChart" width="240" height="180"></canvas>
+          <div class="progress-bar"><i id="sweepBar" style="width:0%"></i></div>
+          <div class="pie-aside" id="pieAside">—</div>
+        </div>
+        <div class="mode-mix-block">
+          <h3>Mode mix (finished)</h3>
+          <p class="hint">Train modes already completed this epoch.</p>
+          <canvas id="modePie" width="240" height="160"></canvas>
+          <div class="pie-aside" id="modeAside">—</div>
+        </div>
+      </div>
+      <div>
+        <div class="sweep-stats" id="sweepStats">—</div>
+        <h2 style="margin-top:1rem">Queue by train mode</h2>
+        <p class="hint">Done / running / left for each mode in plan order.</p>
+        <div class="table-wrap" style="max-height:280px">
+          <table>
+            <thead><tr><th>Mode</th><th>Done</th><th>Run</th><th>Left</th><th>Total</th><th></th></tr></thead>
+            <tbody id="modeQueue"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
+</div>
+
+<div class="pulse-panel">
   <section>
     <h2>Live pulse — current vs champions</h2>
     <p class="hint">
@@ -355,7 +409,7 @@
       <span><i style="background:#ffffff; outline:1px dashed #fff"></i>metric champ</span>
       <span><i style="background:transparent; outline:1px dotted #3dd6c6"></i>score champ</span>
     </div>
-    <canvas id="pulseChart" width="960" height="420"></canvas>
+    <img class="srv-chart" id="chart-pulse" data-chart="pulse" alt="Live pulse chart" width="960" height="520"/>
     <div class="scrub">
       <button class="livebtn" id="livebtn" type="button">LIVE</button>
       <input id="scrub" type="range" min="0" max="0" value="0"/>
@@ -405,25 +459,31 @@
     <div class="chart-stack">
       <div class="chart-panel">
         <h3>Consciousness radar — Acc / Thru / Avail</h3>
-        <canvas class="radar" id="radarLive" width="960" height="480"></canvas>
+        <p class="hint">Each triangle is one <b>champ cell</b> (not every model). Legend on the right: role + train mode · dtype · arch. Axes are keep-% vs learner peaks (1 = matches the best Acc/Thru/Avail seen so far).</p>
+        <img class="srv-chart" data-chart="radar-live" alt="Consciousness radar" width="960" height="480"/>
       </div>
       <div class="chart-panel">
         <h3>Memory density radar — pillars × shrink</h3>
-        <canvas class="radar" id="radarDens" width="960" height="480"></canvas>
+        <p class="hint">Same champ cells, but each axis is keep × how much smaller than Acc-champ RAM. Fat accurate models shrink toward the center; traps sit at 0.</p>
+        <img class="srv-chart" data-chart="radar-dens" alt="Memory density radar" width="960" height="480"/>
       </div>
       <div class="chart-panel">
         <h3>Q% vs RAM KiB — gold is top-left</h3>
-        <canvas class="scatter" id="scLpdRam" width="960" height="440"></canvas>
+        <p class="hint">Every finished ok cell. Dot color = <b>train mode</b> (legend on chart). Gold ring = trifecta small-RAM. X = RAM KiB vs Acc champ; Y = Q (geomean Acc/Thru/Avail keep).</p>
+        <img class="srv-chart" data-chart="lpd-ram" alt="Q% vs RAM" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>Acc keep % vs RAM — 80% Acc champ, 20% RAM</h3>
-        <canvas class="scatter" id="scLpdAcc" width="960" height="440"></canvas>
+        <p class="hint">Same cells, Acc keep only. Color = train mode. Gold wants high Acc keep at low RAM (top-left).</p>
+        <img class="srv-chart" data-chart="lpd-acc" alt="Acc keep vs RAM" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>Q% vs shrink vs Acc champ — gold is top-right</h3>
-        <canvas class="scatter" id="scLpdShrink" width="960" height="440"></canvas>
+        <p class="hint">X = shrink × (Acc-champ RAM / this). Color = train mode. Top-right = dense live-fit.</p>
+        <img class="srv-chart" data-chart="lpd-shrink" alt="Q% vs shrink" width="960" height="440"/>
       </div>
     </div>
+    <p class="hint" style="margin-top:0.75rem">Train-mode differences at a glance: <b>Honesty grids</b> below (mode × dtype / mode × arch means). Per-mode best Acc/RAM is in the mode table under these charts. Queue + mode mix live in Sweep progress.</p>
     <div class="table-wrap" style="max-height:240px;margin-top:0.8rem">
       <table>
         <thead><tr>
@@ -449,55 +509,55 @@
     <div class="chart-stack">
       <div class="chart-panel">
         <h3>Mean Score — mode × dtype</h3>
-        <div class="table-wrap" id="heatScore"></div>
+        <img class="srv-chart" data-chart="heat-score" alt="Mean Score heatmap" width="960" height="320"/>
       </div>
       <div class="chart-panel">
         <h3>Mean hard Acc — mode × dtype</h3>
-        <div class="table-wrap" id="heatAcc"></div>
+        <img class="srv-chart" data-chart="heat-acc" alt="Mean Acc heatmap" width="960" height="320"/>
       </div>
       <div class="chart-panel">
         <h3>Mean SoftAcc (serve-confidence) — mode × dtype</h3>
-        <div class="table-wrap" id="heatSoft"></div>
+        <img class="srv-chart" data-chart="heat-soft" alt="Mean SoftAcc heatmap" width="960" height="320"/>
       </div>
       <div class="chart-panel">
         <h3>Mean Avail — mode × dtype</h3>
-        <div class="table-wrap" id="heatAvail"></div>
+        <img class="srv-chart" data-chart="heat-avail" alt="Mean Avail heatmap" width="960" height="320"/>
       </div>
       <div class="chart-panel">
         <h3>Mean Score — mode × arch</h3>
-        <div class="table-wrap" id="heatArch"></div>
+        <img class="srv-chart" data-chart="heat-arch" alt="Mean Score mode x arch" width="960" height="320"/>
       </div>
       <div class="chart-panel">
         <h3>Mean Avail — mode × arch</h3>
-        <div class="table-wrap" id="heatArchAvail"></div>
+        <img class="srv-chart" data-chart="heat-arch-avail" alt="Mean Avail mode x arch" width="960" height="320"/>
       </div>
       <div class="chart-panel">
         <h3>Avail vs hard Acc</h3>
-        <canvas class="scatter" id="scAvailAcc" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-avail-acc" alt="Avail vs hard Acc" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>SoftAcc vs Lucy Score</h3>
-        <canvas class="scatter" id="scSoftScore" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-soft-score" alt="SoftAcc vs Score" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>Hard Acc vs Score</h3>
-        <canvas class="scatter" id="scAccScore" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-acc-score" alt="Hard Acc vs Score" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>SoftAcc vs hard Acc (they diverge on large vocabs)</h3>
-        <canvas class="scatter" id="scSoftAcc" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-soft-acc" alt="SoftAcc vs hard Acc" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>Thru vs hard Acc</h3>
-        <canvas class="scatter" id="scThruAcc" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-thru-acc" alt="Thru vs hard Acc" width="960" height="440"/>
       </div>
       <div class="chart-panel">
         <h3>Thru vs Avail</h3>
-        <canvas class="scatter" id="scThruAvail" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-thru-avail" alt="Thru vs Avail" width="960" height="440"/>
       </div>
       <div class="chart-panel" id="adaptPanel" style="display:none">
         <h3>AdaptPct vs hard Acc</h3>
-        <canvas class="scatter" id="scAdaptAcc" width="960" height="440"></canvas>
+        <img class="srv-chart" data-chart="scatter-adapt-acc" alt="AdaptPct vs hard Acc" width="960" height="440"/>
       </div>
     </div>
   </section>
@@ -526,10 +586,6 @@
     <h2 style="margin-top:1.25rem">Best learn mobile (Acc/sec/MiB — trap)</h2>
     <p class="hint">Same trap unless Acc held. Prefer LPD.</p>
     <div id="bestLearnMobile" class="meta">—</div>
-    <h2 style="margin-top:1.25rem">Mode mix (finished)</h2>
-    <p class="hint">Train modes already completed.</p>
-    <canvas id="modePie" width="300" height="180"></canvas>
-    <div class="pie-aside" id="modeAside"></div>
   </section>
 </main>
 
@@ -718,8 +774,7 @@ const pieCanvas = document.getElementById('pieChart');
 const pieCtx = pieCanvas.getContext('2d');
 const modeCanvas = document.getElementById('modePie');
 const modeCtx = modeCanvas.getContext('2d');
-const pulseCanvas = document.getElementById('pulseChart');
-const pulseCtx = pulseCanvas.getContext('2d');
+const chartPulse = document.getElementById('chart-pulse');
 const rankChart = document.getElementById('rankChart');
 const learnTo50Chart = document.getElementById('learnTo50Chart');
 const learnRateChart = document.getElementById('learnRateChart');
@@ -731,11 +786,83 @@ let history = [];
 let followLive = true;
 let seeded = false;
 let lastLive = null;
+let chartRev = 0;
+let liveETag = '';
+const SERVER_CHARTS = [
+  'pulse', 'radar-live', 'radar-dens', 'lpd-ram', 'lpd-acc', 'lpd-shrink',
+  'heat-score', 'heat-acc', 'heat-soft', 'heat-avail', 'heat-arch', 'heat-arch-avail',
+  'scatter-avail-acc', 'scatter-soft-score', 'scatter-acc-score', 'scatter-soft-acc',
+  'scatter-thru-acc', 'scatter-thru-avail', 'scatter-adapt-acc',
+];
+function refreshCharts(rev, pulseEnd) {
+  if (!rev) return;
+  const pulseOnly = pulseEnd != null && rev === chartRev;
+  if (!pulseOnly) chartRev = rev;
+  SERVER_CHARTS.forEach(name => {
+    const el = document.querySelector(`[data-chart="${name}"]`);
+    if (!el) return;
+    if (name === 'scatter-adapt-acc') {
+      const vs = (lastLive && lastLive.heat && lastLive.heat.vs) || {};
+      const show = !!(vs.modes && vs.modes.some(m => Math.abs(m.acc_delta || 0) > 0.05));
+      el.style.display = show ? '' : 'none';
+      if (!show) return;
+    }
+    if (pulseOnly && name !== 'pulse') return;
+    let url = '/api/charts/' + name + '.svg?v=' + rev;
+    if (name === 'pulse' && pulseEnd != null) url += '&end=' + pulseEnd;
+    el.src = url;
+  });
+}
+function refreshPulseChart(end) {
+  refreshCharts(chartRev || Date.now(), end);
+}
 let filterRaw = '';
 let filterMobile = '';
 let filterLearn = '';
 let filterLearnMobile = '';
 let etaSec = NaN;
+let sweepStartMs = Date.now();
+
+function sweepDurations() {
+  const rows = (lastLive?.leaderboard || []).filter(r => r.started && r.ended);
+  const ms = rows.map(r => new Date(r.ended) - new Date(r.started)).filter(x => x > 0);
+  if (!ms.length) return { avg: 0, med: 0, n: 0 };
+  ms.sort((a, b) => a - b);
+  const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
+  const med = ms[Math.floor(ms.length / 2)];
+  return { avg, med, n: ms.length };
+}
+
+function updateETA(j) {
+  const total = j.plan || j.cell_total || 0;
+  const done = j.epoch_done != null ? j.epoch_done : 0;
+  const left = Math.max(0, total - Math.min(done, total) - (j.running ? 1 : 0));
+  const p = j.pace || {};
+  let avg = (p.avg_cell_sec || 0) * 1000;
+  let med = (p.med_cell_sec || 0) * 1000;
+  let n = p.pace_samples || 0;
+  // Prefer server wall-clock farm rate (parallel workers + queue).
+  if (p.wall_sec_per_cell > 0) {
+    const wallMs = p.wall_sec_per_cell * 1000;
+    if (n === 0 || wallMs > med) {
+      med = wallMs;
+      avg = wallMs;
+      if (n === 0) n = 1;
+    }
+  }
+  if (n === 0) {
+    const fb = sweepDurations();
+    avg = fb.avg;
+    med = fb.med;
+    n = fb.n;
+  }
+  const useMs = med > 0 ? med : avg;
+  const epochEtaSec = p.eta_epoch_sec > 0 ? p.eta_epoch_sec : (useMs > 0 ? (left * useMs) / 1000 : NaN);
+  const sweepEtaSec = p.eta_sweep_sec > 0 ? p.eta_sweep_sec : NaN;
+  etaSec = epochEtaSec;
+  const rate = p.cells_per_hour > 0 ? p.cells_per_hour : (useMs > 0 ? 3600000 / useMs : 0);
+  return { total, done, left, avg, med, n, rate, epochEtaSec, sweepEtaSec };
+}
 
 const BANDS = ['#152428','#151c2a','#241c14','#1c1424','#14241c','#241814'];
 const METRICS = [
@@ -806,6 +933,7 @@ document.getElementById('filterLearnMobile').addEventListener('input', (e) => {
 
 function fmtDur(sec) {
   if (!isFinite(sec) || sec < 0) return '—';
+  if (sec < 1) return sec < 0.05 ? '—' : '<1s';
   if (sec < 60) return Math.round(sec) + 's';
   if (sec < 3600) return (sec/60).toFixed(1) + 'm';
   const h = Math.floor(sec/3600);
@@ -946,18 +1074,22 @@ function renderWinners(w) {
   renderWinnerRows('winFmtDType', w.best_format_per_dtype, 9);
 }
 
-function drawProgressPie() {
+function drawProgressPie(eta) {
   if (!lastLive) return;
+  eta = eta || updateETA(lastLive);
   const total = lastLive.plan || lastLive.cell_total || 0;
-  const done = lastLive.epoch_done != null
-    ? lastLive.epoch_done
-    : (lastLive.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
-  const fail = lastLive.epoch_fail != null ? lastLive.epoch_fail
-    : (lastLive.completed || []).filter(r => r.status === 'fail').length;
+  const done = lastLive.epoch_done != null ? lastLive.epoch_done : 0;
+  const ok = lastLive.epoch_ok != null ? lastLive.epoch_ok : done;
+  const gap = lastLive.epoch_gap != null ? lastLive.epoch_gap : 0;
+  const fail = lastLive.epoch_fail != null ? lastLive.epoch_fail : 0;
   const running = lastLive.running ? 1 : 0;
   const left = Math.max(0, total - Math.min(done, total) - fail - running);
+  const barPct = total > 0 ? Math.min(100, 100 * done / total) : 0;
+  const barEl = document.getElementById('sweepBar');
+  if (barEl) barEl.style.width = barPct.toFixed(1) + '%';
   const slices = [
-    { value: Math.min(done, total), color: '#3dd6c6' },
+    { value: ok, color: '#3dd6c6' },
+    { value: gap, color: '#7aa2f7' },
     { value: running, color: '#e6b35a' },
     { value: fail, color: '#e06c75' },
     { value: left, color: '#3a4a55' },
@@ -970,24 +1102,42 @@ function drawProgressPie() {
   const overall = lastLive.epoch_overall_pct != null
     ? Number(lastLive.epoch_overall_pct).toFixed(0) + '%'
     : null;
-  const epLabel = epMax > 0
-    ? `epoch ${ep}/${epMax}`
-    : `epoch ${ep}`;
+  const epLabel = epMax > 0 ? `epoch ${ep}/${epMax}` : `epoch ${ep}`;
+  const epochEta = eta.sweepEtaSec > 0 ? fmtDur(eta.sweepEtaSec)
+    : (epMax > 0 && eta.epochEtaSec > 0 && epLeft > 0 ? fmtDur(eta.epochEtaSec * epLeft) : fmtDur(eta.epochEtaSec));
   const centerLines = epMax > 0
-    ? [pct + ' this ep', (overall || '—') + ' overall']
-    : [pct + ' done', fmtDur(etaSec) + ' ETA'];
+    ? [pct + ' this ep', fmtDur(eta.epochEtaSec) + ' ETA']
+    : [pct + ' done', fmtDur(eta.epochEtaSec) + ' ETA'];
   drawDonut(pieCtx, pieCanvas, slices, centerLines);
   const rec = lastLive.recorded || 0;
+  const elapsed = (Date.now() - sweepStartMs) / 1000;
+  const rateStr = eta.rate > 0 ? eta.rate.toFixed(1) + ' cells/hr' : '—';
+  const cellStr = eta.med > 0 ? fmtDur(eta.med / 1000) + ' med' : (eta.avg > 0 ? fmtDur(eta.avg / 1000) + ' avg' : '—');
   document.getElementById('pieAside').innerHTML =
-    `<div><span class="swatch" style="background:#3dd6c6"></span>done <b>${done}</b></div>` +
-    `<div><span class="swatch" style="background:#e6b35a"></span>running <b>${running}</b></div>` +
-    `<div><span class="swatch" style="background:#3a4a55"></span>left <b>${left}</b> / ${total}  (${epLabel})</div>` +
-    (epMax > 0
-      ? `<div>epochs left <b>${epLeft}</b> · overall <b>${overall || '—'}</b></div>`
-      : '') +
+    `<div><span class="swatch" style="background:#3dd6c6"></span>done <b>${done}</b> · ok ${ok}${gap ? ` · gap ${gap}` : ''}</div>` +
+    `<div><span class="swatch" style="background:#e6b35a"></span>running <b>${running}</b> · left <b>${left}</b> / ${total}</div>` +
+    `<div>${epLabel}${epMax > 0 ? ` · ${epLeft} epoch(s) left · ${overall || '—'} overall` : ''}</div>` +
     (fail ? `<div><span class="swatch" style="background:#e06c75"></span>fail <b>${fail}</b></div>` : '') +
     (rec > total ? `<div>recorded ${rec} across epochs</div>` : '') +
-    `<div class="eta">ETA ~ ${fmtDur(etaSec)}</div>`;
+    `<div class="eta">epoch ETA ~ ${fmtDur(eta.epochEtaSec)} · sweep ~ ${epochEta}</div>`;
+  const statsEl = document.getElementById('sweepStats');
+  if (statsEl) {
+    const cur = lastLive.message ? prettyCellId(lastLive.message) : '—';
+    statsEl.innerHTML = [
+      ['Progress', pct + ' · ' + done + '/' + total],
+      ['Queue left', String(left)],
+      ['Cell pace', cellStr + (eta.n ? ` (${eta.n} samples)` : '')],
+      ['Throughput', rateStr],
+      ['Elapsed', fmtDur(elapsed)],
+      ['Epoch ETA', fmtDur(eta.epochEtaSec)],
+      ['Sweep ETA', epochEta],
+      ['Phase', lastLive.phase || '—'],
+      ['Current', cur.length > 42 ? cur.slice(0, 40) + '…' : cur],
+      ['Status', lastLive.running ? 'RUNNING' : (lastLive.awaiting_start ? 'PAUSED' : 'idle')],
+      ['Recorded', String(rec)],
+      ['History', String(lastLive.history_len || 0) + ' pts'],
+    ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+  }
 }
 
 function modeOf(id) {
@@ -997,10 +1147,8 @@ function modeOf(id) {
 
 function drawModePie() {
   const counts = {};
-  (lastLive?.completed || []).forEach(r => {
-    if (r.status !== 'ok' && r.status !== 'gap') return;
-    const m = modeOf(r.cell?.id);
-    counts[m] = (counts[m]||0) + 1;
+  (lastLive?.mode_progress || []).forEach(m => {
+    if (m.done > 0) counts[m.mode] = m.done;
   });
   // Prefer plan order (mode queue) so every train mode stays visible even when counts tie.
   const plan = (lastLive?.mode_progress || []).map(m => m.mode).filter(Boolean);
@@ -1171,13 +1319,13 @@ function escAttr(s) {
 }
 function resultById(id) {
   if (!id || !lastLive) return null;
-  const pool = [...(lastLive.completed || []), lastLive.current, ...(lastLive.leaderboard || [])].filter(Boolean);
+  const pool = [lastLive.current, ...(lastLive.leaderboard || []), ...(lastLive.leaderboard_mobile || [])].filter(Boolean);
   return pool.find(r => r.cell?.id === id) || null;
 }
 function bindRowClicks(root) {
   if (!root) return;
   root.querySelectorAll('[data-cell]').forEach(el => {
-    el.onclick = () => openCellDetail(resultById(el.getAttribute('data-cell')));
+    el.onclick = () => openCellDetail(el.getAttribute('data-cell'));
   });
 }
 
@@ -1188,17 +1336,45 @@ function prettyMode(s) {
 function prettyCellId(id) {
   id = String(id||'').replace(/\|cnn\|/g, '|single|');
   const p = id.split('|');
-  if (p.length >= 3) p[2] = prettyMode(p[2]);
+  // Classic permute: dtype|format|mode|arch|…
+  // test53 funny-LR: layer|dtype|mode|lr=…
+  if (p.length >= 3 && !isLRToken(p[p.length - 1])) {
+    p[2] = prettyMode(p[2]);
+  } else if (p.length >= 3 && isLRToken(p[p.length - 1])) {
+    p[2] = prettyMode(p[2]);
+  }
   return p.join('|');
 }
+function isLRToken(s) {
+  return /^lr=/i.test(String(s || '').trim());
+}
+function isArchToken(s) {
+  const t = String(s || '').toLowerCase().replace(/×/g, 'x').trim();
+  if (!t || isLRToken(t)) return false;
+  if (/^(single|cnn|bi|bicameral|tri|tricameral)$/.test(t)) return true;
+  if (/^(cnn|single|cameral|cam|cams)?x?\d+$/.test(t)) return true;
+  if (/^\d+-?cameral$/.test(t)) return true;
+  return false;
+}
 function parseCamCount(arch) {
-  const s = String(arch || '').toLowerCase().replace(/×/g, 'x');
+  const s = String(arch || '').toLowerCase().replace(/×/g, 'x').trim();
+  if (!s || isLRToken(s)) return 0;
   if (s === 'tricameral' || s === 'tri') return 3;
   if (s === 'bicameral' || s === 'bi') return 2;
   if (s === 'single' || s === 'cnn' || s === 'cnnx1' || s === '') return 1;
-  const m = s.match(/(\d+)\s*$/);
-  const n = m ? parseInt(m[1], 10) : 0;
-  return n >= 1 ? n : 0;
+  // Only accept explicit cameral/arch suffixes — never raw trailing digits
+  // from lr=200 / lr=2 / layer names like cnn2.
+  const m = s.match(/^(?:cnn|single|cameral|cam|cams)?x?(\d+)$/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    return n >= 1 ? n : 0;
+  }
+  const m2 = s.match(/^(\d+)-?cameral$/);
+  if (m2) {
+    const n = parseInt(m2[1], 10);
+    return n >= 1 ? n : 0;
+  }
+  return 0;
 }
 function archTagFor(n, arch) {
   const a = String(arch || '');
@@ -1209,17 +1385,39 @@ function archTagFor(n, arch) {
 }
 function parseCell(cell, id) {
   const raw = String(id || cell?.id || '').replace(/\|cnn\|/g, '|single|');
-  const p = raw.split('|');
-  let arch = (cell && cell.arch) || p[3] || 'single';
-  if (arch === 'cnn') arch = 'single';
+  const p = raw.split('|').filter((x, i, a) => !(i === a.length - 1 && x === ''));
+  const lrTok = p.find(isLRToken) || '';
+  const lr = lrTok ? lrTok.replace(/^lr=/i, '') : '';
+  // test53: layer|dtype|mode|lr=…  — arch is always single×1 from the host bridge
+  const funnyLR = !!lrTok || (p.length >= 4 && isLRToken(p[p.length - 1]));
+  let arch = (cell && cell.arch) || '';
+  let mode = (cell && cell.mode) || '';
+  let dtype = '';
+  let format = '';
+  let layer = '';
+  if (funnyLR) {
+    layer = p[0] || '';
+    dtype = p[1] || '';
+    mode = mode || p[2] || '';
+    if (!arch || isLRToken(arch) || !isArchToken(arch)) arch = 'single';
+  } else {
+    dtype = p[0] || '';
+    format = p[1] || '';
+    mode = mode || p[2] || '';
+    if (!arch) arch = p[3] || 'single';
+    if (arch === 'cnn') arch = 'single';
+    // Never treat lr=… as arch even in mixed IDs
+    if (isLRToken(arch)) arch = 'single';
+  }
   let cams = (cell && cell.cams) || 0;
   if (!cams) cams = parseCamCount(arch);
   if (!cams) cams = 1;
-  const mode = (cell && cell.mode) || p[2] || '';
-  const dtype = p[0] || '';
-  const format = p[1] || '';
+  // Guard: if we only had an ID and arch looked like a number from lr=, force 1
+  if ((!cell || !cell.cams) && isLRToken(p[p.length - 1])) cams = 1;
   const tag = archTagFor(cams, arch);
-  return { id: prettyCellId(raw), arch, cams, mode, dtype, format, tag };
+  return {
+    id: prettyCellId(raw), arch, cams, mode, dtype, format, tag, layer, lr,
+  };
 }
 function archBadge(cell, id) {
   const c = parseCell(cell, id);
@@ -1231,9 +1429,11 @@ function compactSub(cell, id) {
   const bits = [];
   const task = (lastLive && lastLive.task) ? String(lastLive.task) : '';
   if (task) bits.push(task);
+  if (c.layer) bits.push(c.layer);
   bits.push(c.dtype);
   if (c.format && c.format !== 'none') bits.push(c.format);
   bits.push(c.tag);
+  if (c.lr) bits.push('lr=' + c.lr);
   return bits.join(' · ');
 }
 function shortId(id, cell) {
@@ -1245,7 +1445,9 @@ function formatCellHTML(cell, id) {
   const c = parseCell(cell, id);
   if (!c.id) return '—';
   const fmt = c.format && c.format !== 'none' ? `<span class="fmt">${c.format}</span>` : '';
-  return `${archBadge(cell, id)}${modeChip(c.mode)}<span class="dtype">${c.dtype}</span>${fmt}`;
+  const layer = c.layer ? `<span class="dtype" style="opacity:.85">${c.layer}</span> ` : '';
+  const lr = c.lr ? `<span class="fmt">lr=${c.lr}</span>` : '';
+  return `${archBadge(cell, id)}${modeChip(c.mode)}${layer}<span class="dtype">${c.dtype}</span>${fmt}${lr}`;
 }
 function chartLabelHTML(cell, id) {
   const c = parseCell(cell, id);
@@ -1254,11 +1456,11 @@ function chartLabelHTML(cell, id) {
 
 function boardRows() {
   if (!lastLive) return [];
-  return [...(lastLive.leaderboard || lastLive.completed || [])];
+  return [...(lastLive.leaderboard || [])];
 }
 function boardMobileRows() {
   if (!lastLive) return [];
-  return [...(lastLive.leaderboard_mobile || lastLive.completed || [])];
+  return [...(lastLive.leaderboard_mobile || [])];
 }
 function boardLearnRows() {
   if (!lastLive) return [];
@@ -1412,7 +1614,7 @@ function setFollow(on) {
     scrub.value = String(history.length - 1);
     scrubLabel.textContent = 'live';
     showPoint(history[history.length - 1]);
-    drawPulse(history.length - 1);
+    refreshPulseChart(history.length - 1);
   }
 }
 liveBtn.onclick = () => setFollow(true);
@@ -1429,7 +1631,7 @@ scrub.addEventListener('input', () => {
   const i = +scrub.value;
   scrubLabel.textContent = history[i]?.at ? new Date(history[i].at).toLocaleTimeString() : String(i);
   showPoint(history[i]);
-  drawPulse(i);
+  refreshPulseChart(i);
 });
 
 function refreshScrub() {
@@ -1438,29 +1640,13 @@ function refreshScrub() {
     scrub.value = scrub.max;
     scrubLabel.textContent = 'live';
     showPoint(history[history.length - 1]);
-    drawPulse(history.length - 1);
+    refreshPulseChart(history.length - 1);
   } else {
     const i = Math.min(+scrub.value, history.length - 1);
     scrub.value = String(i);
     showPoint(history[i]);
-    drawPulse(i);
+    refreshPulseChart(i);
   }
-}
-
-function updateETA(j) {
-  const total = j.plan || j.cell_total || 0;
-  const done = j.epoch_done != null ? j.epoch_done
-    : (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
-  const left = Math.max(0, total - Math.min(done, total) - (j.running ? 1 : 0));
-  const finished = (j.completed || []).filter(r => r.ended && r.started);
-  let avgMs = 0;
-  if (finished.length) {
-    avgMs = finished.reduce((a, r) => {
-      const ms = new Date(r.ended) - new Date(r.started);
-      return a + (ms > 0 ? ms : 0);
-    }, 0) / finished.length;
-  }
-  etaSec = avgMs > 0 ? (left * avgMs) / 1000 : NaN;
 }
 
 function fmtMs(v) {
@@ -1469,12 +1655,19 @@ function fmtMs(v) {
   return Math.round(v) + '';
 }
 
-function openCellDetail(row) {
+async function openCellDetail(rowOrId) {
+  const id = typeof rowOrId === 'string' ? rowOrId : (rowOrId?.cell?.id);
+  if (!id) return;
+  let row = typeof rowOrId === 'object' ? rowOrId : resultById(id);
+  try {
+    const r = await fetch('/api/cell?id=' + encodeURIComponent(id));
+    if (r.ok) row = await r.json();
+  } catch (_) {}
   if (!row) return;
   const s = row.snapshot || {};
-  const id = row.cell?.id || '—';
-  document.getElementById('cellModalId').innerHTML = formatCellHTML(row.cell, id) +
-    `<div class="sub" style="margin-top:0.35rem">${prettyCellId(id)}</div>`;
+  const cellId = row.cell?.id || '—';
+  document.getElementById('cellModalId').innerHTML = formatCellHTML(row.cell, cellId) +
+    `<div class="sub" style="margin-top:0.35rem">${prettyCellId(cellId)}</div>`;
   const metrics = [
     ['Score', (s.score||0).toFixed(3)],
     ['SoftAcc', (s.soft_acc||0).toFixed(1) + '%'],
@@ -1634,7 +1827,7 @@ function renderBoards() {
   const byId = {};
   [...boardRows(), ...boardMobileRows()].forEach(r => { if (r.cell?.id) byId[r.cell.id] = r; });
   document.querySelectorAll('#board tr.clickable, #boardMobile tr.clickable').forEach(tr => {
-    tr.onclick = () => openCellDetail(byId[tr.getAttribute('data-cell')]);
+    tr.onclick = () => openCellDetail(tr.getAttribute('data-cell'));
   });
 }
 
@@ -2115,67 +2308,30 @@ function drawLPD() {
     </tr>`).join('') : '<tr><td colspan="9">no finished ok cells yet</td></tr>';
     bindRowClicks(tb);
   }
-  const pts = lpdMerged(l).map(r => ({
-    band: r.band, gold: r.gold,
-    ram: r.ram_kib, shrink: r.shrink, qpct: (r.q||0)*100, accpct: (r.rel_acc||0)*100,
-  }));
-  const champRam = (l.acc_champ && l.acc_champ.ram_kib) || 0;
-  drawLPDScatter('scLpdRam', pts, 'ram', 'qpct', champRam * 0.2, 80, 'left');
-  drawLPDScatter('scLpdAcc', pts, 'ram', 'accpct', champRam * 0.2, 80, 'left');
-  drawLPDScatter('scLpdShrink', pts, 'shrink', 'qpct', 5, 80, 'right');
-  const n = (v, peak) => peak > 0 ? Math.max(0, Math.min(1, v / peak)) : 0;
-  const liveSeries = [];
-  const densSeries = [];
-  const push = (arr, label, color, row, dens) => {
-    if (!row) return;
-    const vals = dens
-      ? [n(row.dens_acc, l.peak_dens_acc), n(row.dens_thru, l.peak_dens_thru), n(row.dens_avail, l.peak_dens_avail)]
-      : [row.rel_acc||0, row.rel_thru||0, row.rel_avail||0];
-    arr.push({ label: label + ' ' + prettyCellId(row.id||''), color, vals });
-  };
-  push(liveSeries, 'Acc champ', '#e6b35a', lpdRowById(l, (l.acc_champ||{}).id), false);
-  push(liveSeries, 'Gold-std', '#b7791f', l.gold_std && l.gold_std.id ? l.gold_std : null, false);
-  push(liveSeries, 'Live-fit', '#3dd6c6', lpdRowById(l, (l.live_champ||{}).id), false);
-  push(liveSeries, 'Lucy Score', '#e06c75', lpdRowById(l, (l.champ||{}).id), false);
-  push(densSeries, 'Gold-std', '#b7791f', l.gold_std && l.gold_std.id ? l.gold_std : null, true);
-  if (l.top && l.top[0] && l.top[0].lpd > 0) push(densSeries, 'LPD lead', '#3dd6c6', l.top[0], true);
-  push(densSeries, 'Acc champ', '#e6b35a', lpdRowById(l, (l.acc_champ||{}).id), true);
-  push(densSeries, 'Lucy Score', '#e06c75', lpdRowById(l, (l.champ||{}).id), true);
-  drawRadar('radarLive', liveSeries);
-  drawRadar('radarDens', densSeries);
 }
-function drawLucyCharts() {
+function renderLucyExtras() {
   const h = (lastLive && lastLive.heat) || {};
-  heatTable('heatScore', h.modes, h.dtypes, h.mode_dtype_score);
-  heatTable('heatAcc', h.modes, h.dtypes, h.mode_dtype_acc);
-  heatTable('heatSoft', h.modes, h.dtypes, h.mode_dtype_soft);
-  heatTable('heatAvail', h.modes, h.dtypes, h.mode_dtype_avail);
-  heatTable('heatArch', h.modes, h.arches, h.mode_arch_score);
-  heatTable('heatArchAvail', h.modes, h.arches, h.mode_arch_avail);
-  const pts = okPoints();
-  drawScatter('scAvailAcc', pts, 'availability', 'avg_accuracy');
-  drawScatter('scSoftScore', pts, 'soft_acc', 'score');
-  drawScatter('scAccScore', pts, 'avg_accuracy', 'score');
-  drawScatter('scSoftAcc', pts, 'soft_acc', 'avg_accuracy');
-  drawScatter('scThruAcc', pts, 'throughput', 'avg_accuracy');
-  drawScatter('scThruAvail', pts, 'throughput', 'availability');
-  const hasAdapt = pts.some(p => (+p.adapt_pct || 0) > 0.05);
-  const adaptPanel = document.getElementById('adaptPanel');
-  if (adaptPanel) adaptPanel.style.display = hasAdapt ? '' : 'none';
-  if (hasAdapt) drawScatter('scAdaptAcc', pts, 'adapt_pct', 'avg_accuracy');
   renderVs(h);
 }
 
 async function tick() {
   try {
-    const r = await fetch('/api/live');
+    const r = await fetch('/api/live', {
+      headers: {
+        'Accept-Encoding': 'gzip',
+        ...(liveETag ? { 'If-None-Match': liveETag } : {}),
+      },
+    });
+    if (r.status === 304) return;
+    if (!r.ok) throw new Error('live unavailable');
+    liveETag = r.headers.get('ETag') || liveETag;
     const j = await r.json();
     lastLive = j;
     applyTaskMeta(j);
-    const awaiting = !!j.awaiting_start;
+    const awaiting = !!j.awaiting_start && !j.started && !j.running;
     const banner = document.getElementById('startBanner');
     if (banner) banner.classList.toggle('show', awaiting);
-    const doneN = (j.completed || []).filter(r => r.status === 'ok' || r.status === 'gap').length;
+    const doneN = j.epoch_done != null ? j.epoch_done : 0;
     const totalN = j.cell_total || 0;
     const epochN = j.epoch || 1;
     const epochMax = j.epoch_max || 0;
@@ -2186,16 +2342,18 @@ async function tick() {
     const startBtnLive = document.getElementById('startBtn');
     const startTitle = document.getElementById('startTitle');
     const startSub = document.getElementById('startSub');
-    if (awaiting && startBtnLive && !startBtnLive.disabled) {
-      startBtnLive.textContent = canResume
-        ? `Resume ${epochLabel} — ${doneN}/${totalN} done`
-        : 'Start training';
+    if (awaiting) {
+      if (startBtnLive && !startBtnLive.disabled) {
+        startBtnLive.textContent = canResume
+          ? `Resume ${epochLabel} — ${doneN}/${totalN} done`
+          : 'Start training';
+      }
+      if (startTitle) startTitle.textContent = canResume ? 'Resume training' : 'Training paused';
+      if (startSub) startSub.textContent = canResume
+        ? `Finished cells keep their ${epochLabel} scores. Only new modes / arches / leftover IDs will run.` +
+          (epochMax > 0 ? ` ${epochsLeft} epoch(s) left for this LR.` : '')
+        : 'Nothing trains until you press Start. Checkpoint is not written while paused.';
     }
-    if (startTitle) startTitle.textContent = canResume ? 'Resume training' : 'Training paused';
-    if (startSub) startSub.textContent = canResume
-      ? `Finished cells keep their ${epochLabel} scores. Only new modes / arches / leftover IDs will run.` +
-        (epochMax > 0 ? ` ${epochsLeft} epoch(s) left for this LR.` : '')
-      : 'Nothing trains until you press Start. Checkpoint is not written while paused.';
     const overallPct = j.epoch_overall_pct != null ? Number(j.epoch_overall_pct).toFixed(0) + '%' : null;
     document.getElementById('status').textContent =
       `${prettyCellId(j.message || '')} · phase ${j.phase || '—'} · ${epochLabel}` +
@@ -2204,12 +2362,12 @@ async function tick() {
         awaiting ? 'PAUSED' : (j.running ? 'RUNNING' : 'idle')
       }`;
 
-    updateETA(j);
-    drawProgressPie();
+    const eta = updateETA(j);
+    drawProgressPie(eta);
     renderModeQueue(j.mode_progress);
     renderWinners(j.winners);
     drawModePie();
-    await syncHistoryTip(j.history_len || 0, j.history || []);
+    await syncHistoryTip(j.history_len || 0, j.history_tip || []);
 
     const bestEl = document.getElementById('bests');
     const b = j.best || {};
@@ -2275,8 +2433,9 @@ async function tick() {
     renderBoards();
     drawRank();
     drawLearnCharts();
-    drawLucyCharts();
     drawLPD();
+    renderLucyExtras();
+    refreshCharts(j.chart_rev || Date.now(), followLive ? Math.max(0, history.length - 1) : +scrub.value);
   } catch (e) {
     document.getElementById('status').textContent = 'waiting for /api/live…';
   }
@@ -2288,9 +2447,7 @@ window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     if (!lastLive) return;
-    drawPulse(followLive ? Math.max(0, history.length - 1) : +scrub.value);
-    drawLucyCharts();
-    drawLPD();
+    refreshCharts(chartRev, followLive ? Math.max(0, history.length - 1) : +scrub.value);
   }, 120);
 });
 

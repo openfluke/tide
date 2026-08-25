@@ -15,6 +15,8 @@ func APIPaths() map[string]string {
 		"start":   "/api/start",
 		"history": "/api/history",
 		"winners": "/api/winners",
+		"cell":    "/api/cell",
+		"charts":  "/api/charts/",
 		"report":  "/api/report.pdf",
 	}
 }
@@ -349,71 +351,4 @@ func boardStatus(started, running bool, done, total int) string {
 		return "queued"
 	}
 	return "idle"
-}
-
-func (s *Server) livePayload() map[string]any {
-	live := s.Tracker.SnapshotLive()
-	meta := s.Meta()
-	b := s.Board()
-	cellTotal := b.Plan
-	if cellTotal == 0 {
-		cellTotal = live.CellTotal
-	}
-	heatLive := b.Heat
-	if n := len(heatLive.Points); n > 240 {
-		step := (n + 239) / 240
-		slim := make([]report.CellPoint, 0, 240)
-		for i := 0; i < n; i += step {
-			slim = append(slim, heatLive.Points[i])
-		}
-		heatLive.Points = slim
-	}
-	return map[string]any{
-		"live": live,
-		// Flat fields kept for older dashboard JS that reads top-level keys.
-		"updated_at":               live.UpdatedAt,
-		"running":                  live.Running,
-		"current":                  live.Current,
-		"completed":                live.Completed,
-		"leaderboard":              live.Leaderboard,
-		"leaderboard_mobile":       live.LeaderboardMobile,
-		"leaderboard_learn":        live.LeaderboardLearn,
-		"leaderboard_learn_mobile": live.LeaderboardLearnMobile,
-		"best":                     live.Best,
-		"best_mobile":              live.BestMobile,
-		"best_learn":               live.BestLearn,
-		"best_learn_mobile":        live.BestLearnMobile,
-		"history":                  live.History,
-		"history_len":              live.HistoryLen,
-		"phase":                    live.Phase,
-		"batch_index":              live.BatchIndex,
-		"batch_total":              live.BatchTotal,
-		"cell_index":               live.CellIndex,
-		"cell_total":               cellTotal,
-		"message":                  live.Message,
-		"mode_progress":            s.modeProgress(live),
-		"winners":                  computeWinners(live),
-		"awaiting_start":           meta.AwaitingStart,
-		"started":                  meta.Started,
-		"epoch":                    b.Epoch,
-		"epoch_max":                b.EpochMax,
-		"epochs_left":              b.EpochsLeft,
-		"epoch_overall_pct":        b.EpochOverallPct,
-		"task":                     s.Task,
-		"subtitle":                 s.Subtitle,
-		"lr":                       s.LR,
-		"id":                       meta.ID,
-		"addr":                     s.Addr,
-		"apis":                     meta.APIs,
-		"plan":                     b.Plan,
-		"epoch_ok":                 b.Ok,
-		"epoch_fail":               b.Fail,
-		"epoch_done":               b.EpochDone,
-		"ok_all":                   b.OkAll,
-		"recorded":                 b.Recorded,
-		"progress_pct":             b.ProgressPct,
-		"axes":                     b.Axes,
-		"heat":                     heatLive,
-		"lpd":                      b.LPD,
-	}
 }

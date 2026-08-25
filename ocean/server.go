@@ -51,9 +51,13 @@ type Server struct {
 	Peers  []Peer
 	OutDir string // optional; /api/report.pdf also writes ocean-report.pdf here
 
-	client *http.Client
-	mu     sync.Mutex
-	cache  []PeerState
+	client     *http.Client
+	mu         sync.Mutex
+	cache      []PeerState
+	cacheMu    sync.RWMutex
+	cacheSnap  Snapshot
+	cacheAt    time.Time
+	pollerOnce sync.Once
 }
 
 func (s *Server) ensure() {
@@ -63,6 +67,7 @@ func (s *Server) ensure() {
 	if s.Title == "" {
 		s.Title = "ocean"
 	}
+	s.startPoller()
 }
 
 func (s *Server) Handler() http.Handler {
@@ -81,11 +86,8 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
 	})
-	mux.HandleFunc("/api/ocean", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(publicizeSnapshot(s.Snapshot(), viewerHost(r)))
-	})
+	mux.HandleFunc("/api/ocean", s.handleOcean)
+	mux.HandleFunc("/api/charts/", s.handleChart)
 	mux.HandleFunc("/api/meta", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -95,7 +97,11 @@ func (s *Server) Handler() http.Handler {
 			"ocean": true,
 			"peers": len(s.peerList()),
 			"addr":  s.Addr,
-			"apis":  map[string]string{"ocean": "/api/ocean", "start_all": "/api/start-all", "start": "/api/start", "register": "/api/register", "peers": "/api/peers", "report": "/api/report.pdf"},
+			"apis": map[string]string{
+				"ocean": "/api/ocean", "charts": "/api/charts/",
+				"start_all": "/api/start-all", "start": "/api/start",
+				"register": "/api/register", "peers": "/api/peers", "report": "/api/report.pdf",
+			},
 		})
 	})
 	mux.HandleFunc("/api/report.pdf", s.handleReportPDF)
@@ -129,7 +135,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "peer": name})
 	})
-	return corsWrap(mux)
+	return dash.WithGzip(corsWrap(mux))
 }
 
 func corsWrap(next http.Handler) http.Handler {
@@ -154,29 +160,10 @@ func (s *Server) ListenAndServe() error {
 	return http.ListenAndServe(s.Addr, s.Handler())
 }
 
-// Snapshot polls every peer (in parallel) and consolidates winners.
+// Snapshot returns the cached consolidated view (refreshed ~1 Hz in background).
 func (s *Server) Snapshot() Snapshot {
 	s.ensure()
-	peers := s.peerList()
-	states := make([]PeerState, len(peers))
-	var wg sync.WaitGroup
-	for i, p := range peers {
-		wg.Add(1)
-		go func(i int, p Peer) {
-			defer wg.Done()
-			states[i] = s.fetchPeer(p)
-		}(i, p)
-	}
-	wg.Wait()
-	s.mu.Lock()
-	s.cache = append([]PeerState(nil), states...)
-	s.mu.Unlock()
-	return Snapshot{
-		UpdatedAt: time.Now(),
-		Title:     s.Title,
-		Holistic:  consolidate(states),
-		Peers:     states,
-	}
+	return s.cachedSnapshot()
 }
 
 func (s *Server) fetchPeer(p Peer) PeerState {
