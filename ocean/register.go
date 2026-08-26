@@ -27,6 +27,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST /api/register", http.StatusMethodNotAllowed)
 		return
 	}
+	if s != nil && s.StaticOnly {
+		http.Error(w, "ocean StaticOnly: registration disabled", http.StatusForbidden)
+		return
+	}
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), 400)

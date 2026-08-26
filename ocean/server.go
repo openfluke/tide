@@ -50,6 +50,8 @@ type Server struct {
 	Title  string
 	Peers  []Peer
 	OutDir string // optional; /api/report.pdf also writes ocean-report.pdf here
+	// StaticOnly ignores POST /api/register so only Peers from config are polled.
+	StaticOnly bool
 
 	client     *http.Client
 	mu         sync.Mutex

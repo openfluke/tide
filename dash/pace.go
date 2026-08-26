@@ -21,6 +21,7 @@ type SweepPace struct {
 // minPaceSec drops instant Begin→Finish noise (multi-worker hosts that
 // re-Begin after the job already finished report ~0s otherwise).
 const minPaceSec = 0.05
+const maxPaceSamples = 200
 
 func computeSweepPace(completed []pulse.Result, left, epochsLeft int) SweepPace {
 	return computeSweepPaceWall(completed, left, epochsLeft, time.Time{}, 0, 0)
@@ -31,7 +32,11 @@ func computeSweepPace(completed []pulse.Result, left, epochsLeft int) SweepPace 
 // wallDoneBase is completed-count at anchor; wallNew is cells finished after.
 func computeSweepPaceWall(completed []pulse.Result, left, epochsLeft int, wallStart time.Time, wallDoneBase, wallNew int) SweepPace {
 	var secs []float64
-	for _, r := range completed {
+	start := 0
+	if len(completed) > maxPaceSamples {
+		start = len(completed) - maxPaceSamples
+	}
+	for _, r := range completed[start:] {
 		if r.Ended.IsZero() || r.Started.IsZero() {
 			continue
 		}

@@ -173,6 +173,15 @@ func (s *Server) Board() Board {
 		epoch = s.Epoch
 	}
 	okE, gapE, failE, okAll, rec := countResults(live.Completed, epoch)
+	if live.Recorded > rec {
+		rec = live.Recorded
+	}
+	// Hosts like test53 drive queue via SetMeta(CellIndex); trust that for progress.
+	if live.CellIndex > 0 && live.CellTotal > 0 {
+		if live.CellIndex > rec {
+			rec = live.CellIndex
+		}
+	}
 	plan := 0
 	if s != nil {
 		plan = len(s.Cells)
@@ -181,6 +190,9 @@ func (s *Server) Board() Board {
 		plan = live.CellTotal
 	}
 	epochDone := okE + gapE + failE
+	if live.CellIndex > epochDone {
+		epochDone = live.CellIndex
+	}
 	pct := 0.0
 	if plan > 0 {
 		pct = 100 * float64(epochDone) / float64(plan)

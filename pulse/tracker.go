@@ -1,12 +1,15 @@
 package pulse
 
 import (
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/openfluke/tide/metrics"
 	"github.com/openfluke/tide/permute"
 )
+
+const defaultCompletedCap = 2000 // retained rows; Recorded tracks lifetime total
 
 // Result is one finished (or in-flight) permutation.
 type Result struct {
@@ -41,19 +44,22 @@ type Live struct {
 	CellTotal   int            `json:"cell_total"`
 	Message     string         `json:"message"`
 	HistoryLen  int            `json:"history_len"`
+	Recorded    int            `json:"recorded"` // commits ever (Completed may be trimmed)
 }
 
 // Tracker is the concurrent pulse store.
 type Tracker struct {
-	mu         sync.RWMutex
-	live       Live
-	historyCap int
+	mu           sync.RWMutex
+	live         Live
+	historyCap   int
+	completedCap int
 }
 
 func New() *Tracker {
 	return &Tracker{
-		live:       Live{UpdatedAt: time.Now()},
-		historyCap: defaultHistoryCap,
+		live:         Live{UpdatedAt: time.Now()},
+		historyCap:   defaultHistoryCap,
+		completedCap: defaultCompletedCap,
 	}
 }
 
@@ -164,6 +170,9 @@ func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, lear
 		}
 	}
 	t.live.History = append([]HistoryPoint(nil), history...)
+	t.trimHistoryLocked()
+	t.trimCompletedLocked()
+	t.live.Recorded = len(completed)
 	t.live.CellIndex = cellIdx
 	t.live.CellTotal = cellTotal
 	t.live.Message = msg
@@ -290,8 +299,8 @@ func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 	t.live.Current.Status = status
 	t.live.Current.Note = note
 	t.live.Current.Snapshot = snap
-	// Keep SoftAccBlocks / summary metrics; drop heavy Windows sparklines.
-	t.live.Current.Snapshot.Windows = nil
+	// Keep summary metrics; drop heavy sparkline payloads.
+	slimSnapshot(&t.live.Current.Snapshot)
 	t.live.Current.Ended = time.Now()
 	done := *t.live.Current
 	t.commitLocked(done)
@@ -313,7 +322,7 @@ func (t *Tracker) Commit(cell permute.Cell, epoch int, status, note string, snap
 	if epoch < 1 {
 		epoch = 1
 	}
-	snap.Windows = nil
+	slimSnapshot(&snap)
 	done := Result{
 		Cell:     cell,
 		Epoch:    epoch,
@@ -333,21 +342,18 @@ func (t *Tracker) Commit(cell permute.Cell, epoch int, status, note string, snap
 }
 
 func (t *Tracker) commitLocked(done Result) {
+	slimSnapshot(&done.Snapshot)
 	t.live.Completed = append(t.live.Completed, done)
+	t.live.Recorded++
+	t.trimCompletedLocked()
 	if t.live.Current == nil {
 		t.live.Running = false
 	}
 	t.refreshBoardsLocked()
-	t.live.Best = Best{}
-	t.live.BestMobile = BestMobile{}
-	t.live.BestLearn = BestLearn{}
-	t.live.BestLearnMobile = BestLearnMobile{}
-	for _, r := range t.live.Completed {
-		UpdateBest(&t.live.Best, r)
-		UpdateBestMobile(&t.live.BestMobile, r)
-		UpdateBestLearn(&t.live.BestLearn, r)
-		UpdateBestLearnMobile(&t.live.BestLearnMobile, r)
-	}
+	UpdateBest(&t.live.Best, done)
+	UpdateBestMobile(&t.live.BestMobile, done)
+	UpdateBestLearn(&t.live.BestLearn, done)
+	UpdateBestLearnMobile(&t.live.BestLearnMobile, done)
 	t.appendHistoryLocked(HistoryPoint{
 		At:           time.Now(),
 		CellID:       done.Cell.ID,
@@ -377,27 +383,18 @@ func (t *Tracker) refreshBoardsLocked() {
 
 // refreshProvisionalBestsLocked updates Best cards including the running cell.
 func (t *Tracker) refreshProvisionalBestsLocked() {
-	t.live.Best = Best{}
-	t.live.BestMobile = BestMobile{}
-	t.live.BestLearn = BestLearn{}
-	t.live.BestLearnMobile = BestLearnMobile{}
-	for _, r := range t.live.Completed {
-		UpdateBest(&t.live.Best, r)
-		UpdateBestMobile(&t.live.BestMobile, r)
-		UpdateBestLearn(&t.live.BestLearn, r)
-		UpdateBestLearnMobile(&t.live.BestLearnMobile, r)
+	if t.live.Current == nil {
+		return
 	}
-	if t.live.Current != nil {
-		cur := *t.live.Current
-		// Allow running into provisional winners for live UI.
-		if cur.Status == "running" {
-			cur.Status = "ok"
-		}
-		UpdateBest(&t.live.Best, cur)
-		UpdateBestMobile(&t.live.BestMobile, cur)
-		UpdateBestLearn(&t.live.BestLearn, cur)
-		UpdateBestLearnMobile(&t.live.BestLearnMobile, cur)
+	cur := *t.live.Current
+	// Allow running into provisional winners for live UI.
+	if cur.Status == "running" {
+		cur.Status = "ok"
 	}
+	UpdateBest(&t.live.Best, cur)
+	UpdateBestMobile(&t.live.BestMobile, cur)
+	UpdateBestLearn(&t.live.BestLearn, cur)
+	UpdateBestLearnMobile(&t.live.BestLearnMobile, cur)
 }
 
 func rankByScore(in []Result) []Result {
@@ -450,14 +447,39 @@ func rankByLearnMobile(in []Result) []Result {
 
 func rankAll(in []Result, better func(a, b Result) bool) []Result {
 	out := append([]Result(nil), in...)
-	for i := 0; i < len(out); i++ {
-		best := i
-		for j := i + 1; j < len(out); j++ {
-			if better(out[j], out[best]) {
-				best = j
-			}
-		}
-		out[i], out[best] = out[best], out[i]
-	}
+	sort.Slice(out, func(i, j int) bool { return better(out[i], out[j]) })
 	return out
+}
+
+func slimSnapshot(s *metrics.Snapshot) {
+	if s == nil {
+		return
+	}
+	s.Windows = nil
+	s.SoftAccBlocks = nil
+	s.PhaseBlocks = nil
+	s.SwitchBlocks = nil
+}
+
+func (t *Tracker) trimCompletedLocked() {
+	cap := t.completedCap
+	if cap <= 0 {
+		cap = defaultCompletedCap
+	}
+	if len(t.live.Completed) <= cap {
+		return
+	}
+	drop := len(t.live.Completed) - cap
+	t.live.Completed = append([]Result(nil), t.live.Completed[drop:]...)
+}
+
+func (t *Tracker) trimHistoryLocked() {
+	if len(t.live.History) <= t.historyCap {
+		return
+	}
+	drop := t.historyCap / 4
+	if drop < 1 {
+		drop = 1
+	}
+	t.live.History = append([]HistoryPoint(nil), t.live.History[drop:]...)
 }
