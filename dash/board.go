@@ -260,6 +260,37 @@ func (s *Server) Board() Board {
 		APIs:             APIPaths(),
 		Status:           boardStatus(started, live.Running, epochDone, plan),
 	}
+	out.Axes = boardLPDAxes(out)
+	return out
+}
+
+// enrichBoardFromCompleted rebuilds chart/winner tables from the full run archive (PDF).
+func enrichBoardFromCompleted(b *Board, s *Server, live pulse.Live, completed []pulse.Result, task string) {
+	if len(completed) == 0 {
+		return
+	}
+	liveFull := live
+	liveFull.Completed = completed
+	pts := report.PointsFromResults(completed, task)
+	b.Heat = report.BuildHeat(pts)
+	b.LPD = report.BuildLPD(pts)
+	b.Winners = computeWinners(liveFull)
+	if s != nil {
+		b.ModeProgress = s.modeProgress(liveFull)
+	}
+	adapt, soft, hard, cons, stab, accThru, realtime, keep := extraBests(completed)
+	b.BestAdapt = adapt
+	b.BestSoft = soft
+	b.BestHard = hard
+	b.BestConsistency = cons
+	b.BestStability = stab
+	b.BestAccThru = accThru
+	b.BestRealtime = realtime
+	b.BestKeep = keep
+	b.Axes = boardLPDAxes(*b)
+}
+
+func boardLPDAxes(out Board) []LucyAxis {
 	out.Axes = LucyAxes(out)
 	if ax := lpdAxis(out.LPD); ax.Name != "" {
 		out.Axes = append(out.Axes, ax)
@@ -280,7 +311,7 @@ func (s *Server) Board() Board {
 			Score: s.Score, SoftAcc: s.Soft, Thru: s.Thru, Avail: s.Avail,
 		})
 	}
-	return out
+	return out.Axes
 }
 
 func lpdAxis(l report.LPD) LucyAxis {

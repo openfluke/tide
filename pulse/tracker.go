@@ -53,6 +53,7 @@ type Tracker struct {
 	live         Live
 	historyCap   int
 	completedCap int
+	reportLog    []Result // full run archive for PDF (/api/report); never trimmed
 }
 
 func New() *Tracker {
@@ -147,6 +148,10 @@ func cloneResult(r *Result) *Result {
 func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, learn BestLearn, learnMobile BestLearnMobile, history []HistoryPoint, cellIdx, cellTotal int, msg string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.reportLog = append([]Result(nil), completed...)
+	for i := range t.reportLog {
+		slimSnapshot(&t.reportLog[i].Snapshot)
+	}
 	t.live.Completed = append([]Result(nil), completed...)
 	for i := range t.live.Completed {
 		s := &t.live.Completed[i].Snapshot
@@ -218,6 +223,13 @@ func (t *Tracker) HistoryFrom(from int) []HistoryPoint {
 		return nil
 	}
 	return append([]HistoryPoint(nil), t.live.History[from:]...)
+}
+
+// ReportResults is the full completed archive for PDF /api/report (not poll-trimmed).
+func (t *Tracker) ReportResults() []Result {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return append([]Result(nil), t.reportLog...)
 }
 
 func (t *Tracker) SetMeta(batchIdx, batchTotal, cellIdx, cellTotal int, msg string) {
@@ -345,6 +357,7 @@ func (t *Tracker) commitLocked(done Result) {
 	slimSnapshot(&done.Snapshot)
 	t.live.Completed = append(t.live.Completed, done)
 	t.live.Recorded++
+	t.upsertReportLocked(done)
 	t.trimCompletedLocked()
 	if t.live.Current == nil {
 		t.live.Running = false
@@ -471,6 +484,17 @@ func (t *Tracker) trimCompletedLocked() {
 	}
 	drop := len(t.live.Completed) - cap
 	t.live.Completed = append([]Result(nil), t.live.Completed[drop:]...)
+}
+
+func (t *Tracker) upsertReportLocked(done Result) {
+	id := done.Cell.ID
+	for i := range t.reportLog {
+		if t.reportLog[i].Cell.ID == id {
+			t.reportLog[i] = done
+			return
+		}
+	}
+	t.reportLog = append(t.reportLog, done)
 }
 
 func (t *Tracker) trimHistoryLocked() {

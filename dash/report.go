@@ -3,11 +3,32 @@ package dash
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/openfluke/tide/pulse"
 	"github.com/openfluke/tide/report"
 )
+
+func (s *Server) reportCompleted(live pulse.Live) []pulse.Result {
+	if s != nil && s.Tracker != nil {
+		if full := s.Tracker.ReportResults(); len(full) > 0 {
+			return full
+		}
+	}
+	return live.Completed
+}
+
+func reportLeaderboard(completed []pulse.Result, n int) []pulse.Result {
+	out := append([]pulse.Result(nil), completed...)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Snapshot.Score > out[j].Snapshot.Score
+	})
+	if n > 0 && len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
 
 func (s *Server) Report() report.TideReport {
 	var hist []pulse.HistoryPoint
@@ -16,18 +37,30 @@ func (s *Server) Report() report.TideReport {
 		hist = s.Tracker.History()
 		live = s.Tracker.SnapshotLive()
 	}
-	r := s.Board().ToReport(hist)
-	r.Cells = report.PointsFromResults(live.Completed, s.Task)
-	r.Heat = report.BuildHeat(r.Cells)
-	r.LPD = report.BuildLPD(r.Cells)
-	if len(live.Leaderboard) > 0 {
-		lb := live.Leaderboard
-		if len(lb) > 40 {
-			lb = lb[:40]
-		}
-		r.Leaderboard = append([]pulse.Result(nil), lb...)
-	}
+	reportRows := s.reportCompleted(live)
+	b := s.Board()
+	enrichBoardFromCompleted(&b, s, live, reportRows, s.Task)
+	pts := report.PointsFromResults(reportRows, s.Task)
+
+	r := b.ToReport(hist)
+	r.Cells = pts
+	r.Heat = b.Heat
+	r.LPD = b.LPD
+	r.Winners = winnersView(b.Winners)
+	r.ModeProgress = modeProgressRows(b.ModeProgress)
+	r.Axes = axesView(b.Task, b.Axes)
+	r.Leaderboard = reportLeaderboard(reportRows, 40)
 	return r
+}
+
+func modeProgressRows(rows []ModeProgress) []report.ModeRow {
+	out := make([]report.ModeRow, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, report.ModeRow{
+			Mode: m.Mode, Total: m.Total, Done: m.Done, Running: m.Running, Left: m.Left,
+		})
+	}
+	return out
 }
 
 func (s *Server) handleReportJSON(w http.ResponseWriter, r *http.Request) {
