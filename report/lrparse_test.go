@@ -78,4 +78,11 @@ func TestBuildCompare(t *testing.T) {
 	if c.VsBaseline[0].Baseline == "" || len(c.VsBaseline[0].Modes) == 0 {
 		t.Fatalf("vs baseline: %+v", c.VsBaseline[0])
 	}
+	pdf, err := PDFCompare(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pdf) < 500 || string(pdf[:4]) != "%PDF" {
+		t.Fatalf("compare pdf too short %d", len(pdf))
+	}
 }

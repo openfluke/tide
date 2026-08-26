@@ -14,7 +14,12 @@ func PDFCompare(c CompareReport) ([]byte, error) {
 		c.Generated.Format("2006-01-02 15:04:05"), strings.Join(c.Machines, ", "), len(c.LRs)))
 	p.gap(2)
 
-	p.h2("Mean Acc vs LR (by machine)")
+	p.h2("Charts")
+	p.compareCharts(c)
+	p.gap(2)
+
+	p.h2("Summary tables")
+	p.body("Mean Acc vs LR (by machine)")
 	p.compareSummaryTable(c)
 	p.gap(2)
 
@@ -22,17 +27,8 @@ func PDFCompare(c CompareReport) ([]byte, error) {
 	p.compareWinsTable(c)
 	p.gap(2)
 
-	for _, g := range c.ModeLR {
-		p.h2("Mode × LR Acc — " + g.Machine)
-		p.compareHeatTable(g.Modes, g.LRLabels, g.Acc)
-		p.body("Avail % at each mode × LR:")
-		p.compareHeatTable(g.Modes, g.LRLabels, g.Avail)
-		p.gap(2)
-	}
-
 	for _, g := range c.VsBaseline {
-		p.h2("vs " + g.Baseline + " — " + g.Machine)
-		p.muted("Matched dtype×arch×layer at each LR; delta = mode − baseline.")
+		p.h2("vs " + g.Baseline + " tables — " + g.Machine)
 		p.body(g.Baseline + " baseline mean Acc vs LR:")
 		p.compareBaselineLRTable(g)
 		p.body("Δ Acc vs " + g.Baseline + ":")
