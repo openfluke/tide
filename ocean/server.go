@@ -102,12 +102,16 @@ func (s *Server) Handler() http.Handler {
 			"apis": map[string]string{
 				"ocean": "/api/ocean", "charts": "/api/charts/",
 				"start_all": "/api/start-all", "start": "/api/start",
-				"register": "/api/register", "peers": "/api/peers", "report": "/api/report.pdf",
+				"register": "/api/register", "peers": "/api/peers",
+				"report": "/api/report.pdf", "compare": "/compare", "compare_pdf": "/api/compare.pdf",
 			},
 		})
 	})
 	mux.HandleFunc("/api/report.pdf", s.handleReportPDF)
 	mux.HandleFunc("/api/report", s.handleReportJSON)
+	mux.HandleFunc("/compare", s.handleComparePage)
+	mux.HandleFunc("/api/compare", s.handleCompareJSON)
+	mux.HandleFunc("/api/compare.pdf", s.handleComparePDF)
 	mux.HandleFunc("/api/register", s.handleRegister)
 	mux.HandleFunc("/api/peers", s.handlePeers)
 	mux.HandleFunc("/api/start-all", func(w http.ResponseWriter, r *http.Request) {

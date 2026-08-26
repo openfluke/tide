@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ocean — compare LR</title>
+<style>
+  :root {
+    --bg0: #071018; --bg1: #0c1c28; --ink: #e6eef2; --muted: #8aa0ad;
+    --accent: #3dd6c6; --tide: #4ea3ff; --grid: #1d3342; --bad: #e06c75;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    background: linear-gradient(165deg, var(--bg0), var(--bg1));
+  }
+  header { padding: 1.2rem 1.5rem 0.5rem; display: flex; flex-wrap: wrap; gap: 1rem; align-items: baseline; }
+  h1 { margin: 0; font-size: clamp(1.4rem, 3vw, 2rem); font-family: "IBM Plex Serif", Georgia, serif; }
+  h1 span { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 0.9rem; }
+  nav { margin: 0 1.5rem 1rem; }
+  nav a { color: var(--tide); margin-right: 1rem; }
+  .actions { margin: 0 1.5rem 1rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #042226; border: 0; font-weight: 700;
+    padding: 0.55rem 0.95rem; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--grid); }
+  section {
+    background: rgba(0,0,0,0.22); border: 1px solid var(--grid);
+    padding: 1rem; margin: 0 1.5rem 1rem;
+  }
+  h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+  .hint { color: var(--muted); font-size: 0.78rem; margin: 0 0 0.65rem; }
+  canvas.line { width: 100%; height: 320px; background: rgba(0,0,0,0.25); }
+  canvas.scatter { width: 100%; height: 380px; background: rgba(0,0,0,0.25); }
+  .table-wrap { overflow: auto; max-height: 70vh; }
+  table { border-collapse: collapse; font-size: 0.78rem; width: max-content; min-width: 100%; }
+  th, td { padding: 0.3rem 0.45rem; border-bottom: 1px solid var(--grid); white-space: nowrap; font-family: "IBM Plex Mono", monospace; }
+  th { color: var(--muted); position: sticky; top: 0; background: #0c1c28; }
+  table.heat td, table.heat th { text-align: center; }
+  table.heat th:first-child, table.heat td:first-child { text-align: left; position: sticky; left: 0; background: #0c1c28; }
+  .chip { display: inline-block; background: #13232d; border: 1px solid var(--grid); padding: 0.15rem 0.45rem; margin: 0.15rem; font-size: 0.75rem; }
+  .chip b { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ocean <span>compare</span></h1>
+  <div class="meta" id="status">loading…</div>
+</header>
+<nav>
+  <a href="/">← holistic board</a>
+</nav>
+<div class="actions">
+  <button type="button" id="refresh">Refresh</button>
+  <button type="button" class="ghost" id="pdfBtn">Download compare PDF</button>
+</div>
+
+<section>
+  <h2>Mean Acc vs learning rate</h2>
+  <p class="hint">One line per machine — matched recipes aggregated at each |lr=… step inside each tide archive.</p>
+  <canvas class="line" id="accChart"></canvas>
+</section>
+
+<section>
+  <h2>Mean Score vs learning rate</h2>
+  <canvas class="line" id="scoreChart"></canvas>
+</section>
+
+<section>
+  <h2>Mean Availability vs learning rate</h2>
+  <p class="hint">SGD that blocks serve dies here — compare duty cycle across machines.</p>
+  <canvas class="line" id="availChart"></canvas>
+</section>
+
+<section>
+  <h2>Soft−Acc gap vs LR (false confidence)</h2>
+  <p class="hint">High gap = SoftAcc looks good but hard Acc lags — possible false negative.</p>
+  <canvas class="line" id="softGapChart"></canvas>
+</section>
+
+<section>
+  <h2>Trap rate vs LR</h2>
+  <canvas class="line" id="trapRateChart"></canvas>
+</section>
+
+<section>
+  <h2>Acc × Availability scatter</h2>
+  <p class="hint">Each dot is one cell — color = machine. Upper-right = learned and serving.</p>
+  <canvas class="scatter" id="accAvailScatter"></canvas>
+</section>
+
+<section>
+  <h2>SoftAcc × hard Acc scatter</h2>
+  <p class="hint">Points above the diagonal = serve confidence exceeds learning (trap zone).</p>
+  <canvas class="scatter" id="softAccScatter"></canvas>
+</section>
+
+<section>
+  <h2>Mean Acc by train mode (all LRs)</h2>
+  <div id="modeBarSection"></div>
+</section>
+
+<section id="modeCrossSections"></section>
+
+<section id="modeSeriesSections"></section>
+
+<section id="vsBaselineSections"></section>
+
+<section>
+  <h2>Summary by machine × LR</h2>
+  <div class="table-wrap"><table id="sumTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section>
+  <h2>Recipe wins per LR</h2>
+  <div id="winsChips"></div>
+</section>
+
+<section id="modeSections"></section>
+
+<section id="lpdPerMachine"></section>
+
+<section>
+  <h2>Top 50 Lucy LPD (keepers)</h2>
+  <p class="hint">Gold/near/top bands — Acc keep ≥70%. Traps listed separately below.</p>
+  <div class="table-wrap"><table id="lpdTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section>
+  <h2>Top 50 traps &amp; soft-gap suspects</h2>
+  <p class="hint">trap = Acc keep &lt;70% with tiny RAM; soft-gap = Soft−Acc ≥10; fast-trap = high Thru, low Acc.</p>
+  <div class="table-wrap"><table id="trapTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<section>
+  <h2>Top matched recipe deltas (Acc)</h2>
+  <p class="hint" id="overlapNote"></p>
+  <div class="table-wrap"><table id="matchTable"><thead></thead><tbody></tbody></table></div>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ['#3dd6c6', '#4ea3ff', '#e6b35a', '#c678dd', '#98c379', '#e06c75', '#56b6c2', '#d19a66', '#61afef', '#abb2bf'];
+
+function fitCanvas(c) {
+  const r = c.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  c.width = Math.max(320, r.width * dpr);
+  c.height = Math.max(200, r.height * dpr);
+}
+
+function drawLines(canvasId, summary, field, yLabel) {
+  const c = $(canvasId);
+  if (!c) return;
+  fitCanvas(c);
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  const machines = [...new Set(summary.map(s => s.machine))].sort();
+  const lrs = [...new Set(summary.map(s => s.lr))].sort((a,b)=>a-b);
+  if (!lrs.length) {
+    ctx.fillStyle = '#8aa0ad';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('no LR-tagged cells yet — peers need finished test53 archives', 20, 40);
+    return;
+  }
+  const pad = { l: 52, r: 16, t: 20, b: 40 };
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  let ymin = Infinity, ymax = -Infinity;
+  summary.forEach(s => {
+    const v = s[field] || 0;
+    if (v < ymin) ymin = v;
+    if (v > ymax) ymax = v;
+  });
+  if (!isFinite(ymin)) { ymin = 0; ymax = 100; }
+  if (ymax <= ymin) ymax = ymin + 1;
+  const xAt = i => pad.l + (lrs.length === 1 ? plotW/2 : (i / (lrs.length-1)) * plotW);
+  const yAt = v => pad.t + plotH - ((v - ymin) / (ymax - ymin)) * plotH;
+  ctx.strokeStyle = '#1d3342';
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t);
+  ctx.lineTo(pad.l, pad.t + plotH);
+  ctx.lineTo(pad.l + plotW, pad.t + plotH);
+  ctx.stroke();
+  ctx.fillStyle = '#8aa0ad';
+  ctx.font = '11px monospace';
+  lrs.forEach((lr, i) => {
+    const lbl = summary.find(s => s.lr === lr)?.lr_label || lr;
+    ctx.fillText(lbl, xAt(i) - 12, h - 12);
+  });
+  ctx.save();
+  ctx.translate(14, pad.t + plotH/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+  machines.forEach((m, mi) => {
+    const col = COLORS[mi % COLORS.length];
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let started = false;
+    lrs.forEach((lr, i) => {
+      const row = summary.find(s => s.machine === m && s.lr === lr);
+      if (!row) return;
+      const x = xAt(i), y = yAt(row[field]);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      ctx.fillRect(x-3, y-3, 6, 6);
+    });
+    ctx.stroke();
+    ctx.fillText(m, pad.l + plotW - 40, pad.t + 14 + mi * 14);
+  });
+}
+
+function drawSoftGap(canvasId, rows) {
+  const summary = (rows||[]).map(r => ({
+    machine: r.machine, lr: r.lr, lr_label: r.lr_label, mean_acc: r.mean_gap
+  }));
+  drawLines(canvasId, summary, 'mean_acc', 'mean Soft−Acc');
+}
+
+function drawTrapRate(canvasId, rows) {
+  const summary = (rows||[]).map(r => ({
+    machine: r.machine, lr: r.lr, lr_label: r.lr_label, mean_acc: r.trap_pct
+  }));
+  drawLines(canvasId, summary, 'mean_acc', 'trap %');
+}
+
+function drawScatter(canvasId, pts, xk, yk, xLabel, yLabel) {
+  const c = $(canvasId);
+  if (!c || !pts?.length) return;
+  fitCanvas(c);
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  const pad = { l: 48, r: 16, t: 16, b: 36 };
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  pts.forEach(p => {
+    const x = p[xk]||0, y = p[yk]||0;
+    if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+    if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+  });
+  if (!isFinite(xmin)) return;
+  if (xmax <= xmin) xmax = xmin + 1;
+  if (ymax <= ymin) ymax = ymin + 1;
+  const xAt = v => pad.l + ((v - xmin) / (xmax - xmin)) * plotW;
+  const yAt = v => pad.t + plotH - ((v - ymin) / (ymax - ymin)) * plotH;
+  ctx.strokeStyle = '#1d3342';
+  ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+  if (xk === 'soft_acc' && yk === 'acc') {
+    ctx.strokeStyle = '#e06c75';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(xAt(xmin), yAt(xmin));
+    ctx.lineTo(xAt(xmax), yAt(xmax));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  const mach = [...new Set(pts.map(p => p.machine))].sort();
+  pts.forEach(p => {
+    const mi = mach.indexOf(p.machine);
+    ctx.fillStyle = COLORS[mi % COLORS.length];
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.arc(xAt(p[xk]||0), yAt(p[yk]||0), 3, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#8aa0ad';
+  ctx.font = '11px monospace';
+  ctx.fillText(xLabel, pad.l, h - 8);
+  ctx.save();
+  ctx.translate(12, pad.t + plotH/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+  mach.forEach((m, i) => {
+    ctx.fillStyle = COLORS[i % COLORS.length];
+    ctx.fillText(m, pad.l + plotW - 36, pad.t + 12 + i * 12);
+  });
+}
+
+function modeBarChart(parent, bars, machines) {
+  if (!bars?.length) { parent.innerHTML = '<p class="hint">no data</p>'; return; }
+  let max = 0;
+  bars.forEach(b => machines.forEach(m => { if ((b.by_machine?.[m]||0) > max) max = b.by_machine[m]; }));
+  if (max <= 0) max = 1;
+  let html = '';
+  bars.forEach(b => {
+    html += `<div style="margin-bottom:0.45rem"><span class="hint" style="display:inline-block;min-width:9rem">${b.mode}</span>`;
+    machines.forEach((m, i) => {
+      const v = b.by_machine?.[m] || 0;
+      const pct = Math.round(100 * v / max);
+      html += `<span class="chip" style="border-color:${COLORS[i%COLORS.length]}"><b>${m}</b> ${v.toFixed(1)}% <span style="opacity:0.5">(${pct}% bar)</span></span>`;
+    });
+    html += '</div>';
+  });
+  parent.innerHTML = html;
+}
+
+function drawMultiSeries(canvasId, seriesList, valueKey, yLabel, opts = {}) {
+  const c = $(canvasId);
+  if (!c) return;
+  fitCanvas(c);
+  const ctx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  ctx.clearRect(0, 0, w, h);
+  const lists = (seriesList || []).filter(s => s.points?.length);
+  const lrs = [...new Set(lists.flatMap(s => s.points.map(p => p.lr)))].sort((a, b) => a - b);
+  if (!lrs.length) {
+    ctx.fillStyle = '#8aa0ad';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('no mode/LR data yet', 20, 40);
+    return;
+  }
+  const pad = { l: 52, r: 16, t: 20, b: 40 };
+  const plotW = w - pad.l - pad.r, plotH = h - pad.t - pad.b;
+  let ymin = Infinity, ymax = -Infinity;
+  lists.forEach(s => s.points.forEach(p => {
+    const v = p[valueKey];
+    if (v == null) return;
+    if (v < ymin) ymin = v;
+    if (v > ymax) ymax = v;
+  }));
+  if (opts.zeroLine) {
+    ymin = Math.min(ymin, 0);
+    ymax = Math.max(ymax, 0);
+  }
+  if (!isFinite(ymin)) { ymin = 0; ymax = opts.zeroLine ? 10 : 100; }
+  if (ymax <= ymin) ymax = ymin + 1;
+  const xAt = i => pad.l + (lrs.length === 1 ? plotW / 2 : (i / (lrs.length - 1)) * plotW);
+  const yAt = v => pad.t + plotH - ((v - ymin) / (ymax - ymin)) * plotH;
+  ctx.strokeStyle = '#1d3342';
+  ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+  if (opts.zeroLine) {
+    const y0 = yAt(0);
+    ctx.strokeStyle = '#e06c75';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y0);
+    ctx.lineTo(pad.l + plotW, y0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.fillStyle = '#8aa0ad';
+  ctx.font = '11px monospace';
+  lrs.forEach((lr, i) => {
+    const lbl = lists.flatMap(s => s.points).find(p => p.lr === lr)?.lr_label || lr;
+    ctx.fillText(lbl, xAt(i) - 12, h - 12);
+  });
+  ctx.save();
+  ctx.translate(14, pad.t + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+  lists.forEach((s, si) => {
+    const col = COLORS[si % COLORS.length];
+    ctx.strokeStyle = col;
+    ctx.fillStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let started = false;
+    lrs.forEach((lr, i) => {
+      const p = s.points.find(pt => pt.lr === lr);
+      if (!p || p[valueKey] == null) return;
+      const x = xAt(i), y = yAt(p[valueKey]);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      ctx.fillRect(x - 3, y - 3, 6, 6);
+    });
+    ctx.stroke();
+    const ly = pad.t + 14 + si * 13;
+    if (ly < pad.t + plotH - 8) ctx.fillText(s.label, pad.l + 4, ly);
+  });
+  if (opts.refLine) {
+    ctx.strokeStyle = '#abb2bf';
+    ctx.setLineDash([6, 3]);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let started = false;
+    lrs.forEach((lr, i) => {
+      const v = opts.refLine[i];
+      if (v == null || v === 0) return;
+      const x = xAt(i), y = yAt(v);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#abb2bf';
+    ctx.fillText(opts.refLabel || 'baseline', pad.l + plotW - 72, pad.t + 12);
+  }
+}
+
+function renderModeSeriesSections(series, machines) {
+  const parent = $('modeSeriesSections');
+  parent.innerHTML = machines.map(m => `
+    <section><h2>Train modes vs LR — ${m}</h2>
+      <p class="hint">Top modes by cell count — how Acc and Avail shift as LR sweeps.</p>
+      <canvas class="line" id="modeAcc_${m}"></canvas>
+      <canvas class="line" id="modeAvail_${m}" style="margin-top:0.75rem"></canvas>
+    </section>`).join('');
+  machines.forEach(m => {
+    const rows = (series || []).filter(s => s.machine === m).map(s => ({ label: s.mode, points: s.points }));
+    drawMultiSeries('modeAcc_' + m, rows, 'acc', 'mean Acc %');
+    drawMultiSeries('modeAvail_' + m, rows, 'avail', 'mean Avail %');
+  });
+}
+
+function renderModeCrossSections(cross) {
+  const parent = $('modeCrossSections');
+  parent.innerHTML = (cross || []).map((c, i) => `
+    <section><h2>Mode ${c.mode} — machines vs LR</h2>
+      <p class="hint">Same train mode on each box — Acc and Avail behaviour across LR steps.</p>
+      <canvas class="line" id="crossAcc_${i}"></canvas>
+      <canvas class="line" id="crossAvail_${i}" style="margin-top:0.75rem"></canvas>
+    </section>`).join('');
+  (cross || []).forEach((c, i) => {
+    const byMachine = {};
+    c.points.forEach(p => {
+      if (!byMachine[p.machine]) byMachine[p.machine] = { label: p.machine, points: [] };
+      byMachine[p.machine].points.push(p);
+    });
+    drawMultiSeries('crossAcc_' + i, Object.values(byMachine), 'acc', 'mean Acc %');
+    drawMultiSeries('crossAvail_' + i, Object.values(byMachine), 'avail', 'mean Avail %');
+  });
+}
+
+function renderVsBaselineSections(vs) {
+  const parent = $('vsBaselineSections');
+  parent.innerHTML = (vs || []).map((g, i) => `
+    <section><h2>vs ${g.baseline} baseline — ${g.machine}</h2>
+      <p class="hint">Matched dtype×arch cells — ΔAcc/ΔScore vs baseline at each LR.</p>
+      <h3 style="font-size:0.9rem;margin:0.5rem 0">${g.baseline} baseline Acc vs LR</h3>
+      <canvas class="line" id="vsBaseAcc_${i}"></canvas>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Δ Acc vs ${g.baseline}</h3>
+      <canvas class="line" id="vsAcc_${i}"></canvas>
+      <canvas class="line" id="vsScore_${i}" style="margin-top:0.75rem"></canvas>
+      <canvas class="line" id="vsAvail_${i}" style="margin-top:0.75rem"></canvas>
+      <p class="hint" style="margin-top:0.75rem">ΔAcc heatmap (green = beats baseline)</p>
+      <div id="vsHeat_${i}"></div>
+    </section>`).join('');
+  (vs || []).forEach((g, i) => {
+    const accRows = (g.modes || []).map((mode, mi) => ({
+      label: mode,
+      points: (g.lrs || []).map((lr, j) => ({
+        lr, lr_label: g.lr_labels?.[j] || lr,
+        acc: g.acc_delta?.[mi]?.[j],
+        score: g.score_delta?.[mi]?.[j],
+        avail: g.avail_delta?.[mi]?.[j],
+      })).filter(p => p.acc != null && p.acc !== 0),
+    }));
+    drawMultiSeries('vsBaseAcc_' + i, [{
+      label: g.baseline,
+      points: (g.lrs || []).map((lr, j) => ({
+        lr, lr_label: g.lr_labels?.[j] || lr,
+        acc: g.baseline_acc?.[j],
+      })).filter(p => p.acc != null && p.acc > 0),
+    }], 'acc', g.baseline + ' mean Acc %');
+    drawMultiSeries('vsAcc_' + i, accRows, 'acc', 'Δ Acc vs ' + g.baseline, { zeroLine: true });
+    drawMultiSeries('vsScore_' + i, accRows, 'score', 'Δ Score vs ' + g.baseline, { zeroLine: true });
+    drawMultiSeries('vsAvail_' + i, accRows, 'avail', 'Δ Avail vs ' + g.baseline, { zeroLine: true });
+    heatTable($('vsHeat_' + i), g.modes, g.lr_labels, g.acc_delta, true);
+  });
+}
+
+function heatRGB(t) {
+  const u = Math.max(0, Math.min(1, t));
+  return [Math.round(45 + 186*u), Math.round(100 + 114*u), Math.round(120 + 54*u)];
+}
+
+function heatTable(parent, modes, lrLabels, grid, signed) {
+  if (!modes.length) { parent.innerHTML = '<p class="hint">no data</p>'; return; }
+  let min = Infinity, max = -Infinity;
+  grid.forEach(row => row.forEach(v => {
+    if (v == null || v === 0) return;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }));
+  if (!isFinite(min)) { min = 0; max = 1; }
+  if (signed) {
+    const bound = Math.max(Math.abs(min), Math.abs(max), 1);
+    min = -bound;
+    max = bound;
+  } else if (max <= min) {
+    max = min + 1;
+  }
+  let html = '<div class="table-wrap"><table class="heat"><thead><tr><th>mode</th>';
+  lrLabels.forEach(l => html += `<th>${l}</th>`);
+  html += '</tr></thead><tbody>';
+  modes.forEach((m, i) => {
+    html += `<tr><th>${m}</th>`;
+    lrLabels.forEach((_, j) => {
+      const v = grid[i] && grid[i][j];
+      if (v == null || v === 0) { html += '<td></td>'; return; }
+      let r, g, b;
+      if (signed) {
+        const t = Math.max(-1, Math.min(1, v / max));
+        if (t >= 0) {
+          r = Math.round(45 + 60 * (1 - t)); g = Math.round(100 + 114 * t); b = Math.round(120 + 40 * t);
+        } else {
+          r = Math.round(180 + 45 * -t); g = Math.round(80 + 40 * (1 + t)); b = Math.round(90 + 30 * (1 + t));
+        }
+      } else {
+        const t = (v - min) / (max - min);
+        [r, g, b] = heatRGB(t);
+      }
+      html += `<td style="background:rgb(${r},${g},${b})">${v.toFixed(1)}</td>`;
+    });
+    html += '</tr>';
+  });
+  parent.innerHTML = html + '</tbody></table></div>';
+}
+
+function render(j) {
+  $('status').textContent = `${j.title || 'compare'} · ${j.machines?.join(' vs ') || '?'} · ${j.lr_labels?.length || 0} LR steps · ${new Date(j.generated).toLocaleTimeString()}`;
+  drawLines('accChart', j.summary || [], 'mean_acc', 'mean Acc %');
+  drawLines('scoreChart', j.summary || [], 'mean_score', 'mean Score');
+  drawLines('availChart', j.summary || [], 'mean_avail', 'mean Avail %');
+  drawSoftGap('softGapChart', j.soft_gap || []);
+  drawTrapRate('trapRateChart', j.trap_rate || []);
+  drawScatter('accAvailScatter', j.scatter || [], 'acc', 'availability', 'Acc %', 'Avail %');
+  drawScatter('softAccScatter', j.scatter || [], 'soft_acc', 'acc', 'SoftAcc %', 'hard Acc %');
+  modeBarChart($('modeBarSection'), j.mode_bars || [], j.machines || []);
+  renderModeCrossSections(j.mode_cross || []);
+  renderModeSeriesSections(j.mode_series || [], j.machines || []);
+  renderVsBaselineSections(j.vs_baseline || []);
+  const thead = $('sumTable').querySelector('thead');
+  const tbody = $('sumTable').querySelector('tbody');
+  thead.innerHTML = '<tr><th>machine</th><th>LR</th><th>n</th><th>Acc</th><th>Soft</th><th>Score</th><th>Avail</th><th>best mode</th></tr>';
+  tbody.innerHTML = (j.summary||[]).map(s => `<tr>
+    <td>${s.machine}</td><td>${s.lr_label||s.lr}</td><td>${s.n}</td>
+    <td>${s.mean_acc?.toFixed(1)}</td><td>${s.mean_soft?.toFixed(1)}</td>
+    <td>${s.mean_score?.toFixed(0)}</td><td>${s.mean_avail?.toFixed(1)}</td>
+    <td>${s.best_mode||'—'}</td></tr>`).join('');
+
+  $('winsChips').innerHTML = (j.wins||[]).map(w => {
+    const bits = (j.machines||[]).map(m => `<span class="chip"><b>${m}</b> ${w.wins?.[m]||0}</span>`).join('');
+    return `<div style="margin-bottom:0.5rem"><span class="hint">LR ${w.lr_label}</span> ${bits}</div>`;
+  }).join('');
+
+  const ms = $('modeSections');
+  ms.innerHTML = (j.mode_lr||[]).map(g => `
+    <section><h2>Mode × LR — ${g.machine}</h2>
+      <p class="hint">Heatmaps: Acc, Score, Avail, SoftAcc — how each mode behaves as LR changes.</p>
+      <h3 style="font-size:0.9rem;margin:0.5rem 0">Acc</h3><div id="heatAcc_${g.machine}"></div>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Score</h3><div id="heatScore_${g.machine}"></div>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Avail</h3><div id="heatAvail_${g.machine}"></div>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">SoftAcc</h3><div id="heatSoft_${g.machine}"></div>
+    </section>`).join('');
+  (j.mode_lr||[]).forEach(g => {
+    heatTable($('heatAcc_'+g.machine), g.modes, g.lr_labels, g.acc);
+    heatTable($('heatScore_'+g.machine), g.modes, g.lr_labels, g.score);
+    heatTable($('heatAvail_'+g.machine), g.modes, g.lr_labels, g.avail);
+    heatTable($('heatSoft_'+g.machine), g.modes, g.lr_labels, g.soft);
+  });
+
+  const lpm = $('lpdPerMachine');
+  lpm.innerHTML = (j.lpd_per_machine||[]).map(g => `
+    <section><h2>Top LPD — ${g.machine}</h2>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>LR</th><th>LPD</th><th>Acc</th><th>Score</th><th>Avail</th><th>band</th><th>cell</th></tr></thead>
+    <tbody>${(g.rows||[]).map(r => `<tr>
+      <td>${r.rank}</td><td>${r.lr_label||'—'}</td><td>${r.lpd?.toFixed(3)}</td><td>${r.acc?.toFixed(1)}</td>
+      <td>${r.score?.toFixed(0)}</td><td>${r.avail?.toFixed(1)}</td><td>${r.band||'—'}</td><td>${r.id}</td></tr>`).join('')}
+    </tbody></table></div></section>`).join('');
+
+  const overlap = $('overlapNote');
+  const bands = j.lr_by_machine || {};
+  const bandTxt = Object.keys(bands).sort().map(m => `${m}: ${bands[m].join(', ')}`).join(' · ');
+  if (j.overlap_note) {
+    overlap.textContent = j.overlap_note;
+  } else if (j.overlap_lrs?.length) {
+    overlap.textContent = 'Shared LR steps: ' + j.overlap_lrs.join(', ') + '.';
+  } else if (bandTxt) {
+    overlap.textContent = 'Per-machine LR bands: ' + bandTxt + '. Matched deltas appear when bands overlap.';
+  } else {
+    overlap.textContent = 'Matched recipes appear when two machines share the same LR band and recipe.';
+  }
+  const mt = $('matchTable');
+  const mach = j.machines || [];
+  const matched = j.matched || [];
+  mt.querySelector('thead').innerHTML = '<tr><th>LR</th><th>recipe</th>' +
+    mach.map(m => `<th>${m}</th>`).join('') +
+    (mach.length>=2 ? '<th>Δ</th><th>winner</th>' : '') + '</tr>';
+  if (!matched.length) {
+    mt.querySelector('tbody').innerHTML = `<tr><td colspan="${mach.length + 3}" style="color:var(--muted);white-space:normal">No head-to-head rows — need the same recipe at the same LR on both machines. Other charts above still work per-machine.</td></tr>`;
+  } else {
+    mt.querySelector('tbody').innerHTML = matched.map(r => `<tr>
+    <td>${r.lr_label}</td><td>${r.recipe}</td>
+    ${mach.map(m => `<td>${r.by_machine?.[m]?.toFixed(1) ?? '—'}</td>`).join('')}
+    ${mach.length>=2 ? `<td>${r.delta>=0?'+':''}${r.delta?.toFixed(1)}</td><td>${r.winner}</td>` : ''}
+  </tr>`).join('');
+  }
+
+  const lt = $('lpdTable');
+  lt.querySelector('thead').innerHTML = '<tr><th>#</th><th>machine</th><th>LR</th><th>LPD</th><th>Acc</th><th>Score</th><th>Avail</th><th>band</th><th>cell</th></tr>';
+  lt.querySelector('tbody').innerHTML = (j.lpd_top||[]).map(r => `<tr>
+    <td>${r.rank}</td><td>${r.machine}</td><td>${r.lr_label||'—'}</td>
+    <td>${r.lpd?.toFixed(3)}</td><td>${r.acc?.toFixed(1)}</td><td>${r.score?.toFixed(0)}</td>
+    <td>${r.avail?.toFixed(1)}</td><td>${r.band||'—'}</td><td>${r.id}</td></tr>`).join('');
+
+  const tt = $('trapTable');
+  tt.querySelector('thead').innerHTML = '<tr><th>#</th><th>machine</th><th>LR</th><th>band</th><th>Score</th><th>Acc</th><th>Soft</th><th>gap</th><th>Thru</th><th>cell</th></tr>';
+  tt.querySelector('tbody').innerHTML = (j.trap_top||[]).map(r => `<tr>
+    <td>${r.rank}</td><td>${r.machine}</td><td>${r.lr_label||'—'}</td><td>${r.band}</td>
+    <td>${r.score?.toFixed(0)}</td><td>${r.acc?.toFixed(1)}</td><td>${r.soft_acc?.toFixed(1)}</td>
+    <td>${r.soft_gap?.toFixed(1)}</td><td>${r.throughput?.toFixed(0)}</td><td>${r.id}</td></tr>`).join('');
+}
+
+async function tick() {
+  try {
+    const r = await fetch('/api/compare');
+    if (!r.ok) throw new Error('compare unavailable');
+    render(await r.json());
+  } catch (e) {
+    $('status').textContent = 'waiting for /api/compare… (peers need /api/report archives)';
+  }
+}
+$('refresh').onclick = tick;
+$('pdfBtn').onclick = () => { window.location = '/api/compare.pdf'; };
+window.addEventListener('resize', tick);
+setInterval(tick, 5000);
+tick();
+</script>
+</body>
+</html>
