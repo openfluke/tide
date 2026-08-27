@@ -26,6 +26,17 @@ func PDFCompare(c CompareReport) ([]byte, error) {
 		}
 	}
 
+	if len(c.ModeCamFamilies) > 0 {
+		p.h2("Train modes × cams (Step* + plain)")
+		p.muted("Solid = plain, dashed = Step*. Each family overlays every cam on Acc / Avail / Δ Acc charts above.")
+		for _, fam := range c.ModeCamFamilies {
+			if fam.Headline != "" {
+				p.body("• " + fam.Headline)
+			}
+		}
+		p.gap(2)
+	}
+
 	p.h2("Summary tables")
 	p.body("Mean Acc vs LR (by machine)")
 	p.compareSummaryTable(c)

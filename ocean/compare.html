@@ -75,6 +75,8 @@
 
 <section id="camCompareSections"></section>
 
+<section id="modeCamFamilySections"></section>
+
 <section>
   <h2>Mean Acc vs learning rate</h2>
   <p class="hint">One line per machine — matched recipes aggregated at each |lr=… step inside each tide archive.</p>
@@ -404,6 +406,7 @@ function drawMultiSeries(canvasId, seriesList, valueKey, yLabel, opts = {}) {
     ctx.strokeStyle = col;
     ctx.fillStyle = col;
     ctx.lineWidth = 2;
+    ctx.setLineDash(s.dashed ? [6, 4] : []);
     ctx.beginPath();
     let started = false;
     lrs.forEach((lr, i) => {
@@ -414,8 +417,11 @@ function drawMultiSeries(canvasId, seriesList, valueKey, yLabel, opts = {}) {
       ctx.fillRect(x - 3, y - 3, 6, 6);
     });
     ctx.stroke();
+    ctx.setLineDash([]);
     const ly = pad.t + 14 + si * 13;
-    if (ly < pad.t + plotH - 8) ctx.fillText(s.label, pad.l + 4, ly);
+    if (ly < pad.t + plotH - 8) {
+      ctx.fillText((s.dashed ? '⋯ ' : '') + s.label, pad.l + 4, ly);
+    }
   });
   if (opts.refLine) {
     ctx.strokeStyle = '#abb2bf';
@@ -689,6 +695,67 @@ function buildCamCompareSections(pairs) {
   }).join('');
 }
 
+function buildModeCamFamilySections(fams) {
+  const parent = $('modeCamFamilySections');
+  if (!fams?.length) { parent.innerHTML = ''; return; }
+  parent.innerHTML = `<section><h2>Train modes × cams (Step* + plain overlaid)</h2>
+    <p class="hint">One chart per mode family. Solid = plain, dashed = Step*. Lines = each cam. Use Δ Acc chart to see whether cam3 improves over cam1 for that family.</p></section>` +
+    fams.map((f, i) => `
+    <section>
+      <h2>${f.family}${f.step ? ` · plain + Step*` : ''}</h2>
+      <p class="hint">${f.headline || ''}</p>
+      <h3 style="font-size:0.9rem;margin:0.5rem 0">Acc vs LR — all cams × Step*/plain</h3>
+      <canvas class="line" id="modeCamAcc_${i}"></canvas>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Avail vs LR — all cams × Step*/plain</h3>
+      <canvas class="line" id="modeCamAvail_${i}"></canvas>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Δ Acc vs first cam (plain + Step*)</h3>
+      <canvas class="line" id="modeCamDelta_${i}"></canvas>
+    </section>`).join('');
+}
+
+function drawModeCamFamilyCharts(fams) {
+  (fams || []).forEach((f, i) => {
+    const rows = (f.series || []).map(s => ({
+      label: s.label,
+      dashed: s.kind === 'step',
+      points: s.points || [],
+    }));
+    drawMultiSeries('modeCamAcc_' + i, rows, 'acc', 'mean Acc %');
+    drawMultiSeries('modeCamAvail_' + i, rows, 'avail', 'mean Avail %');
+
+    const byMachKind = {};
+    (f.series || []).forEach(s => {
+      byMachKind[s.machine + '|' + s.kind] = s;
+    });
+    const machines = [...new Set((f.series || []).map(s => s.machine))];
+    if (machines.length < 2) {
+      drawMultiSeries('modeCamDelta_' + i, [], 'acc', 'Δ Acc pp', { zeroLine: true });
+      return;
+    }
+    const base = machines[0];
+    const deltaRows = [];
+    machines.slice(1).forEach(m => {
+      ['plain', 'step'].forEach(kind => {
+        const other = byMachKind[m + '|' + kind];
+        const baseS = byMachKind[base + '|' + kind];
+        if (!other?.points?.length || !baseS?.points?.length) return;
+        const baseByLR = {};
+        baseS.points.forEach(p => { baseByLR[p.lr] = p.acc; });
+        deltaRows.push({
+          label: m + '−' + base + ' · ' + (kind === 'step' ? 'Step*' : 'plain'),
+          dashed: kind === 'step',
+          points: other.points.map(p => ({
+            lr: p.lr,
+            lr_label: p.lr_label,
+            acc: baseByLR[p.lr] != null ? p.acc - baseByLR[p.lr] : null,
+          })).filter(p => p.acc != null),
+        });
+      });
+    });
+    drawMultiSeries('modeCamDelta_' + i, deltaRows, 'acc', 'Δ Acc pp', { zeroLine: true });
+  });
+}
+
 function drawCamCompareCharts(pairs, summary) {
   (pairs || []).forEach((p, i) => {
     const sub = (summary || []).filter(s => s.machine === p.base || s.machine === p.other);
@@ -726,6 +793,7 @@ function renderDOM(j) {
     (peerTxt ? ` · peers: ${peerTxt}` : '') + ` · ${new Date(j.generated).toLocaleTimeString()}`;
   renderPeerChips(j.peers || []);
   buildCamCompareSections(j.cam_pairs || []);
+  buildModeCamFamilySections(j.mode_cam_families || []);
   modeBarChart($('modeBarSection'), j.mode_bars || [], j.machines || []);
   buildModeCrossSections(j.mode_cross || []);
   buildModeSeriesSections(j.machines || []);
@@ -809,6 +877,7 @@ function renderDOM(j) {
 
 function drawCharts(j) {
   drawCamCompareCharts(j.cam_pairs || [], j.summary || []);
+  drawModeCamFamilyCharts(j.mode_cam_families || []);
   drawLines('accChart', j.summary || [], 'mean_acc', 'mean Acc %');
   drawLines('scoreChart', j.summary || [], 'mean_score', 'mean Score');
   drawLines('availChart', j.summary || [], 'mean_avail', 'mean Avail %');

@@ -32,6 +32,7 @@ type CompareReport struct {
 	ModeBars      []CompareModeBar          `json:"mode_bars"`
 	ModeSeries    []CompareModeSeries       `json:"mode_series"`
 	ModeCross     []CompareModeCross        `json:"mode_cross"`
+	ModeCamFamilies []CompareModeCamFamily  `json:"mode_cam_families,omitempty"`
 	VsBaseline    []CompareVsBaselineGrid   `json:"vs_baseline"`
 	StepFamilies  []CompareStepFamilyGrid   `json:"step_families"`
 	StepCross     []CompareStepCross        `json:"step_cross"`
@@ -288,8 +289,9 @@ func BuildCompare(title string, tides []NamedTideReport) CompareReport {
 	out.SoftGap = compareSoftGap(pts, out.Machines, lrMap)
 	out.Scatter = compareScatter(pts, 1200)
 	out.ModeBars = compareModeBars(pts, out.Machines, 24)
-	out.ModeSeries = compareModeSeries(pts, out.Machines, 10)
-	out.ModeCross = compareModeCross(pts, out.Machines, 8)
+	out.ModeSeries = compareModeSeries(pts, out.Machines, 16)
+	out.ModeCross = compareModeCross(pts, out.Machines, 24)
+	out.ModeCamFamilies = compareModeCamFamilies(pts, out.Machines, 24)
 	out.VsBaseline = compareVsBaselineLR(pts, out.Machines, 12)
 	out.StepFamilies = compareStepFamilies(pts, out.Machines)
 	out.StepCross = compareStepCross(out.StepFamilies)

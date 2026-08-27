@@ -10,6 +10,7 @@ import (
 type compareLineSeries struct {
 	Label  string
 	Values map[float64]float64
+	Dashed bool
 }
 
 var compareChartColors = [][3]int{
@@ -97,6 +98,10 @@ func (d *doc) compareCharts(c CompareReport) {
 			crossSeries(cross, func(p CompareModeCrossPoint) float64 { return p.Acc }), false)
 		d.compareLRLineChart("Mode "+cross.Mode+" — machines vs LR Avail", "Avail %", lrs, labels,
 			crossSeries(cross, func(p CompareModeCrossPoint) float64 { return p.Avail }), false)
+	}
+
+	for _, fam := range c.ModeCamFamilies {
+		d.compareModeCamFamilyCharts(fam)
 	}
 
 	for _, g := range c.VsBaseline {
@@ -458,6 +463,11 @@ func (d *doc) compareLRLineChart(title, yLabel string, lrs []float64, lrLabels [
 		col := compareChartColors[si%len(compareChartColors)]
 		d.pdf.SetDrawColor(col[0], col[1], col[2])
 		d.pdf.SetLineWidth(0.35)
+		if s.Dashed {
+			d.pdf.SetDashPattern([]float64{1.2, 1.0}, 0)
+		} else {
+			d.pdf.SetDashPattern([]float64{}, 0)
+		}
 		prevOK := false
 		var px, py float64
 		for i, lr := range lrs {
@@ -475,6 +485,7 @@ func (d *doc) compareLRLineChart(title, yLabel string, lrs []float64, lrLabels [
 			px, py, prevOK = x, y, true
 		}
 	}
+	d.pdf.SetDashPattern([]float64{}, 0)
 	d.pdf.SetLineWidth(0.2)
 
 	d.pdf.SetFont("Helvetica", "", 5)
@@ -504,6 +515,107 @@ func (d *doc) compareLRLineChart(title, yLabel string, lrs []float64, lrLabels [
 	d.pdf.SetTextColor(110, 120, 130)
 	d.pdf.CellFormat(w, 4, latin(yLabel), "", 1, "L", false, 0, "")
 	d.gap(3)
+}
+
+func (d *doc) compareModeCamFamilyCharts(fam CompareModeCamFamily) {
+	if len(fam.Series) == 0 {
+		return
+	}
+	lrSet := map[float64]string{}
+	for _, s := range fam.Series {
+		for _, p := range s.Points {
+			if p.LRLabel != "" {
+				lrSet[p.LR] = p.LRLabel
+			} else if _, ok := lrSet[p.LR]; !ok {
+				lrSet[p.LR] = FormatLR(p.LR)
+			}
+		}
+	}
+	lrs := make([]float64, 0, len(lrSet))
+	for lr := range lrSet {
+		lrs = append(lrs, lr)
+	}
+	sort.Float64s(lrs)
+	labels := make([]string, len(lrs))
+	for i, lr := range lrs {
+		labels[i] = lrSet[lr]
+	}
+	accSeries := make([]compareLineSeries, 0, len(fam.Series))
+	availSeries := make([]compareLineSeries, 0, len(fam.Series))
+	for _, s := range fam.Series {
+		acc := compareLineSeries{Label: s.Label, Values: map[float64]float64{}, Dashed: s.Kind == "step"}
+		avail := compareLineSeries{Label: s.Label, Values: map[float64]float64{}, Dashed: s.Kind == "step"}
+		for _, p := range s.Points {
+			acc.Values[p.LR] = p.Acc
+			avail.Values[p.LR] = p.Avail
+		}
+		accSeries = append(accSeries, acc)
+		availSeries = append(availSeries, avail)
+	}
+	title := "Mode " + fam.Family + " — cams × Step*/plain Acc"
+	if fam.Headline != "" {
+		d.h2(title)
+		d.body(fam.Headline)
+	}
+	d.compareLRLineChart(title, "Acc %", lrs, labels, accSeries, false)
+	d.compareLRLineChart("Mode "+fam.Family+" — cams × Step*/plain Avail", "Avail %", lrs, labels, availSeries, false)
+
+	if len(fam.Series) < 2 {
+		return
+	}
+	basePlain, baseStep := map[float64]float64{}, map[float64]float64{}
+	baseMach := ""
+	for _, s := range fam.Series {
+		if baseMach == "" {
+			baseMach = s.Machine
+		}
+		if s.Machine != baseMach {
+			continue
+		}
+		dst := basePlain
+		if s.Kind == "step" {
+			dst = baseStep
+		}
+		for _, p := range s.Points {
+			dst[p.LR] = p.Acc
+		}
+	}
+	var delta []compareLineSeries
+	seen := map[string]bool{}
+	for _, s := range fam.Series {
+		if s.Machine == baseMach {
+			continue
+		}
+		key := s.Machine + "|" + s.Kind
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		base := basePlain
+		kindLbl := "plain"
+		if s.Kind == "step" {
+			base = baseStep
+			kindLbl = "Step*"
+		}
+		ser := compareLineSeries{
+			Label:  s.Machine + "−" + baseMach + " · " + kindLbl,
+			Values: map[float64]float64{},
+			Dashed: s.Kind == "step",
+		}
+		for _, p := range s.Points {
+			b, ok := base[p.LR]
+			if !ok {
+				continue
+			}
+			ser.Values[p.LR] = p.Acc - b
+		}
+		if len(ser.Values) > 0 {
+			delta = append(delta, ser)
+		}
+	}
+	if len(delta) > 0 {
+		d.compareLRLineChart("Mode "+fam.Family+" — Δ Acc vs "+baseMach+" (plain + Step*)", "Δ Acc pp", lrs, labels, delta, true)
+	}
 }
 
 func (d *doc) compareScatterChart(title, xlab, ylab string, pts []CompareScatterPoint, xfn, yfn func(CompareScatterPoint) float64) {
