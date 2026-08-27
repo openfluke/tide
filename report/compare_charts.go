@@ -117,6 +117,113 @@ func (d *doc) compareCharts(c CompareReport) {
 		}
 		d.heatmapSigned("Δ Acc vs "+g.Baseline+" — "+g.Machine, g.Modes, g.LRLabels, g.AccDelta, hit)
 	}
+
+	for _, g := range c.StepFamilies {
+		for _, v := range c.StepVerdicts {
+			if v.Machine != g.Machine {
+				continue
+			}
+			d.h2("Step vs plain verdict — " + v.Machine)
+			d.body(v.Headline)
+			d.body(fmt.Sprintf("Acc: %s (%+.1f pp) · Score: %s (%+.0f) · Avail: %s (%+.1f pp)",
+				stepVerdictLabel(v.AccWinner), v.PooledAccDelta,
+				stepVerdictLabel(v.ScoreWinner), v.PooledScoreDelta,
+				stepVerdictLabel(v.AvailWinner), v.PooledAvailDelta))
+			for _, b := range v.Bullets {
+				d.body("• " + b)
+			}
+			d.gap(1)
+			break
+		}
+		var lrSeries []compareLineSeries
+		for _, row := range c.StepByLR {
+			if row.Machine != g.Machine {
+				continue
+			}
+			if len(lrSeries) == 0 {
+				lrSeries = append(lrSeries, compareLineSeries{Label: "all families avg", Values: map[float64]float64{}})
+			}
+			lrSeries[0].Values[row.LR] = row.MeanAccDelta
+		}
+		if len(lrSeries) > 0 {
+			d.compareLRLineChart("Step wins Acc at these LRs? (avg ΔAcc all families) — "+g.Machine,
+				"Δ Acc", g.LRs, g.LRLabels, lrSeries, true)
+		}
+		d.muted("Step* = 1D pipe (one sample per tick). Plain = full-chain update. Δ = step − plain on matched cells.")
+		var bars []kv
+		for _, pair := range g.Pairs {
+			if pair.MatchN == 0 {
+				continue
+			}
+			bars = append(bars, kv{pair.Step + " − " + pair.Plain, pair.PooledAccDelta})
+		}
+		if len(bars) > 0 {
+			d.signedBars("Step vs plain pooled ΔAcc — "+g.Machine, bars)
+		}
+		var series []compareLineSeries
+		for _, pair := range g.Pairs {
+			if pair.MatchN == 0 {
+				continue
+			}
+			vals := map[float64]float64{}
+			for i, lr := range g.LRs {
+				if i < len(pair.AccDelta) && pair.N[i] > 0 {
+					vals[lr] = pair.AccDelta[i]
+				}
+			}
+			if len(vals) > 0 {
+				series = append(series, compareLineSeries{Label: pair.Step + "−" + pair.Plain, Values: vals})
+			}
+		}
+		d.compareLRLineChart("Δ Acc step−plain vs LR — "+g.Machine, "Δ Acc", g.LRs, g.LRLabels, series, true)
+		d.compareLRLineChart("Δ Avail step−plain vs LR — "+g.Machine, "Δ Avail", g.LRs, g.LRLabels, stepFamilySeries(g, func(p CompareStepFamilyPair, i int) float64 { return p.AvailDelta[i] }), true)
+		rows := make([]string, len(g.Pairs))
+		grid := make([][]float64, len(g.Pairs))
+		hit := make([][]bool, len(g.Pairs))
+		for i, pair := range g.Pairs {
+			rows[i] = pair.Step + "−" + pair.Plain
+			grid[i] = pair.AccDelta
+			hit[i] = make([]bool, len(pair.AccDelta))
+			for j, v := range pair.AccDelta {
+				hit[i][j] = pair.N[j] > 0 && v != 0
+			}
+		}
+		d.heatmapSigned("Δ Acc step−plain — "+g.Machine, rows, g.LRLabels, grid, hit)
+	}
+}
+
+func stepVerdictLabel(v string) string {
+	switch v {
+	case "step":
+		return "use Step*"
+	case "plain":
+		return "use plain"
+	case "collapse":
+		return "≈ same (collapse)"
+	case "mixed":
+		return "depends on LR"
+	default:
+		return "tie"
+	}
+}
+
+func stepFamilySeries(g CompareStepFamilyGrid, val func(CompareStepFamilyPair, int) float64) []compareLineSeries {
+	var out []compareLineSeries
+	for _, pair := range g.Pairs {
+		if pair.MatchN == 0 {
+			continue
+		}
+		vals := map[float64]float64{}
+		for i, lr := range g.LRs {
+			if i < len(pair.N) && pair.N[i] > 0 {
+				vals[lr] = val(pair, i)
+			}
+		}
+		if len(vals) > 0 {
+			out = append(out, compareLineSeries{Label: pair.Step + "−" + pair.Plain, Values: vals})
+		}
+	}
+	return out
 }
 
 func compareUnionLRs(c CompareReport) ([]float64, []string) {

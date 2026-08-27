@@ -36,6 +36,24 @@ func PDFCompare(c CompareReport) ([]byte, error) {
 		p.gap(2)
 	}
 
+	for _, g := range c.StepFamilies {
+		for _, v := range c.StepVerdicts {
+			if v.Machine == g.Machine {
+				p.h2("Step vs plain verdict — " + g.Machine)
+				p.body(v.Headline)
+				for _, b := range v.Bullets {
+					p.body("• " + b)
+				}
+				p.gap(1)
+				break
+			}
+		}
+		p.h2("Step vs plain families — " + g.Machine)
+		p.muted("Verdict per row: Acc / Score / Avail. step-better LR = use Step* at those learning rates.")
+		p.compareStepFamilyTable(g)
+		p.gap(2)
+	}
+
 	if len(c.Matched) > 0 {
 		p.h2("Top matched recipe deltas (Acc A−B)")
 		p.compareMatchTable(c)
@@ -294,6 +312,45 @@ func (d *doc) compareVsDeltaHeatTable(rows, cols []string, grid [][]float64) {
 		}
 		return colsOut
 	})
+}
+
+func (d *doc) compareStepFamilyTable(g CompareStepFamilyGrid) {
+	if len(g.Pairs) == 0 {
+		d.body("No Step* / plain pairs found on this machine.")
+		return
+	}
+	headers := []string{"Step", "plain", "overall", "Acc", "Score", "Avail", "ΔAcc", "step LRs", "plain LRs", "n"}
+	d.table(headers, func(i int) []string {
+		if i >= len(g.Pairs) {
+			return nil
+		}
+		p := g.Pairs[i]
+		if p.MatchN == 0 {
+			return nil
+		}
+		return []string{
+			p.Step, p.Plain,
+			stepVerdictLabel(p.OverallVerdict),
+			stepVerdictLabel(p.AccVerdict),
+			stepVerdictLabel(p.ScoreVerdict),
+			stepVerdictLabel(p.AvailVerdict),
+			fmt.Sprintf("%+.2f", p.PooledAccDelta),
+			strings.Join(p.StepBetterLRs, ", "),
+			strings.Join(p.PlainBetterLRs, ", "),
+			fmt.Sprintf("%d", p.MatchN),
+		}
+	})
+	d.body("Δ Acc by LR (step − plain):")
+	rows := make([]string, 0, len(g.Pairs))
+	grid := make([][]float64, 0, len(g.Pairs))
+	for _, p := range g.Pairs {
+		if p.MatchN == 0 {
+			continue
+		}
+		rows = append(rows, p.Step+"−"+p.Plain)
+		grid = append(grid, p.AccDelta)
+	}
+	d.compareVsDeltaHeatTable(rows, g.LRLabels, grid)
 }
 
 func (d *doc) compareModeBarTable(c CompareReport) {

@@ -43,6 +43,15 @@
   table.heat th:first-child, table.heat td:first-child { text-align: left; position: sticky; left: 0; background: #0c1c28; }
   .chip { display: inline-block; background: #13232d; border: 1px solid var(--grid); padding: 0.15rem 0.45rem; margin: 0.15rem; font-size: 0.75rem; }
   .chip b { color: var(--accent); }
+  .verdict { border-left: 3px solid var(--accent); padding: 0.65rem 0.85rem; margin: 0.5rem 0 0.75rem; background: rgba(61,214,198,0.08); }
+  .verdict.bad { border-color: var(--bad); background: rgba(224,108,117,0.08); }
+  .verdict.warn { border-color: #e6b35a; background: rgba(230,179,90,0.08); }
+  .tag { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.4rem; margin-right: 0.35rem; border-radius: 2px; }
+  .tag.step { background: #1a4a44; color: #3dd6c6; }
+  .tag.plain { background: #4a2a2a; color: #e06c75; }
+  .tag.tie { background: #333; color: #8aa0ad; }
+  .tag.mixed { background: #3a3520; color: #e6b35a; }
+  .tag.collapse { background: #252525; color: #abb2bf; }
 </style>
 </head>
 <body>
@@ -108,6 +117,8 @@
 <section id="modeSeriesSections"></section>
 
 <section id="vsBaselineSections"></section>
+
+<section id="stepFamilySections"></section>
 
 <section>
   <h2>Summary by machine × LR</h2>
@@ -394,7 +405,7 @@ function drawMultiSeries(canvasId, seriesList, valueKey, yLabel, opts = {}) {
   }
 }
 
-function renderModeSeriesSections(series, machines) {
+function buildModeSeriesSections(machines) {
   const parent = $('modeSeriesSections');
   parent.innerHTML = machines.map(m => `
     <section><h2>Train modes vs LR — ${m}</h2>
@@ -402,6 +413,9 @@ function renderModeSeriesSections(series, machines) {
       <canvas class="line" id="modeAcc_${m}"></canvas>
       <canvas class="line" id="modeAvail_${m}" style="margin-top:0.75rem"></canvas>
     </section>`).join('');
+}
+
+function drawModeSeriesCharts(series, machines) {
   machines.forEach(m => {
     const rows = (series || []).filter(s => s.machine === m).map(s => ({ label: s.mode, points: s.points }));
     drawMultiSeries('modeAcc_' + m, rows, 'acc', 'mean Acc %');
@@ -409,7 +423,7 @@ function renderModeSeriesSections(series, machines) {
   });
 }
 
-function renderModeCrossSections(cross) {
+function buildModeCrossSections(cross) {
   const parent = $('modeCrossSections');
   parent.innerHTML = (cross || []).map((c, i) => `
     <section><h2>Mode ${c.mode} — machines vs LR</h2>
@@ -417,6 +431,9 @@ function renderModeCrossSections(cross) {
       <canvas class="line" id="crossAcc_${i}"></canvas>
       <canvas class="line" id="crossAvail_${i}" style="margin-top:0.75rem"></canvas>
     </section>`).join('');
+}
+
+function drawModeCrossCharts(cross) {
   (cross || []).forEach((c, i) => {
     const byMachine = {};
     c.points.forEach(p => {
@@ -428,7 +445,99 @@ function renderModeCrossSections(cross) {
   });
 }
 
-function renderVsBaselineSections(vs) {
+function verdictTag(v) {
+  const m = { step: 'use Step*', plain: 'use plain', tie: 'tie', mixed: 'depends on LR', collapse: '≈ same' };
+  const cls = v === 'plain' ? 'plain' : (v === 'mixed' ? 'mixed' : (v === 'collapse' ? 'collapse' : (v === 'tie' ? 'tie' : 'step')));
+  return `<span class="tag ${cls}">${m[v] || v || '—'}</span>`;
+}
+
+function buildStepFamilySections(families, cross, verdicts, stepByLR) {
+  const parent = $('stepFamilySections');
+  let html = `<section><h2>Step* vs non-Step — does stepping help?</h2>
+    <p class="hint">Matched dtype×arch×layer at each LR. Verdicts: Acc = learning, Score = duty clock (T×Avail×Acc), Avail = time spent serving.</p>`;
+
+  (verdicts || []).forEach(v => {
+    const cls = v.acc_winner === 'plain' ? 'verdict bad' : (v.acc_winner === 'tie' || v.collapse_families === v.step_wins_families + v.plain_wins_families + v.mixed_families + v.collapse_families ? 'verdict warn' : 'verdict');
+    html += `<section class="${cls}"><h2>${v.machine} summary</h2>
+      <p style="margin:0.35rem 0 0.65rem;line-height:1.45">${v.headline || ''}</p>
+      <p style="margin:0 0 0.5rem">
+        ${verdictTag(v.acc_winner)} Acc ${v.pooled_acc_delta>=0?'+':''}${v.pooled_acc_delta?.toFixed(1)} pp
+        ${verdictTag(v.score_winner)} Score ${v.pooled_score_delta>=0?'+':''}${v.pooled_score_delta?.toFixed(0)}
+        ${verdictTag(v.avail_winner)} Avail ${v.pooled_avail_delta>=0?'+':''}${v.pooled_avail_delta?.toFixed(1)} pp
+      </p>
+      <ul style="margin:0;padding-left:1.2rem;color:var(--muted);font-size:0.82rem">${(v.bullets||[]).map(b => `<li>${b}</li>`).join('')}</ul>
+    </section>`;
+  });
+
+  (verdicts || []).forEach((v, vi) => {
+    const lrRows = (stepByLR || []).filter(r => r.machine === v.machine);
+    if (lrRows.length) {
+      html += `<section><h2>Step vs plain by LR — ${v.machine}</h2>
+        <p class="hint">Average Δ across all families at each LR. Above zero = stepping wins Acc overall at that LR.</p>
+        <canvas class="line" id="stepLR_${vi}"></canvas></section>`;
+    }
+  });
+
+  (families || []).forEach((g, gi) => {
+    html += `<section><h2>Family detail — ${g.machine}</h2>
+      <div class="table-wrap"><table><thead><tr>
+        <th>Step</th><th>plain</th><th>verdict</th><th>Acc</th><th>Score</th><th>Avail</th>
+        <th>ΔAcc</th><th>step-better LR</th><th>plain-better LR</th></tr></thead><tbody>
+      ${(g.pairs||[]).map(p => `<tr>
+        <td>${p.step}</td><td>${p.plain}</td>
+        <td>${verdictTag(p.overall_verdict)}</td>
+        <td>${verdictTag(p.acc_verdict)}</td><td>${verdictTag(p.score_verdict)}</td><td>${verdictTag(p.avail_verdict)}</td>
+        <td>${p.pooled_acc_delta>=0?'+':''}${p.pooled_acc_delta?.toFixed(2)}</td>
+        <td>${(p.step_better_lrs||[]).join(', ')||'—'}</td>
+        <td>${(p.plain_better_lrs||[]).join(', ')||'—'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <canvas class="line" id="stepAcc_${gi}"></canvas>
+      <canvas class="line" id="stepAvail_${gi}" style="margin-top:0.75rem"></canvas>
+      <div id="stepHeat_${gi}" style="margin-top:0.75rem"></div></section>`;
+  });
+  (cross || []).slice(0, 4).forEach((c, i) => {
+    html += `<section><h2>${c.step} vs ${c.plain} — machines</h2>
+      <canvas class="line" id="stepCross_${i}"></canvas></section>`;
+  });
+  parent.innerHTML = html;
+}
+
+function drawStepFamilyCharts(families, cross, verdicts, stepByLR) {
+  (verdicts || []).forEach((v, vi) => {
+    const lrRows = (stepByLR || []).filter(r => r.machine === v.machine);
+    if (!lrRows.length) return;
+    drawMultiSeries('stepLR_' + vi, [{
+      label: 'all families avg',
+      points: lrRows.map(r => ({ lr: r.lr, lr_label: r.lr_label, acc: r.mean_acc_delta, score: r.mean_score_delta, avail: r.mean_avail_delta }))
+    }], 'acc', 'Δ Acc (step − plain)', { zeroLine: true });
+  });
+
+  (families || []).forEach((g, gi) => {
+    const rows = (g.pairs || []).map(p => ({
+      label: p.step + '−' + p.plain,
+      points: (g.lrs || []).map((lr, j) => ({
+        lr, lr_label: g.lr_labels?.[j] || lr,
+        acc: p.acc_delta?.[j],
+        avail: p.avail_delta?.[j],
+      })).filter(pt => pt.acc != null && pt.acc !== 0),
+    }));
+    drawMultiSeries('stepAcc_' + gi, rows, 'acc', 'Δ Acc (step − plain)', { zeroLine: true });
+    drawMultiSeries('stepAvail_' + gi, rows, 'avail', 'Δ Avail (step − plain)', { zeroLine: true });
+    const modes = (g.pairs || []).map(p => p.step + '−' + p.plain);
+    const grid = (g.pairs || []).map(p => p.acc_delta || []);
+    heatTable($('stepHeat_' + gi), modes, g.lr_labels, grid, true);
+  });
+  (cross || []).slice(0, 6).forEach((c, i) => {
+    const byMachine = {};
+    c.points.forEach(p => {
+      if (!byMachine[p.machine]) byMachine[p.machine] = { label: p.machine, points: [] };
+      byMachine[p.machine].points.push({ lr: p.lr, lr_label: p.lr_label, acc: p.acc_delta });
+    });
+    drawMultiSeries('stepCross_' + i, Object.values(byMachine), 'acc', 'Δ Acc step−plain', { zeroLine: true });
+  });
+}
+
+function buildVsBaselineSections(vs) {
   const parent = $('vsBaselineSections');
   parent.innerHTML = (vs || []).map((g, i) => `
     <section><h2>vs ${g.baseline} baseline — ${g.machine}</h2>
@@ -442,6 +551,9 @@ function renderVsBaselineSections(vs) {
       <p class="hint" style="margin-top:0.75rem">ΔAcc heatmap (green = beats baseline)</p>
       <div id="vsHeat_${i}"></div>
     </section>`).join('');
+}
+
+function drawVsBaselineCharts(vs) {
   (vs || []).forEach((g, i) => {
     const accRows = (g.modes || []).map((mode, mi) => ({
       label: mode,
@@ -514,19 +626,13 @@ function heatTable(parent, modes, lrLabels, grid, signed) {
   parent.innerHTML = html + '</tbody></table></div>';
 }
 
-function render(j) {
+function renderDOM(j) {
   $('status').textContent = `${j.title || 'compare'} · ${j.machines?.join(' vs ') || '?'} · ${j.lr_labels?.length || 0} LR steps · ${new Date(j.generated).toLocaleTimeString()}`;
-  drawLines('accChart', j.summary || [], 'mean_acc', 'mean Acc %');
-  drawLines('scoreChart', j.summary || [], 'mean_score', 'mean Score');
-  drawLines('availChart', j.summary || [], 'mean_avail', 'mean Avail %');
-  drawSoftGap('softGapChart', j.soft_gap || []);
-  drawTrapRate('trapRateChart', j.trap_rate || []);
-  drawScatter('accAvailScatter', j.scatter || [], 'acc', 'availability', 'Acc %', 'Avail %');
-  drawScatter('softAccScatter', j.scatter || [], 'soft_acc', 'acc', 'SoftAcc %', 'hard Acc %');
   modeBarChart($('modeBarSection'), j.mode_bars || [], j.machines || []);
-  renderModeCrossSections(j.mode_cross || []);
-  renderModeSeriesSections(j.mode_series || [], j.machines || []);
-  renderVsBaselineSections(j.vs_baseline || []);
+  buildModeCrossSections(j.mode_cross || []);
+  buildModeSeriesSections(j.machines || []);
+  buildVsBaselineSections(j.vs_baseline || []);
+  buildStepFamilySections(j.step_families || [], j.step_cross || [], j.step_verdicts || [], j.step_by_lr || []);
   const thead = $('sumTable').querySelector('thead');
   const tbody = $('sumTable').querySelector('tbody');
   thead.innerHTML = '<tr><th>machine</th><th>LR</th><th>n</th><th>Acc</th><th>Soft</th><th>Score</th><th>Avail</th><th>best mode</th></tr>';
@@ -550,12 +656,6 @@ function render(j) {
       <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Avail</h3><div id="heatAvail_${g.machine}"></div>
       <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">SoftAcc</h3><div id="heatSoft_${g.machine}"></div>
     </section>`).join('');
-  (j.mode_lr||[]).forEach(g => {
-    heatTable($('heatAcc_'+g.machine), g.modes, g.lr_labels, g.acc);
-    heatTable($('heatScore_'+g.machine), g.modes, g.lr_labels, g.score);
-    heatTable($('heatAvail_'+g.machine), g.modes, g.lr_labels, g.avail);
-    heatTable($('heatSoft_'+g.machine), g.modes, g.lr_labels, g.soft);
-  });
 
   const lpm = $('lpdPerMachine');
   lpm.innerHTML = (j.lpd_per_machine||[]).map(g => `
@@ -609,20 +709,60 @@ function render(j) {
     <td>${r.soft_gap?.toFixed(1)}</td><td>${r.throughput?.toFixed(0)}</td><td>${r.id}</td></tr>`).join('');
 }
 
-async function tick() {
+function drawCharts(j) {
+  drawLines('accChart', j.summary || [], 'mean_acc', 'mean Acc %');
+  drawLines('scoreChart', j.summary || [], 'mean_score', 'mean Score');
+  drawLines('availChart', j.summary || [], 'mean_avail', 'mean Avail %');
+  drawSoftGap('softGapChart', j.soft_gap || []);
+  drawTrapRate('trapRateChart', j.trap_rate || []);
+  drawScatter('accAvailScatter', j.scatter || [], 'acc', 'availability', 'Acc %', 'Avail %');
+  drawScatter('softAccScatter', j.scatter || [], 'soft_acc', 'acc', 'SoftAcc %', 'hard Acc %');
+  drawModeCrossCharts(j.mode_cross || []);
+  drawModeSeriesCharts(j.mode_series || [], j.machines || []);
+  drawVsBaselineCharts(j.vs_baseline || []);
+  drawStepFamilyCharts(j.step_families || [], j.step_cross || [], j.step_verdicts || [], j.step_by_lr || []);
+  (j.mode_lr||[]).forEach(g => {
+    heatTable($('heatAcc_'+g.machine), g.modes, g.lr_labels, g.acc);
+    heatTable($('heatScore_'+g.machine), g.modes, g.lr_labels, g.score);
+    heatTable($('heatAvail_'+g.machine), g.modes, g.lr_labels, g.avail);
+    heatTable($('heatSoft_'+g.machine), g.modes, g.lr_labels, g.soft);
+  });
+}
+
+function render(j) {
+  renderDOM(j);
+  drawCharts(j);
+}
+
+let lastDataRev = null;
+let lastData = null;
+let resizeTimer;
+
+async function tick(force) {
   try {
     const r = await fetch('/api/compare');
     if (!r.ok) throw new Error('compare unavailable');
-    render(await r.json());
+    const j = await r.json();
+    if (!force && lastDataRev !== null && j.data_rev && j.data_rev === lastDataRev) {
+      return;
+    }
+    lastDataRev = j.data_rev || null;
+    lastData = j;
+    render(j);
   } catch (e) {
+    lastDataRev = null;
+    lastData = null;
     $('status').textContent = 'waiting for /api/compare… (peers need /api/report archives)';
   }
 }
-$('refresh').onclick = tick;
+$('refresh').onclick = () => tick(true);
 $('pdfBtn').onclick = () => { window.location = '/api/compare.pdf'; };
-window.addEventListener('resize', tick);
-setInterval(tick, 5000);
-tick();
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (lastData) drawCharts(lastData); }, 120);
+});
+setInterval(() => tick(false), 5000);
+tick(true);
 </script>
 </body>
 </html>

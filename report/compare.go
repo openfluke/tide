@@ -1,6 +1,8 @@
 package report
 
 import (
+	"encoding/json"
+	"hash/fnv"
 	"math"
 	"sort"
 	"strings"
@@ -10,6 +12,7 @@ import (
 // CompareReport is a cross-machine, cross-LR pivot built from full tide /api/report archives.
 type CompareReport struct {
 	Generated time.Time      `json:"generated"`
+	DataRev   uint64         `json:"data_rev"`
 	Title     string         `json:"title"`
 	Machines  []string       `json:"machines"`
 	LRs       []float64      `json:"lrs"`
@@ -28,6 +31,10 @@ type CompareReport struct {
 	ModeSeries    []CompareModeSeries       `json:"mode_series"`
 	ModeCross     []CompareModeCross        `json:"mode_cross"`
 	VsBaseline    []CompareVsBaselineGrid   `json:"vs_baseline"`
+	StepFamilies  []CompareStepFamilyGrid   `json:"step_families"`
+	StepCross     []CompareStepCross        `json:"step_cross"`
+	StepVerdicts  []CompareStepMachineVerdict `json:"step_verdicts"`
+	StepByLR      []CompareStepLRRow        `json:"step_by_lr"`
 	OverlapLRs    []string                  `json:"overlap_lrs,omitempty"`
 	OverlapNote   string                    `json:"overlap_note,omitempty"`
 	LRByMachine   map[string][]string       `json:"lr_by_machine,omitempty"`
@@ -279,7 +286,24 @@ func BuildCompare(title string, tides []NamedTideReport) CompareReport {
 	out.ModeSeries = compareModeSeries(pts, out.Machines, 10)
 	out.ModeCross = compareModeCross(pts, out.Machines, 8)
 	out.VsBaseline = compareVsBaselineLR(pts, out.Machines, 12)
+	out.StepFamilies = compareStepFamilies(pts, out.Machines)
+	out.StepCross = compareStepCross(out.StepFamilies)
+	out.StepVerdicts, out.StepByLR = compareStepVerdicts(out.StepFamilies)
+	out.DataRev = compareDataRev(out)
 	return out
+}
+
+// compareDataRev fingerprints report payload (excluding Generated/DataRev) so clients can skip redraws.
+func compareDataRev(c CompareReport) uint64 {
+	c.Generated = time.Time{}
+	c.DataRev = 0
+	b, err := json.Marshal(c)
+	if err != nil {
+		return 0
+	}
+	h := fnv.New64a()
+	_, _ = h.Write(b)
+	return h.Sum64()
 }
 
 func sortedKeys(m map[string]bool) []string {
