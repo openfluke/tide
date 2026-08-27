@@ -67,6 +67,14 @@
   <button type="button" class="ghost" id="pdfBtn">Download compare PDF</button>
 </div>
 
+<section id="peerChipsSection" style="display:none">
+  <h2>Tide peers</h2>
+  <p class="hint">Each chip is one cam×band tide archive ocean is polling.</p>
+  <div id="peerChips"></div>
+</section>
+
+<section id="camCompareSections"></section>
+
 <section>
   <h2>Mean Acc vs learning rate</h2>
   <p class="hint">One line per machine — matched recipes aggregated at each |lr=… step inside each tide archive.</p>
@@ -156,6 +164,29 @@
 const $ = id => document.getElementById(id);
 const COLORS = ['#3dd6c6', '#4ea3ff', '#e6b35a', '#c678dd', '#98c379', '#e06c75', '#56b6c2', '#d19a66', '#61afef', '#abb2bf'];
 
+function parseCamMachine(m) {
+  const s = String(m || '').toLowerCase();
+  const n = s.match(/^cam(\d+)$/);
+  return n ? parseInt(n[1], 10) : 0;
+}
+
+function sortMachines(machines) {
+  return [...new Set(machines || [])].sort((a, b) => {
+    const ca = parseCamMachine(a), cb = parseCamMachine(b);
+    if (ca && cb) return ca - cb;
+    if (ca) return -1;
+    if (cb) return 1;
+    return String(a).localeCompare(String(b));
+  });
+}
+
+function machineColor(m, mi) {
+  const c = parseCamMachine(m);
+  if (c === 1) return COLORS[0];
+  if (c === 3) return COLORS[2];
+  return COLORS[mi % COLORS.length];
+}
+
 function fitCanvas(c) {
   const r = c.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -170,7 +201,7 @@ function drawLines(canvasId, summary, field, yLabel) {
   const ctx = c.getContext('2d');
   const w = c.width, h = c.height;
   ctx.clearRect(0, 0, w, h);
-  const machines = [...new Set(summary.map(s => s.machine))].sort();
+  const machines = sortMachines(summary.map(s => s.machine));
   const lrs = [...new Set(summary.map(s => s.lr))].sort((a,b)=>a-b);
   if (!lrs.length) {
     ctx.fillStyle = '#8aa0ad';
@@ -208,7 +239,7 @@ function drawLines(canvasId, summary, field, yLabel) {
   ctx.fillText(yLabel, 0, 0);
   ctx.restore();
   machines.forEach((m, mi) => {
-    const col = COLORS[mi % COLORS.length];
+    const col = machineColor(m, mi);
     ctx.strokeStyle = col;
     ctx.fillStyle = col;
     ctx.lineWidth = 2;
@@ -626,8 +657,75 @@ function heatTable(parent, modes, lrLabels, grid, signed) {
   parent.innerHTML = html + '</tbody></table></div>';
 }
 
+function renderPeerChips(peers) {
+  const sec = $('peerChipsSection');
+  const box = $('peerChips');
+  if (!peers?.length) { sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  box.innerHTML = peers.map(p => {
+    const band = p.band ? ` · ${p.band}` : '';
+    const cam = p.cam ? `cam${p.cam}` : p.machine;
+    return `<span class="chip"><b>${p.name || cam}</b> ${cam}${band}</span>`;
+  }).join('');
+}
+
+function buildCamCompareSections(pairs) {
+  const parent = $('camCompareSections');
+  if (!pairs?.length) { parent.innerHTML = ''; return; }
+  parent.innerHTML = pairs.map((p, i) => {
+    const band = p.band ? ` (${p.band})` : '';
+    return `<section class="verdict"><h2>Cam ${p.other} vs ${p.base}${band}</h2>
+      <p class="hint">${p.headline || ''}</p>
+      <p class="hint">Overlay: mean farm Acc/Score/Avail at each LR — one line per cam. Δ chart: ${p.other}−${p.base} on matched recipes.</p>
+      <h3 style="font-size:0.9rem;margin:0.5rem 0">Mean Acc — cams overlaid</h3>
+      <canvas class="line" id="camAcc_${i}"></canvas>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Mean Score — cams overlaid</h3>
+      <canvas class="line" id="camScore_${i}"></canvas>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Δ Acc (${p.other} − ${p.base}) vs LR</h3>
+      <canvas class="line" id="camDelta_${i}"></canvas>
+      <h3 style="font-size:0.9rem;margin:0.75rem 0 0.5rem">Matched recipe Δ Acc (top)</h3>
+      <div class="table-wrap"><table id="camMatch_${i}"><thead></thead><tbody></tbody></table></div>
+    </section>`;
+  }).join('');
+}
+
+function drawCamCompareCharts(pairs, summary) {
+  (pairs || []).forEach((p, i) => {
+    const sub = (summary || []).filter(s => s.machine === p.base || s.machine === p.other);
+    drawLines('camAcc_' + i, sub, 'mean_acc', 'mean Acc %');
+    drawLines('camScore_' + i, sub, 'mean_score', 'mean Score');
+    const deltaRows = (p.by_lr || []).map(r => ({
+      machine: p.other + '−' + p.base,
+      lr: r.lr,
+      lr_label: r.lr_label,
+      mean_acc: r.mean_acc_delta,
+    }));
+    drawMultiSeries('camDelta_' + i, [{ label: 'Δ Acc pp', points: deltaRows.map(r => ({
+      lr: r.lr, lr_label: r.lr_label, acc: r.mean_acc,
+    })) }], 'acc', 'Δ Acc (other − base)', { zeroLine: true });
+    const tbl = $('camMatch_' + i);
+    if (!tbl) return;
+    const mach = [p.base, p.other];
+    tbl.querySelector('thead').innerHTML = '<tr><th>LR</th><th>recipe</th>' +
+      mach.map(m => `<th>${m}</th>`).join('') + '<th>Δ</th><th>winner</th></tr>';
+    const rows = p.matched || [];
+    if (!rows.length) {
+      tbl.querySelector('tbody').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No matched head-to-head rows yet — need both cams on the same LR band with overlapping recipes.</td></tr>';
+    } else {
+      tbl.querySelector('tbody').innerHTML = rows.map(r => `<tr>
+        <td>${r.lr_label}</td><td>${r.recipe}</td>
+        ${mach.map(m => `<td>${r.by_machine?.[m]?.toFixed(1) ?? '—'}</td>`).join('')}
+        <td>${r.delta >= 0 ? '+' : ''}${r.delta?.toFixed(1)}</td><td>${r.winner}</td></tr>`).join('');
+    }
+  });
+}
+
 function renderDOM(j) {
-  $('status').textContent = `${j.title || 'compare'} · ${j.machines?.join(' vs ') || '?'} · ${j.lr_labels?.length || 0} LR steps · ${new Date(j.generated).toLocaleTimeString()}`;
+  const peerTxt = (j.peers || []).map(p => p.name).filter(Boolean).join(', ');
+  $('status').textContent = `${j.title || 'compare'} · ${j.machines?.join(' vs ') || '?'} · ${j.lr_labels?.length || 0} LR steps` +
+    (peerTxt ? ` · peers: ${peerTxt}` : '') + ` · ${new Date(j.generated).toLocaleTimeString()}`;
+  renderPeerChips(j.peers || []);
+  buildCamCompareSections(j.cam_pairs || []);
   modeBarChart($('modeBarSection'), j.mode_bars || [], j.machines || []);
   buildModeCrossSections(j.mode_cross || []);
   buildModeSeriesSections(j.machines || []);
@@ -710,6 +808,7 @@ function renderDOM(j) {
 }
 
 function drawCharts(j) {
+  drawCamCompareCharts(j.cam_pairs || [], j.summary || []);
   drawLines('accChart', j.summary || [], 'mean_acc', 'mean Acc %');
   drawLines('scoreChart', j.summary || [], 'mean_score', 'mean Score');
   drawLines('availChart', j.summary || [], 'mean_avail', 'mean Avail %');

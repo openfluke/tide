@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 type compareLineSeries struct {
@@ -31,6 +32,10 @@ func (d *doc) compareCharts(c CompareReport) {
 	d.compareLRLineChart("Mean Acc vs learning rate", "Acc %", lrs, labels, summarySeries(c, func(r CompareLRRow) float64 { return r.MeanAcc }), false)
 	d.compareLRLineChart("Mean Score vs learning rate", "Score", lrs, labels, summarySeries(c, func(r CompareLRRow) float64 { return r.MeanScore }), false)
 	d.compareLRLineChart("Mean Availability vs learning rate", "Avail %", lrs, labels, summarySeries(c, func(r CompareLRRow) float64 { return r.MeanAvail }), false)
+
+	for _, p := range c.CamPairs {
+		d.compareCamPairCharts(p, c)
+	}
 
 	if len(c.SoftGap) > 0 {
 		d.compareLRLineChart("Soft−Acc gap vs LR (false confidence)", "Soft−Acc", lrs, labels, softGapSeries(c), false)
@@ -569,4 +574,57 @@ func (d *doc) compareScatterChart(title, xlab, ylab string, pts []CompareScatter
 
 func compareFinite(v float64) bool {
 	return !math.IsInf(v, 0) && !math.IsNaN(v)
+}
+
+func (d *doc) compareCamPairCharts(p CompareCamPair, c CompareReport) {
+	title := camPairLabel(p.Base, p.Other, p.Band)
+	d.h2("Cam " + p.Other + " vs " + p.Base + bandSuffix(p.Band))
+	d.body(p.Headline)
+	sub := make([]CompareLRRow, 0, len(c.Summary))
+	for _, s := range c.Summary {
+		if s.Machine == p.Base || s.Machine == p.Other {
+			sub = append(sub, s)
+		}
+	}
+	lrs, labels := compareUnionLRs(c)
+	_ = sub
+	d.compareLRLineChart(title+" — mean Acc", "Acc %", lrs, labels, camPairSummarySeries(sub, func(r CompareLRRow) float64 { return r.MeanAcc }), false)
+	d.compareLRLineChart(title+" — mean Score", "Score", lrs, labels, camPairSummarySeries(sub, func(r CompareLRRow) float64 { return r.MeanScore }), false)
+	if len(p.ByLR) > 0 {
+		delta := make([]compareLineSeries, 1)
+		delta[0].Label = "Δ Acc"
+		delta[0].Values = map[float64]float64{}
+		for _, r := range p.ByLR {
+			delta[0].Values[r.LR] = r.MeanAccDelta
+		}
+		d.compareLRLineChart(title+" — Δ Acc (other−base)", "Δ Acc pp", lrs, labels, delta, true)
+	}
+}
+
+func camPairSummarySeries(rows []CompareLRRow, val func(CompareLRRow) float64) []compareLineSeries {
+	byMachine := map[string]compareLineSeries{}
+	order := []string{}
+	for _, s := range rows {
+		ser, ok := byMachine[s.Machine]
+		if !ok {
+			ser.Label = s.Machine
+			ser.Values = map[float64]float64{}
+			order = append(order, s.Machine)
+		}
+		ser.Values[s.LR] = val(s)
+		byMachine[s.Machine] = ser
+	}
+	order = SortCamMachines(order)
+	out := make([]compareLineSeries, 0, len(order))
+	for _, m := range order {
+		out = append(out, byMachine[m])
+	}
+	return out
+}
+
+func bandSuffix(band string) string {
+	if band == "" {
+		return ""
+	}
+	return " (" + strings.ToUpper(band) + ")"
 }

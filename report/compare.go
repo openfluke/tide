@@ -15,6 +15,8 @@ type CompareReport struct {
 	DataRev   uint64         `json:"data_rev"`
 	Title     string         `json:"title"`
 	Machines  []string       `json:"machines"`
+	Peers     []ComparePeerMeta `json:"peers,omitempty"`
+	CamPairs  []CompareCamPair  `json:"cam_pairs,omitempty"`
 	LRs       []float64      `json:"lrs"`
 	LRLabels  []string       `json:"lr_labels"`
 	Summary   []CompareLRRow `json:"summary"`
@@ -269,12 +271,15 @@ func BuildCompare(title string, tides []NamedTideReport) CompareReport {
 		return out
 	}
 	out.Machines = sortedKeys(machineSet)
+	out.Machines = SortCamMachines(out.Machines)
+	out.Peers = peerMetas(tides)
 	out.LRs, out.LRLabels = sortedLRs(lrMap)
 	out.LRByMachine = lrBandsByMachine(pts, out.Machines)
 	out.OverlapLRs, out.OverlapNote = compareOverlap(pts, out.Machines, lrMap)
 	out.Summary = compareSummaries(pts, out.Machines, out.LRs, lrMap)
 	out.ModeLR = compareModeLR(pts, out.Machines)
 	out.Matched = compareMatchedTop(pts, out.Machines, lrMap, 50)
+	out.CamPairs = compareCamPairs(pts, tides, out.Machines, lrMap, 40)
 	out.Wins = compareWins(pts, out.Machines, out.LRs, lrMap)
 	out.LPDTop = compareLPDTop(pts, 50)
 	out.LPDPerMachine = compareLPDPerMachine(pts, 20)

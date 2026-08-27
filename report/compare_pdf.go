@@ -18,6 +18,14 @@ func PDFCompare(c CompareReport) ([]byte, error) {
 	p.compareCharts(c)
 	p.gap(2)
 
+	if len(c.CamPairs) > 0 {
+		p.h2("Cam compare")
+		for _, pair := range c.CamPairs {
+			p.compareCamPairSection(pair, c)
+			p.gap(2)
+		}
+	}
+
 	p.h2("Summary tables")
 	p.body("Mean Acc vs LR (by machine)")
 	p.compareSummaryTable(c)
@@ -373,4 +381,48 @@ func (d *doc) compareModeBarTable(c CompareReport) {
 		}
 		return cols
 	})
+}
+
+func (d *doc) compareCamPairSection(p CompareCamPair, c CompareReport) {
+	band := bandSuffix(p.Band)
+	d.h2("Cam " + p.Other + " vs " + p.Base + band)
+	d.body(p.Headline)
+	if len(p.ByLR) > 0 {
+		d.body("Pooled Δ on matched recipes (other − base):")
+		headers := []string{"LR", "n", "Δ Acc", "Δ Score", "wins other", "wins base"}
+		d.table(headers, func(i int) []string {
+			if i >= len(p.ByLR) {
+				return nil
+			}
+			r := p.ByLR[i]
+			return []string{
+				r.LRLabel,
+				fmt.Sprintf("%d", r.N),
+				fmt.Sprintf("%+.2f", r.MeanAccDelta),
+				fmt.Sprintf("%+.0f", r.MeanScoreDelta),
+				fmt.Sprintf("%d", r.WinsOther),
+				fmt.Sprintf("%d", r.WinsBase),
+			}
+		})
+	}
+	if len(p.Matched) > 0 {
+		d.gap(1)
+		d.body("Top matched recipe deltas:")
+		headers := []string{"LR", "recipe", p.Base, p.Other, "Δ", "winner"}
+		d.table(headers, func(i int) []string {
+			if i >= len(p.Matched) {
+				return nil
+			}
+			r := p.Matched[i]
+			return []string{
+				r.LRLabel,
+				CompactCell(r.Recipe),
+				fmt.Sprintf("%.1f", r.ByMachine[p.Base]),
+				fmt.Sprintf("%.1f", r.ByMachine[p.Other]),
+				fmt.Sprintf("%+.1f", r.Delta),
+				r.Winner,
+			}
+		})
+	}
+	_ = c
 }
