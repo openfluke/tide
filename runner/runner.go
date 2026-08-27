@@ -29,8 +29,10 @@ type Sample struct {
 type Config struct {
 	Spec            chain.Spec
 	Cells           []permute.Cell
-	BatchSize       int // permutation dashboard batch size
-	Epoch           int // 1-based epoch being run (set by Run / PrepareEpoch)
+	BatchSize       int            // permutation dashboard batch size (grouping)
+	Workers         int            // concurrent cells (1 = sequential). Needs NewDataset when >1.
+	NewDataset      func() Dataset // fresh Dataset per parallel cell (own train cursor)
+	Epoch           int            // 1-based epoch being run (set by Run / PrepareEpoch)
 	PulseEvery      time.Duration
 	CheckpointEvery time.Duration
 	LR              float64
@@ -40,6 +42,9 @@ type Config struct {
 	Store           *checkpoint.Store
 	Resume          *checkpoint.Progress
 	Build           BuildFunc // nil → chain.Build(Spec); live_mnist leaves this unset
+
+	skipInflight bool        // set by Run when Workers>1 (shared inflight slot unsafe)
+	storeMu      *sync.Mutex // serializes checkpoint writes when parallel
 }
 
 // DefaultConfig: 1 epoch per cell over the dataset train split.
@@ -82,6 +87,7 @@ func Hydrate(tr *pulse.Tracker, cfg Config, msg string) {
 
 // Run executes all cells for one epoch (full pass over train data each).
 // If the previous epoch is fully done, Resume is prepared for epoch+1.
+// Set Workers>1 and NewDataset to train multiple permute cells at once.
 func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	if ds == nil || tr == nil {
 		return fmt.Errorf("runner: nil dataset/tracker")
@@ -95,9 +101,20 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	if cfg.Epoch < 1 {
 		cfg.Epoch = 1
 	}
+	workers := cfg.Workers
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > 1 && cfg.NewDataset == nil {
+		workers = 1
+	}
+	if workers > 1 {
+		cfg.skipInflight = true
+		cfg.storeMu = &sync.Mutex{}
+	}
 
 	done := checkpoint.DoneSet(cfg.Resume)
-	Hydrate(tr, cfg, fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done)))
+	Hydrate(tr, cfg, fmt.Sprintf("epoch %d — %d done · workers=%d", cfg.Epoch, len(done), workers))
 
 	batches := permute.Batch(cfg.Cells, cfg.BatchSize)
 	cellTotal := len(cfg.Cells)
@@ -121,28 +138,98 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 		_ = persistProgress(cfg, tr, cellIdx, nil, nil)
 	}
 
-	for bi, batch := range batches {
-		for _, cell := range batch {
-			if permute.IDDone(done, cell.ID) {
+	if workers <= 1 {
+		for bi, batch := range batches {
+			for _, cell := range batch {
+				if permute.IDDone(done, cell.ID) {
+					cellIdx++
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					_ = persistProgress(cfg, tr, cellIdx, nil, nil)
+					return ctx.Err()
+				default:
+				}
+				tr.SetMeta(bi, len(batches), cellIdx, cellTotal,
+					fmt.Sprintf("epoch %d · %s", cfg.Epoch, cell.ID))
+				err := runCellEpoch(ctx, cfg, ds, tr, cell, cellIdx, false, nil)
+				if err != nil && ctx.Err() != nil {
+					return err
+				}
 				cellIdx++
-				continue
+				_ = persistProgress(cfg, tr, cellIdx, nil, nil)
 			}
+		}
+	} else {
+		type job struct {
+			cell permute.Cell
+			idx  int
+			bi   int
+		}
+		var jobs []job
+		idx := cellIdx
+		for bi, batch := range batches {
+			for _, cell := range batch {
+				if permute.IDDone(done, cell.ID) {
+					idx++
+					continue
+				}
+				jobs = append(jobs, job{cell: cell, idx: idx, bi: bi})
+				idx++
+			}
+		}
+		cellIdx = idx
+		var (
+			wg      sync.WaitGroup
+			sem     = make(chan struct{}, workers)
+			errOnce sync.Once
+			runErr  error
+			doneN   atomic.Int64
+		)
+		pending := int64(len(jobs))
+		tr.SetMeta(0, len(batches), int(doneN.Load()), cellTotal,
+			fmt.Sprintf("epoch %d · parallel×%d · %d cells queued", cfg.Epoch, workers, pending))
+		for _, j := range jobs {
+			j := j
 			select {
 			case <-ctx.Done():
+				wg.Wait()
 				_ = persistProgress(cfg, tr, cellIdx, nil, nil)
 				return ctx.Err()
-			default:
+			case sem <- struct{}{}:
 			}
-			tr.SetMeta(bi, len(batches), cellIdx, cellTotal,
-				fmt.Sprintf("epoch %d · %s", cfg.Epoch, cell.ID))
-			err := runCellEpoch(ctx, cfg, ds, tr, cell, cellIdx, false, nil)
-			if err != nil && ctx.Err() != nil {
-				return err
-			}
-			cellIdx++
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if ctx.Err() != nil {
+					return
+				}
+				cellDS := cfg.NewDataset()
+				tr.SetMeta(j.bi, len(batches), int(doneN.Load()), cellTotal,
+					fmt.Sprintf("epoch %d · ×%d · %s", cfg.Epoch, workers, j.cell.ID))
+				err := runCellEpoch(ctx, cfg, cellDS, tr, j.cell, j.idx, false, nil)
+				if err != nil && ctx.Err() != nil {
+					errOnce.Do(func() { runErr = err })
+					return
+				}
+				n := doneN.Add(1)
+				_ = persistProgress(cfg, tr, cellIdx, nil, nil)
+				tr.SetMeta(j.bi, len(batches), int(n), cellTotal,
+					fmt.Sprintf("epoch %d · ×%d · finished %d/%d", cfg.Epoch, workers, n, pending))
+			}()
+		}
+		wg.Wait()
+		if runErr != nil {
+			return runErr
+		}
+		if ctx.Err() != nil {
 			_ = persistProgress(cfg, tr, cellIdx, nil, nil)
+			return ctx.Err()
 		}
 	}
+
 	tr.SetMeta(len(batches), len(batches), cellTotal, cellTotal,
 		fmt.Sprintf("epoch %d done", cfg.Epoch))
 	_ = persistProgress(cfg, tr, cellTotal, nil, nil)
@@ -152,6 +239,10 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint.Inflight, m Net) error {
 	if cfg.Store == nil {
 		return nil
+	}
+	if cfg.storeMu != nil {
+		cfg.storeMu.Lock()
+		defer cfg.storeMu.Unlock()
 	}
 	live := tr.Snapshot()
 	doneIDs := make([]string, 0, len(live.Completed))
@@ -182,9 +273,11 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		History:         live.History,
 		Inflight:        inf,
 	}
-	if cm := asChain(m); cm != nil {
-		if err := cfg.Store.SaveInflightModel(cm); err != nil {
-			return err
+	if !cfg.skipInflight {
+		if cm := asChain(m); cm != nil {
+			if err := cfg.Store.SaveInflightModel(cm); err != nil {
+				return err
+			}
 		}
 	}
 	return cfg.Store.SaveAtomic(p)
