@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openfluke/tide/checkpoint"
 	"github.com/openfluke/tide/permute"
 	"github.com/openfluke/tide/pulse"
 )
@@ -79,19 +80,15 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 	if s != nil && s.Epoch > 0 {
 		epoch = s.Epoch
 	}
-	for _, r := range live.Completed {
-		re := r.Epoch
-		if re < 1 {
-			re = 1
-		}
-		if re != epoch {
+	doneSet := checkpoint.DoneSetFromCompleted(live.Completed, epoch)
+	for _, c := range s.Cells {
+		m := string(c.Mode)
+		a := by[m]
+		if a == nil {
 			continue
 		}
-		if r.Status == "ok" || r.Status == "gap" || r.Status == "fail" {
-			m := string(r.Cell.Mode)
-			if a := by[m]; a != nil {
-				a.done++
-			}
+		if permute.IDDone(doneSet, c.ID) {
+			a.done++
 		}
 	}
 	if live.Current != nil && live.Running {

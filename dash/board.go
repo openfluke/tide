@@ -1,6 +1,7 @@
 package dash
 
 import (
+	"github.com/openfluke/tide/checkpoint"
 	"github.com/openfluke/tide/pulse"
 	"github.com/openfluke/tide/report"
 )
@@ -189,13 +190,14 @@ func (s *Server) Board() Board {
 	if plan == 0 {
 		plan = live.CellTotal
 	}
-	epochDone := okE + gapE + failE
-	if live.CellIndex > epochDone {
-		epochDone = live.CellIndex
+	planDone := checkpoint.PlanDoneCount(s.Cells, checkpoint.DoneSetFromCompleted(live.Completed, epoch))
+	epochDone := planDone
+	if epochDone > plan {
+		epochDone = plan
 	}
 	pct := 0.0
 	if plan > 0 {
-		pct = 100 * float64(epochDone) / float64(plan)
+		pct = 100 * float64(planDone) / float64(plan)
 		if pct > 100 {
 			pct = 100
 		}
@@ -355,8 +357,12 @@ func countResults(completed []pulse.Result, epoch int) (okE, gapE, failE, okAll,
 	if epoch < 1 {
 		epoch = 1
 	}
+	okSeen := map[string]bool{}
+	gapSeen := map[string]bool{}
+	failSeen := map[string]bool{}
 	for _, r := range completed {
 		recorded++
+		id := r.Cell.ID
 		switch r.Status {
 		case "ok":
 			okAll++
@@ -370,11 +376,20 @@ func countResults(completed []pulse.Result, epoch int) (okE, gapE, failE, okAll,
 		}
 		switch r.Status {
 		case "ok":
-			okE++
+			if !okSeen[id] {
+				okSeen[id] = true
+				okE++
+			}
 		case "gap":
-			gapE++
+			if !gapSeen[id] {
+				gapSeen[id] = true
+				gapE++
+			}
 		case "fail":
-			failE++
+			if !failSeen[id] {
+				failSeen[id] = true
+				failE++
+			}
 		}
 	}
 	return

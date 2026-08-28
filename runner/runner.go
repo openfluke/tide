@@ -29,10 +29,10 @@ type Sample struct {
 type Config struct {
 	Spec            chain.Spec
 	Cells           []permute.Cell
-	BatchSize       int            // permutation dashboard batch size (grouping)
-	Workers         int            // concurrent cells (1 = sequential). Needs NewDataset when >1.
+	BatchSize       int // permutation dashboard batch size (grouping)
+	Workers         int // concurrent cells (1 = sequential). Needs NewDataset when >1.
 	NewDataset      func() Dataset // fresh Dataset per parallel cell (own train cursor)
-	Epoch           int            // 1-based epoch being run (set by Run / PrepareEpoch)
+	Epoch           int // 1-based epoch being run (set by Run / PrepareEpoch)
 	PulseEvery      time.Duration
 	CheckpointEvery time.Duration
 	LR              float64
@@ -42,9 +42,20 @@ type Config struct {
 	Store           *checkpoint.Store
 	Resume          *checkpoint.Progress
 	Build           BuildFunc // nil → chain.Build(Spec); live_mnist leaves this unset
+	// CellLR optional per-cell learning rate (ok multi-LR sweeps). Falls back to LR.
+	CellLR map[string]float64
 
-	skipInflight bool        // set by Run when Workers>1 (shared inflight slot unsafe)
+	skipInflight bool       // set by Run when Workers>1 (shared inflight slot unsafe)
 	storeMu      *sync.Mutex // serializes checkpoint writes when parallel
+}
+
+func (cfg Config) lrFor(cell permute.Cell) float64 {
+	if cfg.CellLR != nil {
+		if v, ok := cfg.CellLR[cell.ID]; ok && v > 0 {
+			return v
+		}
+	}
+	return cfg.LR
 }
 
 // DefaultConfig: 1 epoch per cell over the dataset train split.
@@ -245,16 +256,14 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		defer cfg.storeMu.Unlock()
 	}
 	live := tr.Snapshot()
-	doneIDs := make([]string, 0, len(live.Completed))
-	for _, r := range live.Completed {
-		re := r.Epoch
-		if re < 1 {
-			re = 1
-		}
-		if re == cfg.Epoch && (r.Status == "ok" || r.Status == "gap") {
-			doneIDs = append(doneIDs, r.Cell.ID)
+	doneSet := checkpoint.DoneSetFromCompleted(live.Completed, cfg.Epoch)
+	doneIDs := make([]string, 0, len(doneSet))
+	for _, c := range cfg.Cells {
+		if permute.IDDone(doneSet, c.ID) {
+			doneIDs = append(doneIDs, c.ID)
 		}
 	}
+	completed := checkpoint.DedupeCompleted(live.Completed)
 	if inf != nil {
 		inf.CellIndex = nextIdx
 		inf.Epoch = cfg.Epoch
@@ -265,7 +274,7 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		CellTotal:       len(cfg.Cells),
 		NextCellIndex:   nextIdx,
 		DoneIDs:         doneIDs,
-		Completed:       live.Completed,
+		Completed:       completed,
 		Best:            live.Best,
 		BestMobile:      live.BestMobile,
 		BestLearn:       live.BestLearn,
@@ -462,7 +471,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			s = remap(s, p)
 			t0 := time.Now()
 			mu.Lock()
-			_, err := m.TrainStep(s.X, s.Target, cfg.LR, cell.Mode)
+			_, err := m.TrainStep(s.X, s.Target, cfg.lrFor(cell), cell.Mode)
 			mu.Unlock()
 			trDur := time.Since(t0)
 			trainNS.Add(trDur.Nanoseconds())

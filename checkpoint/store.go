@@ -102,6 +102,7 @@ func (s *Store) Load() (*Progress, error) {
 			p.History = hist
 		}
 	}
+	Normalize(&p)
 	return &p, nil
 }
 
@@ -113,13 +114,14 @@ func (s *Store) SaveAtomic(p *Progress) error {
 		return err
 	}
 	cp := *p
+	Normalize(&cp)
 	cp.Version = version
 	cp.Mode = s.Mode
 	cp.UpdatedAt = time.Now()
 	if cp.Epoch < 1 {
 		cp.Epoch = 1
 	}
-	cp.Completed = slimResults(p.Completed)
+	cp.Completed = slimResults(cp.Completed)
 	cp.Best = slimBest(p.Best)
 	cp.BestMobile = slimBestMobile(p.BestMobile)
 	cp.BestLearn = slimBestLearn(p.BestLearn)
@@ -278,6 +280,108 @@ func markDone(out map[string]bool, id string) {
 	}
 }
 
+func resultEpoch(r pulse.Result) int {
+	re := r.Epoch
+	if re < 1 {
+		return 1
+	}
+	return re
+}
+
+func resultCountsForEpoch(r pulse.Result, epoch int) bool {
+	if resultEpoch(r) != epoch {
+		return false
+	}
+	switch r.Status {
+	case "ok", "gap", "fail":
+		return true
+	default:
+		return false
+	}
+}
+
+// Normalize dedupes done_ids and completed rows (same epoch+cell keeps the last).
+func Normalize(p *Progress) {
+	if p == nil {
+		return
+	}
+	p.DoneIDs = dedupeIDs(p.DoneIDs)
+	p.Completed = DedupeCompleted(p.Completed)
+}
+
+// DedupeCompleted keeps the last result per epoch+cell ID.
+func DedupeCompleted(in []pulse.Result) []pulse.Result {
+	return dedupeCompleted(in)
+}
+
+func dedupeIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func dedupeCompleted(in []pulse.Result) []pulse.Result {
+	if len(in) == 0 {
+		return in
+	}
+	type key struct {
+		epoch int
+		id    string
+	}
+	idx := map[key]int{}
+	out := make([]pulse.Result, 0, len(in))
+	for _, r := range in {
+		id := permute.NormalizeCellID(r.Cell.ID)
+		k := key{resultEpoch(r), id}
+		if i, ok := idx[k]; ok {
+			out[i] = r
+			continue
+		}
+		idx[k] = len(out)
+		out = append(out, r)
+	}
+	return out
+}
+
+// DoneSetFromCompleted is the finished-cell set for one epoch from pulse results.
+func DoneSetFromCompleted(completed []pulse.Result, epoch int) map[string]bool {
+	out := map[string]bool{}
+	if epoch < 1 {
+		epoch = 1
+	}
+	for _, r := range completed {
+		if !resultCountsForEpoch(r, epoch) {
+			continue
+		}
+		markDone(out, r.Cell.ID)
+	}
+	return out
+}
+
+// PlanDoneCount is how many planned cells are finished (unique IDs vs the sweep plan).
+func PlanDoneCount(cells []permute.Cell, done map[string]bool) int {
+	if len(cells) == 0 || len(done) == 0 {
+		return 0
+	}
+	n := 0
+	for _, c := range cells {
+		if permute.IDDone(done, c.ID) {
+			n++
+		}
+	}
+	return n
+}
+
 // DoneSet returns cell IDs finished for the current epoch.
 func DoneSet(p *Progress) map[string]bool {
 	out := map[string]bool{}
@@ -292,11 +396,7 @@ func DoneSet(p *Progress) map[string]bool {
 		markDone(out, id)
 	}
 	for _, r := range p.Completed {
-		re := r.Epoch
-		if re < 1 {
-			re = 1
-		}
-		if re == epoch && (r.Status == "ok" || r.Status == "gap") {
+		if resultCountsForEpoch(r, epoch) && r.Status != "fail" {
 			markDone(out, r.Cell.ID)
 		}
 	}

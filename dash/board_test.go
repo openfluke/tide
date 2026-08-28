@@ -22,15 +22,16 @@ func TestEpochProgressMulti(t *testing.T) {
 
 func TestCountResultsThisEpoch(t *testing.T) {
 	tr := pulse.New()
-	s := &Server{Tracker: tr, Task: "cnn2", ID: "cnn2", Epoch: 2, Cells: make([]permute.Cell, 782)}
+	cell := permute.Cell{ID: "float32|none|sgd|single|simd", Mode: permute.ModeSGD}
+	s := &Server{Tracker: tr, Task: "cnn2", ID: "cnn2", Epoch: 2, Cells: []permute.Cell{cell}}
 	s.SignalStart()
 	tr.Restore([]pulse.Result{
-		{Status: "ok", Epoch: 1},
-		{Status: "ok", Epoch: 1},
-		{Status: "ok", Epoch: 2},
-	}, pulse.Best{}, pulse.BestMobile{}, pulse.BestLearn{}, pulse.BestLearnMobile{}, nil, 1, 782, "e2")
+		{Status: "ok", Epoch: 1, Cell: cell},
+		{Status: "ok", Epoch: 1, Cell: cell},
+		{Status: "ok", Epoch: 2, Cell: cell},
+	}, pulse.Best{}, pulse.BestMobile{}, pulse.BestLearn{}, pulse.BestLearnMobile{}, nil, 1, 1, "e2")
 	b := s.Board()
-	if b.Ok != 1 || b.OkAll != 3 || b.Recorded != 3 || b.Plan != 782 {
+	if b.Ok != 1 || b.OkAll != 3 || b.Recorded != 3 || b.Plan != 1 {
 		t.Fatalf("board ok=%d okAll=%d rec=%d plan=%d", b.Ok, b.OkAll, b.Recorded, b.Plan)
 	}
 	if b.ProgressPct > 100 {
