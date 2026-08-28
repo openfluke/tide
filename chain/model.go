@@ -124,12 +124,7 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 	}
 	m.Arch = permute.CanonicalArch(m.Arch)
 
-	switch m.Arch {
-	case permute.ArchBicameral, permute.ArchTricameral:
-		n := permute.CamsOf(m.Arch)
-		if n < 2 {
-			n = 2
-		}
+	if n := permute.CamsOf(m.Arch); n >= 2 {
 		initIn := randWeights(hidden*flat, rng)
 		initOut := randWeights(spec.Classes*hidden, rng)
 		din, err := dense.NewConfigured(flat, hidden, core.ActivationLeakyReLU, core.DTypeFloat32, quant.FormatNone, initIn)
@@ -163,7 +158,7 @@ func Build(spec Spec, cell permute.Cell) (*Model, error) {
 			return nil, fmt.Errorf("dense_out: %w", err)
 		}
 		m.DenseIn, m.BranchR, m.BranchL, m.Para, m.DenseOut = din, br, bl, para, dout
-	default:
+	} else {
 		initH := randWeights(spec.Classes*flat, rng)
 		head, err := dense.NewConfigured(flat, spec.Classes, core.ActivationLinear, core.DTypeFloat32, quant.FormatNone, initH)
 		if err != nil {
@@ -264,7 +259,7 @@ func (m *Model) Forward(x *core.Tensor[float32]) (*core.Tensor[float32], *tape, 
 	flat := &core.Tensor[float32]{Shape: []int{batch, m.FlatIn}, Data: y2.Data}
 	tp := &tape{x: x, pre1: pre1, y1: y1, pre2: pre2, y2: y2, flat: flat}
 
-	if m.Arch == permute.ArchBicameral || m.Arch == permute.ArchTricameral {
+	if m.isCameral() {
 		preIn, mid, err := dense.Forward(m.DenseIn, flat)
 		if err != nil {
 			return nil, nil, err

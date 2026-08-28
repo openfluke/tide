@@ -20,7 +20,7 @@ func (m *Model) WeightBytes() int64 {
 	if m.Head != nil {
 		n += storeBytes(m.Head.Weights)
 	}
-	for _, dl := range []*dense.Layer{m.DenseIn, m.BranchR, m.BranchL, m.DenseOut} {
+	for _, dl := range append([]*dense.Layer{m.DenseIn, m.DenseOut}, m.hemiDenses()...) {
 		if dl != nil {
 			n += storeBytes(dl.Weights)
 		}
