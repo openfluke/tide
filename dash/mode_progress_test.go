@@ -36,6 +36,50 @@ func TestModeProgressCountsUniquePlanCells(t *testing.T) {
 	}
 }
 
+func TestBoardProgressUsesSeededDoneIDs(t *testing.T) {
+	cells := make([]permute.Cell, 10)
+	for i := range cells {
+		cells[i] = permute.Cell{ID: "id" + string(rune('a'+i)), Mode: permute.ModeSGD}
+	}
+	tr := pulse.New()
+	// Simulate checkpoint DoneIDs for 7 cells never present in trimmed Completed.
+	ids := make([]string, 7)
+	for i := 0; i < 7; i++ {
+		ids[i] = cells[i].ID
+	}
+	tr.SeedDoneIDs(ids)
+	s := &Server{Tracker: tr, Cells: cells, Epoch: 1}
+	s.SignalStart()
+	b := s.Board()
+	if b.EpochDone != 7 {
+		t.Fatalf("epoch_done %d want 7", b.EpochDone)
+	}
+	if b.ProgressPct < 69.9 || b.ProgressPct > 70.1 {
+		t.Fatalf("progress_pct %v want ~70", b.ProgressPct)
+	}
+	if b.Status == "running" {
+		t.Fatalf("status %q want idle/queued (not running)", b.Status)
+	}
+}
+
+func TestBoardStatusDoneBeatsStuckRunning(t *testing.T) {
+	cell := permute.Cell{ID: "only", Mode: permute.ModeSGD}
+	tr := pulse.New()
+	tr.Restore([]pulse.Result{
+		{Status: "ok", Epoch: 1, Cell: cell},
+	}, pulse.Best{}, pulse.BestMobile{}, pulse.BestLearn{}, pulse.BestLearnMobile{}, nil, 1, 1, "done")
+	tr.BeginEpoch(cell, 1, "A") // stuck running flag
+	s := &Server{Tracker: tr, Cells: []permute.Cell{cell}, Epoch: 1}
+	s.SignalStart()
+	b := s.Board()
+	if b.Status != "done" {
+		t.Fatalf("status %q want done", b.Status)
+	}
+	if b.Running {
+		t.Fatal("board.Running should be false when plan complete")
+	}
+}
+
 func TestBoardProgressPctIgnoresDuplicateCompletions(t *testing.T) {
 	cells := make([]permute.Cell, 10)
 	for i := range cells {

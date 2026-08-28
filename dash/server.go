@@ -81,6 +81,9 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 		epoch = s.Epoch
 	}
 	doneSet := checkpoint.DoneSetFromCompleted(live.Completed, epoch)
+	if s != nil && s.Tracker != nil {
+		doneSet = s.Tracker.DoneSet()
+	}
 	for _, c := range s.Cells {
 		m := string(c.Mode)
 		a := by[m]

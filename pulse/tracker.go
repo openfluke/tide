@@ -54,6 +54,10 @@ type Tracker struct {
 	historyCap   int
 	completedCap int
 	reportLog    []Result // full run archive for PDF (/api/report); never trimmed
+	// doneIDs is the durable skip/progress set (seeded from checkpoint DoneIDs +
+	// every Commit). Survives Completed ring-buffer trim so dashboards and
+	// persistProgress do not "forget" older cells.
+	doneIDs map[string]bool
 }
 
 func New() *Tracker {
@@ -181,7 +185,72 @@ func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, lear
 	t.live.CellIndex = cellIdx
 	t.live.CellTotal = cellTotal
 	t.live.Message = msg
+	t.live.Running = false
+	t.live.Current = nil
 	t.live.UpdatedAt = time.Now()
+	// Seed done set from restored archive (DoneIDs-only seeds come via SeedDoneIDs).
+	for _, r := range completed {
+		switch r.Status {
+		case "ok", "gap", "fail":
+			t.markDoneLocked(r.Cell.ID)
+		}
+	}
+}
+
+// SeedDoneIDs merges checkpoint / host skip IDs into the durable done set so
+// progress and persist survive Completed trim and skipped (never-Committed) cells.
+func (t *Tracker) SeedDoneIDs(ids []string) {
+	if t == nil || len(ids) == 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, id := range ids {
+		t.markDoneLocked(id)
+	}
+}
+
+// DoneSet is the alias-expanded finished-cell set for dashboards and checkpointing.
+func (t *Tracker) DoneSet() map[string]bool {
+	if t == nil {
+		return map[string]bool{}
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make(map[string]bool, len(t.doneIDs))
+	for id, v := range t.doneIDs {
+		if v {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// Park clears the running flag (epoch finished / idle with dashboards still up).
+func (t *Tracker) Park(msg string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.live.Running = false
+	t.live.Current = nil
+	if msg != "" {
+		t.live.Message = msg
+	}
+	t.live.UpdatedAt = time.Now()
+}
+
+func (t *Tracker) markDoneLocked(id string) {
+	if id == "" {
+		return
+	}
+	if t.doneIDs == nil {
+		t.doneIDs = map[string]bool{}
+	}
+	for _, a := range permute.IDAliases(id) {
+		t.doneIDs[a] = true
+	}
 }
 
 func (t *Tracker) Best() Best {
@@ -359,6 +428,10 @@ func (t *Tracker) commitLocked(done Result) {
 	t.live.Recorded++
 	t.upsertReportLocked(done)
 	t.trimCompletedLocked()
+	switch done.Status {
+	case "ok", "gap", "fail":
+		t.markDoneLocked(done.Cell.ID)
+	}
 	if t.live.Current == nil {
 		t.live.Running = false
 	}

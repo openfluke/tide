@@ -80,9 +80,10 @@ func Hydrate(tr *pulse.Tracker, cfg Config, msg string) {
 		return
 	}
 	done := checkpoint.DoneSet(cfg.Resume)
+	planDone := checkpoint.PlanDoneCount(cfg.Cells, done)
 	if msg == "" {
 		if cfg.Resume != nil {
-			msg = fmt.Sprintf("epoch %d — %d done", cfg.Epoch, len(done))
+			msg = fmt.Sprintf("epoch %d — %d/%d done", cfg.Epoch, planDone, len(cfg.Cells))
 		} else {
 			msg = fmt.Sprintf("epoch %d — ready", cfg.Epoch)
 		}
@@ -90,10 +91,14 @@ func Hydrate(tr *pulse.Tracker, cfg Config, msg string) {
 	if cfg.Resume != nil {
 		tr.Restore(cfg.Resume.Completed, cfg.Resume.Best, cfg.Resume.BestMobile,
 			cfg.Resume.BestLearn, cfg.Resume.BestLearnMobile, cfg.Resume.History,
-			cfg.Resume.NextCellIndex, len(cfg.Cells), msg)
+			planDone, len(cfg.Cells), msg)
+		// Seed skip IDs that may not be in the trimmed Completed window.
+		tr.SeedDoneIDs(cfg.Resume.DoneIDs)
+		tr.Park(msg)
 		return
 	}
 	tr.SetMeta(0, 0, 0, len(cfg.Cells), msg)
+	tr.Park(msg)
 }
 
 // Run executes all cells for one epoch (full pass over train data each).
@@ -125,7 +130,8 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 	}
 
 	done := checkpoint.DoneSet(cfg.Resume)
-	Hydrate(tr, cfg, fmt.Sprintf("epoch %d — %d done · workers=%d", cfg.Epoch, len(done), workers))
+	planDone := checkpoint.PlanDoneCount(cfg.Cells, done)
+	Hydrate(tr, cfg, fmt.Sprintf("epoch %d — %d/%d done · workers=%d", cfg.Epoch, planDone, len(cfg.Cells), workers))
 
 	batches := permute.Batch(cfg.Cells, cfg.BatchSize)
 	cellTotal := len(cfg.Cells)
@@ -243,6 +249,7 @@ func Run(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker) error {
 
 	tr.SetMeta(len(batches), len(batches), cellTotal, cellTotal,
 		fmt.Sprintf("epoch %d done", cfg.Epoch))
+	tr.Park(fmt.Sprintf("epoch %d done", cfg.Epoch))
 	_ = persistProgress(cfg, tr, cellTotal, nil, nil)
 	return nil
 }
@@ -256,14 +263,25 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 		defer cfg.storeMu.Unlock()
 	}
 	live := tr.Snapshot()
-	doneSet := checkpoint.DoneSetFromCompleted(live.Completed, cfg.Epoch)
-	doneIDs := make([]string, 0, len(doneSet))
+	// Durable done set: seeded skip IDs ∪ every Commit (not the trimmed Completed ring).
+	doneSet := tr.DoneSet()
+	doneIDs := make([]string, 0, len(cfg.Cells))
 	for _, c := range cfg.Cells {
 		if permute.IDDone(doneSet, c.ID) {
 			doneIDs = append(doneIDs, c.ID)
 		}
 	}
-	completed := checkpoint.DedupeCompleted(live.Completed)
+	// Prefer full report archive for Completed on disk; keep a recent window so
+	// progress.json stays bounded while DoneIDs covers the whole plan.
+	archive := tr.ReportResults()
+	completed := checkpoint.DedupeCompleted(archive)
+	const completedDiskCap = 2000
+	if len(completed) > completedDiskCap {
+		completed = append([]pulse.Result(nil), completed[len(completed)-completedDiskCap:]...)
+	}
+	if cfg.Resume != nil {
+		cfg.Resume.DoneIDs = doneIDs
+	}
 	if inf != nil {
 		inf.CellIndex = nextIdx
 		inf.Epoch = cfg.Epoch

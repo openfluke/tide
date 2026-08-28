@@ -190,7 +190,12 @@ func (s *Server) Board() Board {
 	if plan == 0 {
 		plan = live.CellTotal
 	}
-	planDone := checkpoint.PlanDoneCount(s.Cells, checkpoint.DoneSetFromCompleted(live.Completed, epoch))
+	doneSet := checkpoint.DoneSetFromCompleted(live.Completed, epoch)
+	if s != nil && s.Tracker != nil {
+		// Durable done set survives Completed trim + includes seeded skip IDs.
+		doneSet = s.Tracker.DoneSet()
+	}
+	planDone := checkpoint.PlanDoneCount(s.Cells, doneSet)
 	epochDone := planDone
 	if epochDone > plan {
 		epochDone = plan
@@ -216,6 +221,11 @@ func (s *Server) Board() Board {
 	lpd := report.BuildLPD(pts)
 	heat := report.BuildHeat(pts)
 	_, emax, eleft, eoverall := s.epochProgress(pct)
+	running := live.Running
+	// Prefer plan completion over a stuck Running flag after Park/finish.
+	if plan > 0 && planDone >= plan {
+		running = false
+	}
 	out := Board{
 		ID:               s.identityID(),
 		Task:             s.Task,
@@ -228,7 +238,7 @@ func (s *Server) Board() Board {
 		EpochOverallPct:  eoverall,
 		Started:          started,
 		AwaitingStart:    !started,
-		Running:          live.Running,
+		Running:          running,
 		Phase:            live.Phase,
 		Message:          live.Message,
 		CellIndex:        live.CellIndex,
@@ -260,7 +270,7 @@ func (s *Server) Board() Board {
 		Heat:             heat,
 		LPD:              lpd,
 		APIs:             APIPaths(),
-		Status:           boardStatus(started, live.Running, epochDone, plan),
+		Status:           boardStatus(started, running, epochDone, plan),
 	}
 	out.Axes = boardLPDAxes(out)
 	return out
@@ -396,11 +406,11 @@ func countResults(completed []pulse.Result, epoch int) (okE, gapE, failE, okAll,
 }
 
 func boardStatus(started, running bool, done, total int) string {
-	if running {
-		return "running"
-	}
 	if total > 0 && done >= total {
 		return "done"
+	}
+	if running {
+		return "running"
 	}
 	if !started {
 		return "paused"
