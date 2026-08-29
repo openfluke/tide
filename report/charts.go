@@ -35,9 +35,9 @@ func (d *doc) lucyCharts(cells []CellPoint, heat Heat) {
 		d.heatmap("Mean Score, every layer × mode", heat.Layers, heat.Modes, heat.LayerModeScore)
 		d.heatmap("Mean hard Acc, every layer × mode", heat.Layers, heat.Modes, heat.LayerModeAcc)
 	}
-	pts := heat.Points
+	pts := cells
 	if len(pts) == 0 {
-		pts = cells
+		pts = heat.Points
 	}
 	d.scatter("Pillars — Availability vs hard Acc", "Availability %", "Hard Acc %", pts,
 		func(p CellPoint) float64 { return p.Avail },
@@ -80,9 +80,9 @@ func (d *doc) vsBoard(heat Heat) {
 		return
 	}
 	d.h2("vs " + PrettyMode(vs.Baseline) + " — matched dtype x format x arch")
-	d.body("AccDelta is the honest column. ScoreDelta is usually Availability (duty clock), not a better chain rule. Acc win = AccDelta > 0.5. Score win = ScoreDelta > 1. Baseline is discovered from the board, not a frozen StepBP list.")
+	d.body("Hard AccΔ is percentage points vs baseline on the same recipe — not Acc-keep%. ScoreΔ is usually Availability (duty clock). Acc win = Hard AccΔ > 0.5. Score win = ScoreΔ > 1. Baseline is discovered from the board. For footprint vs Acc champ use Lean / Acc keep % in Consciousness below.")
 	modes := vs.Modes
-	d.table([]string{"mode", "n", "AccD", "Acc win%", "SoftD", "AvailD", "ThruD", "ScoreD", "Score win%"}, func(i int) []string {
+	d.table([]string{"mode", "n", "Hard AccΔ", "Acc win%", "SoftΔ", "AvailΔ", "ThruΔ", "ScoreΔ", "Score win%"}, func(i int) []string {
 		if i >= len(modes) {
 			return nil
 		}
@@ -99,21 +99,22 @@ func (d *doc) vsBoard(heat Heat) {
 			fmt.Sprintf("%.0f", m.ScoreWin),
 		}
 	})
-	d.signedBars("mean AccD vs "+PrettyMode(vs.Baseline), vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AccDelta }))
-	d.signedBars("mean ScoreD vs "+PrettyMode(vs.Baseline)+" (duty clock)", vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.ScoreDelta }))
-	d.signedBars("mean AvailD vs "+PrettyMode(vs.Baseline), vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AvailDelta }))
-	d.deltaHeat("AccD vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Acc })
-	d.deltaHeat("ScoreD vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Score })
-	d.deltaHeat("AvailD vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Avail })
-	d.deltaHeat("AccD vs "+PrettyMode(vs.Baseline)+", every mode x arch", vs.ByArch, func(b DeltaBin) float64 { return b.Acc })
+	d.signedBars("mean Hard AccΔ vs "+PrettyMode(vs.Baseline)+" (pp)", vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AccDelta }))
+	d.signedBars("mean ThruΔ vs "+PrettyMode(vs.Baseline), vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.ThruDelta }))
+	d.signedBars("mean ScoreΔ vs "+PrettyMode(vs.Baseline)+" (duty clock)", vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.ScoreDelta }))
+	d.signedBars("mean AvailΔ vs "+PrettyMode(vs.Baseline), vsDeltaKV(vs.Modes, func(m VsMode) float64 { return m.AvailDelta }))
+	d.deltaHeat("Hard AccΔ vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Acc })
+	d.deltaHeat("ScoreΔ vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Score })
+	d.deltaHeat("AvailΔ vs "+PrettyMode(vs.Baseline)+", every mode x dtype", vs.ByDType, func(b DeltaBin) float64 { return b.Avail })
+	d.deltaHeat("Hard AccΔ vs "+PrettyMode(vs.Baseline)+", every mode x arch / cam", vs.ByArch, func(b DeltaBin) float64 { return b.Acc })
 	if len(vs.ByLayer) > 0 {
-		d.deltaHeat("AccD vs "+PrettyMode(vs.Baseline)+", every mode x layer", vs.ByLayer, func(b DeltaBin) float64 { return b.Acc })
+		d.deltaHeat("Hard AccΔ vs "+PrettyMode(vs.Baseline)+", every mode x layer", vs.ByLayer, func(b DeltaBin) float64 { return b.Acc })
 	}
 	if len(vs.Families) > 0 {
 		fams := vs.Families
 		d.h2("Family collapse - Step* vs non-Step")
 		d.body("Step* is a 1D pipe (one sample enters layer 0 per tick; output is the sample that entered depth ticks ago). Non-Step of the same family is a full-chain update. AccD is a real scheduler split, not leftover warm-up forwards.")
-		d.table([]string{"step", "plain", "n", "mean |AccD|"}, func(i int) []string {
+		d.table([]string{"step", "plain", "n", "mean |Hard AccΔ|"}, func(i int) []string {
 			if i >= len(fams) {
 				return nil
 			}
@@ -184,28 +185,35 @@ func (d *doc) lpdBoard(l LPD) {
 	if l.N == 0 || l.Champ.ID == "" {
 		return
 	}
-	d.h2("Consciousness — Acc, Throughput, Availability")
+	d.h2("Consciousness — Acc keep, Throughput, Availability")
 	d.body(l.Formula)
-	d.body(fmt.Sprintf("Acc champ %s   Acc %.1f  Thru %.0f  Avail %.1f%%  %.1f KiB  (RAM reference)",
+	d.body(fmt.Sprintf("Acc champ (Hard Acc peak) %s   Hard Acc %.1f  Acc keep 100%%  Thru %.0f  Avail %.1f%%  %.1f KiB  (RAM reference)",
 		PrettyCell(l.AccChamp.ID), l.AccChamp.Acc, l.AccChamp.Thru, l.AccChamp.Avail, l.AccChamp.RAMKiB))
-	d.body(fmt.Sprintf("Lucy Score champ (T x Avail x Acc) %s   Score %.1f  Acc %.1f  Soft %.0f  %.1f KiB",
+	d.body(fmt.Sprintf("Lucy Score champ (T x Avail x Hard Acc) %s   Score %.1f  Hard Acc %.1f  Soft %.0f  %.1f KiB",
 		PrettyCell(l.Champ.ID), l.Champ.Score, l.Champ.Acc, l.Champ.Soft, l.Champ.RAMKiB))
 	if l.LiveChamp.ID != "" {
-		d.body(fmt.Sprintf("Live-fit champ (best Q) %s   Acc %.1f  Thru %.0f  Avail %.1f%%  %.1f KiB",
+		d.body(fmt.Sprintf("Live-fit champ (best Q) %s   Hard Acc %.1f  Thru %.0f  Avail %.1f%%  %.1f KiB",
 			PrettyCell(l.LiveChamp.ID), l.LiveChamp.Acc, l.LiveChamp.Thru, l.LiveChamp.Avail, l.LiveChamp.RAMKiB))
 	}
+	if l.LeanChamp.ID != "" {
+		d.body(fmt.Sprintf("Lean >=95%% Acc keep (smallest RAM, then fastest Thru): %s  mode %s  Hard Acc %.1f  Acc keep %.0f%%  Thru %.0f  Avail %.1f%%  %.1f KiB  (%d in band)",
+			PrettyCell(l.LeanChamp.ID), PrettyMode(l.LeanChamp.Mode), l.LeanChamp.Acc, l.LeanChamp.RelAcc*100,
+			l.LeanChamp.Thru, l.LeanChamp.Avail, l.LeanChamp.RAMKiB, len(l.Lean)))
+	} else {
+		d.body("No lean cell yet — need Hard Acc >=95% of Acc champ, then pick smallest RAM / fastest Thru.")
+	}
 	if l.GoldStd.ID != "" {
-		d.body(fmt.Sprintf("Gold-std (2+ pillars, Acc keep >= 80%%, then smallest then fastest): %s  mode %s  Acc %.1f  Thru %.0f  %.1f KiB",
-			PrettyCell(l.GoldStd.ID), PrettyMode(l.GoldStd.Mode), l.GoldStd.Acc, l.GoldStd.Thru, l.GoldStd.RAMKiB))
+		d.body(fmt.Sprintf("Gold-std (2+ pillars, Acc keep >= 80%%, then smallest then fastest): %s  mode %s  Hard Acc %.1f  Acc keep %.0f%%  Thru %.0f  %.1f KiB",
+			PrettyCell(l.GoldStd.ID), PrettyMode(l.GoldStd.Mode), l.GoldStd.Acc, l.GoldStd.RelAcc*100, l.GoldStd.Thru, l.GoldStd.RAMKiB))
 	}
 	if l.FastID != "" {
 		d.body(fmt.Sprintf("Board fastest %s  Thru %.0f (traps may own this)     Best availability %s  %.1f%%",
 			PrettyCell(l.FastID), l.FastThru, PrettyCell(l.AvailID), l.BestAvail))
-		d.body(fmt.Sprintf("Learner Thru peak %.0f   learner Avail peak %.1f%%", l.PeakThru, l.PeakAvail))
+		d.body(fmt.Sprintf("Learner Thru peak %.0f   learner Avail peak %.1f%%   LPD board n=%d", l.PeakThru, l.PeakAvail, l.N))
 	}
 	d.lpdRadars(l)
 	if len(l.Gold) > 0 {
-		d.h2("Gold — trifecta >=80% at <=20% of Acc-champ RAM")
+		d.h2("Gold — trifecta >=80% Acc/Thru/Avail keep at <=20% of Acc-champ RAM")
 		d.lpdTable(l.Gold, 16)
 	} else {
 		d.body("No gold cell yet. Need all three pillars at 80% of learner peaks in one fifth of Acc-champ RAM.")
@@ -214,6 +222,14 @@ func (d *doc) lpdBoard(l LPD) {
 		d.h2("Gold-standard train modes — 2+ pillars, Acc keep >= 80%, smallest then fastest")
 		d.lpdModeTable(l.GoldModes)
 	}
+	if len(l.Lean) > 0 {
+		d.h2("Lean >=95% Acc keep — sacrifice peak Acc for footprint (smallest RAM first)")
+		d.lpdTable(l.Lean, 20)
+	}
+	if len(l.LeanByArch) > 0 {
+		d.h2("Lean winners by arch / cam — Acc keep >=95%, then smallest KiB")
+		d.lpdModeTable(l.LeanByArch)
+	}
 	if len(l.Near) > 0 {
 		d.h2("Near-gold — 2+ pillars, RAM <= 50% of Acc champ")
 		d.lpdTable(l.Near, 12)
@@ -221,22 +237,29 @@ func (d *doc) lpdBoard(l LPD) {
 	d.h2("Lucy density (LPD) — Q x shrink vs Acc-champ RAM; 0 if Acc keep < 70%")
 	d.lpdTable(l.Top, 20)
 	if len(l.TopMix) > 0 && l.TopMix[0].Mix > 0 {
-		d.h2("Consciousness rank — Q = geomean Acc/Thru/Avail keep")
+		d.h2("Consciousness rank — Q = geomean Acc-keep / Thru-keep / Avail-keep")
 		d.lpdMobileTable(l.TopMix, 10)
 	}
 	if len(l.Trap) > 0 {
 		d.h2("Trap — tiny RAM, Acc keep < 70% (Score/MiB and SoftAcc Score lie here)")
 		d.lpdTable(l.Trap, 10)
 	}
-	d.scatterLPD("Acc keep % vs RAM KiB (gold = high Acc, low RAM vs Acc champ)", "RAM KiB", "Acc keep % vs Acc champ", l.Top,
+	scatterRows := l.Pool
+	if len(scatterRows) == 0 {
+		scatterRows = l.Top
+	}
+	d.scatterLPD("Acc keep % vs RAM KiB (gold = high Acc keep, low RAM; lean = Acc keep >=95%)", "RAM KiB", "Acc keep % vs Acc champ", scatterRows,
 		func(r LPDRow) float64 { return r.RAMKiB },
-		func(r LPDRow) float64 { return r.RelAcc * 100 })
-	d.scatterLPD("Q% vs RAM KiB (gold = high consciousness, low RAM)", "RAM KiB", "Q %", l.Top,
+		func(r LPDRow) float64 { return r.RelAcc * 100 },
+		l.AccChamp.RAMKiB, true)
+	d.scatterLPD("Q% vs RAM KiB (gold = high consciousness, low RAM)", "RAM KiB", "Q %", scatterRows,
 		func(r LPDRow) float64 { return r.RAMKiB },
-		func(r LPDRow) float64 { return r.Q * 100 })
-	d.scatterLPD("Q% vs shrink vs Acc champ (gold = upper right)", "times smaller than Acc champ", "Q %", l.Top,
+		func(r LPDRow) float64 { return r.Q * 100 },
+		l.AccChamp.RAMKiB, false)
+	d.scatterLPD("Q% vs shrink vs Acc champ (gold = upper right)", "times smaller than Acc champ", "Q %", scatterRows,
 		func(r LPDRow) float64 { return r.Shrink },
-		func(r LPDRow) float64 { return r.Q * 100 })
+		func(r LPDRow) float64 { return r.Q * 100 },
+		0, false)
 	var bars []kv
 	for i, r := range l.Top {
 		if i >= 16 || r.LPD <= 0 {
@@ -256,17 +279,60 @@ type radarSeries struct {
 func (d *doc) lpdRadars(l LPD) {
 	find := func(id string) LPDRow {
 		id = PrettyCell(id)
-		for _, r := range l.Top {
-			if r.ID == id {
-				return r
+		for _, src := range [][]LPDRow{l.Pool, l.Top, l.Gold, l.Near, l.Lean, l.Trap} {
+			for _, r := range src {
+				if r.ID == id {
+					return r
+				}
 			}
 		}
-		for _, r := range append(append(append([]LPDRow{}, l.Gold...), l.Near...), l.Trap...) {
-			if r.ID == id {
-				return r
-			}
+		if l.GoldStd.ID == id {
+			return l.GoldStd
+		}
+		if l.LeanChamp.ID == id {
+			return l.LeanChamp
 		}
 		return LPDRow{}
+	}
+	synth := func(c LPDChamp) LPDRow {
+		if c.ID == "" {
+			return LPDRow{}
+		}
+		if r := find(c.ID); r.ID != "" {
+			return r
+		}
+		ra, rt, rv := 0.0, 0.0, 0.0
+		if l.PeakAcc > 0 {
+			ra = c.Acc / l.PeakAcc
+		}
+		if l.PeakThru > 0 {
+			rt = c.Thru / l.PeakThru
+		}
+		if l.PeakAvail > 0 {
+			rv = c.Avail / l.PeakAvail
+		}
+		ref := l.AccChamp.RAMKiB
+		if ref <= 0 {
+			ref = 1e-6
+		}
+		ram := c.RAMKiB
+		if ram <= 0 {
+			ram = 1e-6
+		}
+		shrink := ref / ram
+		if shrink > LPDShrinkCap {
+			shrink = LPDShrinkCap
+		}
+		da, dt, dv := 0.0, 0.0, 0.0
+		if ra >= LPDKeepFloor {
+			da, dt, dv = ra*shrink, rt*shrink, rv*shrink
+		}
+		return LPDRow{
+			ID: c.ID, Mode: c.Mode, DType: c.DType, Arch: c.Arch,
+			Acc: c.Acc, Thru: c.Thru, Avail: c.Avail, RAMKiB: c.RAMKiB,
+			RelAcc: ra, RelThru: rt, RelAvail: rv,
+			DensAcc: da, DensThru: dt, DensAvail: dv, Shrink: shrink,
+		}
 	}
 	seen := map[string]bool{}
 	add := func(dst *[]radarSeries, label string, r, g, b int, row LPDRow, dens bool) {
@@ -284,19 +350,21 @@ func (d *doc) lpdRadars(l LPD) {
 	}
 	var live, dens []radarSeries
 	seen = map[string]bool{}
-	add(&live, "Acc champ", 230, 179, 90, find(l.AccChamp.ID), false)
+	add(&live, "Acc champ", 230, 179, 90, synth(l.AccChamp), false)
+	add(&live, "Lean >=95%", 158, 206, 106, l.LeanChamp, false)
 	add(&live, "Gold-std", 183, 121, 31, l.GoldStd, false)
-	add(&live, "Live-fit", 61, 214, 198, find(l.LiveChamp.ID), false)
-	add(&live, "Lucy Score", 224, 108, 117, find(l.Champ.ID), false)
+	add(&live, "Live-fit", 61, 214, 198, synth(l.LiveChamp), false)
+	add(&live, "Lucy Score", 224, 108, 117, synth(l.Champ), false)
 	seen = map[string]bool{}
+	add(&dens, "Lean >=95%", 158, 206, 106, l.LeanChamp, true)
 	add(&dens, "Gold-std", 183, 121, 31, l.GoldStd, true)
 	if len(l.Top) > 0 && l.Top[0].LPD > 0 {
 		add(&dens, "LPD lead", 61, 214, 198, l.Top[0], true)
 	}
-	add(&dens, "Acc champ", 230, 179, 90, find(l.AccChamp.ID), true)
-	add(&dens, "Lucy Score", 224, 108, 117, find(l.Champ.ID), true)
-	d.radar("Consciousness radar — Acc / Thru / Avail vs learner peaks", live)
-	d.radar("Memory density radar — same pillars x shrink vs Acc champ (traps sit at origin)", dens)
+	add(&dens, "Acc champ", 230, 179, 90, synth(l.AccChamp), true)
+	add(&dens, "Lucy Score", 224, 108, 117, synth(l.Champ), true)
+	d.radar("Consciousness radar — Acc keep / Thru keep / Avail keep vs learner peaks", live)
+	d.radar("Memory density radar — keep x shrink vs Acc champ (traps sit at origin)", dens)
 }
 
 func densNorm(v, peak float64) float64 {
@@ -374,7 +442,7 @@ func (d *doc) radar(title string, series []radarSeries) {
 }
 
 func (d *doc) lpdTable(rows []LPDRow, max int) {
-	d.table([]string{"Band", "Cell", "Acc%", "Thru%", "Avail%", "Q%", "RAM%", "xSmall", "LPD", "Acc", "Thru", "KiB"}, func(k int) []string {
+	d.table([]string{"Band", "Cell", "Acc keep%", "Thru%", "Avail%", "Q%", "RAM%", "xSmall", "LPD", "Hard Acc", "Thru", "KiB"}, func(k int) []string {
 		if k >= len(rows) || k >= max {
 			return nil
 		}
@@ -396,7 +464,7 @@ func (d *doc) lpdTable(rows []LPDRow, max int) {
 }
 
 func (d *doc) lpdModeTable(modes []LPDMode) {
-	d.table([]string{"Mode", "n", "Acc", "KiB", "Thru", "Cell"}, func(k int) []string {
+	d.table([]string{"Mode / arch", "n", "Hard Acc", "KiB", "Thru", "Cell"}, func(k int) []string {
 		if k >= len(modes) {
 			return nil
 		}
@@ -406,8 +474,12 @@ func (d *doc) lpdModeTable(modes []LPDMode) {
 		if fast != "" && fast != cell {
 			cell += " / " + fast
 		}
+		label := PrettyMode(m.Mode)
+		if label == m.Mode && strings.Contains(strings.ToLower(m.Mode), "cam") {
+			label = PrettyArch(m.Mode)
+		}
 		return []string{
-			PrettyMode(m.Mode),
+			label,
 			fmt.Sprintf("%d", m.N),
 			fmt.Sprintf("%.1f", m.BestAcc),
 			fmt.Sprintf("%.1f", m.MinRAM),
@@ -418,7 +490,7 @@ func (d *doc) lpdModeTable(modes []LPDMode) {
 }
 
 func (d *doc) lpdMobileTable(rows []LPDRow, max int) {
-	d.table([]string{"Band", "Cell", "Acc%", "Thru%", "Avail%", "Q%", "LPD", "Thru", "Avail"}, func(k int) []string {
+	d.table([]string{"Band", "Cell", "Acc keep%", "Thru%", "Avail%", "Q%", "LPD", "Thru", "Avail"}, func(k int) []string {
 		if k >= len(rows) || k >= max {
 			return nil
 		}
@@ -436,17 +508,24 @@ func (d *doc) lpdMobileTable(rows []LPDRow, max int) {
 	})
 }
 
-func (d *doc) scatterLPD(title, xlab, ylab string, rows []LPDRow, xof, yof func(LPDRow) float64) {
+func (d *doc) scatterLPD(title, xlab, ylab string, rows []LPDRow, xof, yof func(LPDRow) float64, accChampRAM float64, accKeepAxis bool) {
 	pts := make([]CellPoint, 0, len(rows))
 	for _, r := range rows {
-		pts = append(pts, CellPoint{Arch: r.Band, Avail: xof(r), Acc: yof(r)})
+		band := r.Band
+		if r.Gold {
+			band = "gold"
+		} else if r.RelAcc >= LPDLeanKeep {
+			band = "lean"
+		}
+		pts = append(pts, CellPoint{Arch: band, Mode: r.Mode, Avail: xof(r), Acc: yof(r)})
 	}
 	if len(pts) < 2 {
 		return
 	}
-	d.scatter(title, xlab, ylab, pts,
+	d.scatterGuides(title, xlab, ylab, pts,
 		func(p CellPoint) float64 { return p.Avail },
-		func(p CellPoint) float64 { return p.Acc })
+		func(p CellPoint) float64 { return p.Acc },
+		accChampRAM, accKeepAxis)
 }
 
 func zipKV(keys []string, vals []float64) []kv {
@@ -733,6 +812,10 @@ func clipHead(s string, n int) string {
 }
 
 func (d *doc) scatter(title, xlab, ylab string, pts []CellPoint, xof, yof func(CellPoint) float64) {
+	d.scatterGuides(title, xlab, ylab, pts, xof, yof, 0, false)
+}
+
+func (d *doc) scatterGuides(title, xlab, ylab string, pts []CellPoint, xof, yof func(CellPoint) float64, accChampRAM float64, accKeepAxis bool) {
 	if len(pts) < 2 {
 		return
 	}
@@ -764,35 +847,81 @@ func (d *doc) scatter(title, xlab, ylab string, pts []CellPoint, xof, yof func(C
 	if ymax <= ymin {
 		ymax = ymin + 1
 	}
+	// Acc-keep charts: pin Y to 0–100 so 80%/95% guides are visible.
+	if accKeepAxis {
+		if ymin > 0 {
+			ymin = 0
+		}
+		if ymax < 100 {
+			ymax = 100
+		}
+	}
 	d.pdf.SetDrawColor(40, 55, 65)
 	d.pdf.Rect(x0, y0, w, h, "D")
-	n := len(pts)
-	if n > 800 {
-		n = 800
+	X := func(v float64) float64 { return x0 + w*(v-xmin)/(xmax-xmin) }
+	Y := func(v float64) float64 { return y0 + h - h*(v-ymin)/(ymax-ymin) }
+	// Gold / lean guides for Acc-keep vs RAM.
+	if accChampRAM > 0 && xlab == "RAM KiB" {
+		goldRAM := accChampRAM * LPDGoldRAM
+		if goldRAM >= xmin && goldRAM <= xmax {
+			d.pdf.SetDrawColor(183, 121, 31)
+			d.pdf.SetDashPattern([]float64{1.5, 1.2}, 0)
+			d.pdf.Line(X(goldRAM), y0, X(goldRAM), y0+h)
+			d.pdf.SetDashPattern([]float64{}, 0)
+			d.pdf.SetFont("Helvetica", "", 5)
+			d.pdf.SetTextColor(183, 121, 31)
+			d.pdf.SetXY(X(goldRAM)+1, y0+1)
+			d.pdf.CellFormat(40, 3, "20% Acc-champ RAM", "", 0, "L", false, 0, "")
+		}
 	}
-	for i := 0; i < n; i++ {
+	if accKeepAxis {
+		drawHY := func(pct float64, r, g, b int, lab string) {
+			if pct < ymin || pct > ymax {
+				return
+			}
+			d.pdf.SetDrawColor(r, g, b)
+			d.pdf.SetDashPattern([]float64{1.5, 1.2}, 0)
+			d.pdf.Line(x0, Y(pct), x0+w, Y(pct))
+			d.pdf.SetDashPattern([]float64{}, 0)
+			d.pdf.SetFont("Helvetica", "", 5)
+			d.pdf.SetTextColor(r, g, b)
+			d.pdf.SetXY(x0+1, Y(pct)-3)
+			d.pdf.CellFormat(40, 3, lab, "", 0, "L", false, 0, "")
+		}
+		drawHY(LPDGoldKeep*100, 183, 121, 31, "80% Acc keep")
+		drawHY(LPDLeanKeep*100, 80, 160, 90, "lean 95% Acc keep")
+	}
+	const maxDots = 1500
+	step := 1
+	if len(pts) > maxDots {
+		step = (len(pts) + maxDots - 1) / maxDots
+	}
+	for i := 0; i < len(pts); i += step {
 		p := pts[i]
-		px := x0 + w*(xof(p)-xmin)/(xmax-xmin)
-		py := y0 + h - h*(yof(p)-ymin)/(ymax-ymin)
+		px, py := X(xof(p)), Y(yof(p))
 		r, g, b := archColor(p.Arch)
 		d.pdf.SetFillColor(r, g, b)
-		d.pdf.Rect(px-0.5, py-0.5, 1.1, 1.1, "F")
+		sz := 1.1
+		if p.Arch == "gold" || p.Arch == "lean" {
+			sz = 1.6
+		}
+		d.pdf.Rect(px-sz/2, py-sz/2, sz, sz, "F")
 	}
 	front := paretoFront(pts, xof, yof)
 	d.pdf.SetDrawColor(183, 121, 31)
 	d.pdf.SetLineWidth(0.35)
 	for i := 1; i < len(front); i++ {
-		x1 := x0 + w*(xof(front[i-1])-xmin)/(xmax-xmin)
-		y1 := y0 + h - h*(yof(front[i-1])-ymin)/(ymax-ymin)
-		x2 := x0 + w*(xof(front[i])-xmin)/(xmax-xmin)
-		y2 := y0 + h - h*(yof(front[i])-ymin)/(ymax-ymin)
-		d.pdf.Line(x1, y1, x2, y2)
+		d.pdf.Line(X(xof(front[i-1])), Y(yof(front[i-1])), X(xof(front[i])), Y(yof(front[i])))
 	}
 	d.pdf.SetLineWidth(0.2)
 	d.pdf.SetFont("Helvetica", "", 7)
 	d.pdf.SetTextColor(110, 120, 130)
 	d.pdf.SetXY(x0, y0+h+1)
-	d.pdf.CellFormat(w, 4, latin(fmt.Sprintf("%s  →    n=%d   gold = Pareto    teal=single  blue=bi  purple=tri", xlab, len(pts))), "", 1, "L", false, 0, "")
+	note := "gold=Pareto  teal=single  blue=bi  purple=tri"
+	if accKeepAxis {
+		note = "gold ring band / lean>=95%  dashed=20% RAM + 80/95% Acc keep"
+	}
+	d.pdf.CellFormat(w, 4, latin(fmt.Sprintf("%s  →    n=%d   %s", xlab, len(pts), note)), "", 1, "L", false, 0, "")
 	d.pdf.SetXY(8, y0+h/2)
 	d.pdf.SetFont("Helvetica", "", 6)
 	d.pdf.TransformBegin()
@@ -808,10 +937,14 @@ func archColor(a string) (int, int, int) {
 	switch {
 	case strings.Contains(s, "gold"):
 		return 183, 121, 31
+	case strings.Contains(s, "lean"):
+		return 80, 160, 90
 	case strings.Contains(s, "trap"):
 		return 197, 48, 48
 	case strings.Contains(s, "near"):
 		return 230, 179, 90
+	case strings.Contains(s, "keep"):
+		return 61, 214, 198
 	case strings.Contains(s, "tri"):
 		return 168, 130, 220
 	case strings.Contains(s, "bi"):

@@ -271,14 +271,10 @@ func persistProgress(cfg Config, tr *pulse.Tracker, nextIdx int, inf *checkpoint
 			doneIDs = append(doneIDs, c.ID)
 		}
 	}
-	// Prefer full report archive for Completed on disk; keep a recent window so
-	// progress.json stays bounded while DoneIDs covers the whole plan.
+	// Prefer full report archive for Completed on disk. DoneIDs already covers the
+	// whole plan; trimming Completed here starved PDF/LPD (Acc champ / lean wrong).
 	archive := tr.ReportResults()
 	completed := checkpoint.DedupeCompleted(archive)
-	const completedDiskCap = 2000
-	if len(completed) > completedDiskCap {
-		completed = append([]pulse.Result(nil), completed[len(completed)-completedDiskCap:]...)
-	}
 	if cfg.Resume != nil {
 		cfg.Resume.DoneIDs = doneIDs
 	}

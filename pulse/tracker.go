@@ -314,6 +314,36 @@ func (t *Tracker) ReportResults() []Result {
 	return append([]Result(nil), t.reportLog...)
 }
 
+// SeedReportLog merges rows into the PDF archive (keeps larger/newer set).
+// Used when results.json / a full checkpoint must refill after Completed was capped.
+func (t *Tracker) SeedReportLog(rows []Result) {
+	if t == nil || len(rows) == 0 {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	by := map[string]int{}
+	for i, r := range t.reportLog {
+		by[r.Cell.ID] = i
+	}
+	for _, r := range rows {
+		id := r.Cell.ID
+		if id == "" {
+			continue
+		}
+		if i, ok := by[id]; ok {
+			t.reportLog[i] = r
+			continue
+		}
+		by[id] = len(t.reportLog)
+		t.reportLog = append(t.reportLog, r)
+	}
+	t.live.Recorded = len(t.reportLog)
+	if t.live.Recorded < t.live.CellIndex {
+		// keep CellIndex from plan progress
+	}
+}
+
 func (t *Tracker) SetMeta(batchIdx, batchTotal, cellIdx, cellTotal int, msg string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
