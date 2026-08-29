@@ -217,7 +217,8 @@ func (s *Server) Board() Board {
 	}
 	started := s != nil && s.Started()
 	adapt, soft, hard, cons, stab, accThru, realtime, keep := extraBests(live.Completed)
-	pts := report.PointsFromResults(live.Completed, s.Task)
+	completed := s.reportCompleted(live)
+	pts := report.PointsFromResults(completed, s.Task)
 	lpd := report.BuildLPD(pts)
 	heat := report.BuildHeat(pts)
 	_, emax, eleft, eoverall := s.epochProgress(pct)
@@ -318,7 +319,14 @@ func boardLPDAxes(out Board) []LucyAxis {
 	}
 	if s := out.LPD.GoldStd; s.ID != "" {
 		out.Axes = append(out.Axes, LucyAxis{
-			Name: "gold_std", Hint: "2+ pillars with Acc ≥80%, then smallest RAM then fastest",
+			Name: "gold_std", Hint: "2+ pillars with Acc keep ≥80%, then smallest RAM then fastest",
+			Value: s.RAMKiB, CellID: s.ID, Mode: s.Mode, DType: s.DType, Arch: s.Arch,
+			Score: s.Score, SoftAcc: s.Soft, Thru: s.Thru, Avail: s.Avail,
+		})
+	}
+	if s := out.LPD.LeanChamp; s.ID != "" {
+		out.Axes = append(out.Axes, LucyAxis{
+			Name: "lean_95", Hint: "Acc keep ≥95% of Acc champ, then smallest RAM / fastest Thru / Avail",
 			Value: s.RAMKiB, CellID: s.ID, Mode: s.Mode, DType: s.DType, Arch: s.Arch,
 			Score: s.Score, SoftAcc: s.Soft, Thru: s.Thru, Avail: s.Avail,
 		})

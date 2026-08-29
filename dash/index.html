@@ -347,7 +347,7 @@
   <div class="meta" id="status">connecting…</div>
   <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
 </header>
-<p class="score-eq">Synthetic organism metric — Lucy density. Score = Throughput × Availability × Acc / 10,000. Acc is argmax learning. Availability is infer/(infer+train): SGD that blocks the live loop dies here. SoftAcc is serve-confidence, not Score. LPD then condenses that live-fit into RAM. Honesty grids (test48) show which train modes (FastProxy / MeshTween / Sparse) keep Acc without stalling serve.</p>
+<p class="score-eq">Synthetic organism metric — Lucy density. <b>Hard Acc</b> = argmax accuracy. <b>Acc keep %</b> = this Hard Acc ÷ Acc-champ Hard Acc (100% = matches the best Acc on the board). SoftAcc = serve-confidence, not Score. Score = Throughput × Availability × Hard Acc / 10,000. <b>Lean</b> = Acc keep ≥95%, then smallest RAM / fastest Thru / best Avail — sacrifice peak Acc only inside that band. Availability is infer/(infer+train): SGD that blocks the live loop dies here.</p>
 <p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
 <p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
   Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
@@ -402,7 +402,7 @@
       Background bands = model changes.
     </p>
     <div class="legend">
-      <span><i style="background:#e6b35a"></i>live Acc</span>
+      <span><i style="background:#e6b35a"></i>live Hard Acc</span>
       <span><i style="background:#7aa2f7"></i>live throughput</span>
       <span><i style="background:#c3a6ff"></i>live availability</span>
       <span><i style="background:#3dd6c6"></i>live lucy score</span>
@@ -423,13 +423,13 @@
   <section class="wide">
     <h2>Models ranked — live-fit + Lucy density</h2>
     <p class="hint">
-      Ranked by <b>LPD</b> (memory density of Acc/Thru/Avail). Bars: LPD, Q keep, Acc, Thru, Avail, RAM vs Acc champ.
+      Ranked by <b>LPD</b> (memory density of Acc/Thru/Avail). Bars: LPD, Q keep, <b>Hard Acc</b>, Thru, Avail, RAM vs Acc champ.
       Traps (chance Acc, tiny RAM) get LPD 0 and sink. Label is <b>mode</b> plus <b>layer · dtype · quant · head</b>.
     </p>
     <div class="legend">
       <span><i style="background:#b7791f"></i>LPD</span>
       <span><i style="background:#3dd6c6"></i>Q</span>
-      <span><i style="background:#e6b35a"></i>acc</span>
+      <span><i style="background:#e6b35a"></i>Hard Acc</span>
       <span><i style="background:#7aa2f7"></i>thru</span>
       <span><i style="background:#c3a6ff"></i>avail</span>
       <span><i style="background:#8aa0ad"></i>RAM% (smaller better)</span>
@@ -440,41 +440,44 @@
     <h2>Lucy density — synthetic organism</h2>
     <p class="hint" id="lpdHint">
       The thing being measured is a net that <b>runs and trains at the same time</b> in a small box.
-      Pure Acc is not enough: SGD can look accurate while it blocks serve and burns RAM.
-      <b>Score</b> = Thru × Avail × Acc / 10,000 (Welvet). <b>Q</b> is Acc/Thru/Avail vs learner peaks.
+      Pure Hard Acc is not enough: SGD can look accurate while it blocks serve and burns RAM.
+      <b>Hard Acc</b> = argmax. <b>Acc keep %</b> = Hard Acc ÷ Acc-champ Acc (not SoftAcc).
+      <b>Score</b> = Thru × Avail × Hard Acc / 10,000. <b>Q</b> = geomean Acc-keep / Thru-keep / Avail-keep vs learner peaks.
       <b>LPD</b> = Q × shrink vs Acc-champ RAM; 0 unless Acc keep ≥70%.
-      <b>Gold</b> = all three ≥80% at ≤20% Acc-champ RAM. <b>Gold-std</b> = Acc ≥80% plus Thru or Avail, then smallest then fastest.
-      Honesty / test48 is where FastProxy and MeshTweenSplitSparse show up as the paths that keep the live loop.
+      <b>Gold</b> = all three pillars ≥80% at ≤20% Acc-champ RAM. <b>Gold-std</b> = Acc keep ≥80% plus Thru or Avail, then smallest then fastest.
+      <b>Lean (≥95%)</b> = Acc keep ≥95% of Acc champ, then smallest RAM / fastest Thru / best Avail — the footprint win without collapsing Acc.
     </p>
     <div class="legend">
       <span><i style="background:#b7791f"></i>gold trifecta, small RAM</span>
+      <span><i style="background:#9ece6a"></i>lean ≥95% Acc keep</span>
       <span><i style="background:#e6b35a"></i>near 2+ pillars, ≤50% RAM</span>
       <span><i style="background:#3dd6c6"></i>keep 2+ pillars, fat</span>
       <span><i style="background:#7aa2f7"></i>acc-only</span>
-      <span><i style="background:#e06c75"></i>trap tiny RAM, Acc&lt;70%</span>
+      <span><i style="background:#e06c75"></i>trap tiny RAM, Acc keep&lt;70%</span>
     </div>
     <div id="lpdChamp" class="meta" style="margin-bottom:0.5rem">—</div>
+    <div id="lpdLean" class="lpd-callout empty">No lean cell yet. Need Acc keep ≥95% of Acc champ, then pick smallest RAM / fastest Thru.</div>
     <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need all three pillars at ≥80% of learner peaks in ≤20% of Acc-champ RAM.</div>
     <div id="lpdStd" class="meta" style="margin-bottom:0.5rem">—</div>
     <div class="chart-stack">
       <div class="chart-panel">
-        <h3>Consciousness radar — Acc / Thru / Avail</h3>
-        <p class="hint">Each triangle is one <b>champ cell</b> (not every model). Legend on the right: role + train mode · dtype · arch. Axes are keep-% vs learner peaks (1 = matches the best Acc/Thru/Avail seen so far).</p>
+        <h3>Consciousness radar — Acc keep / Thru keep / Avail keep</h3>
+        <p class="hint">Each triangle is one <b>champ cell</b> (Acc champ, Lean ≥95%, Gold-std, Live-fit, Lucy Score). Axes are keep-% vs learner peaks — not raw Hard Acc.</p>
         <img class="srv-chart" data-chart="radar-live" alt="Consciousness radar" width="960" height="480"/>
       </div>
       <div class="chart-panel">
-        <h3>Memory density radar — pillars × shrink</h3>
-        <p class="hint">Same champ cells, but each axis is keep × how much smaller than Acc-champ RAM. Fat accurate models shrink toward the center; traps sit at 0.</p>
+        <h3>Memory density radar — keep × shrink vs Acc-champ RAM</h3>
+        <p class="hint">Same champ cells; each axis is keep × how much smaller than Acc-champ RAM. Fat accurate models sit toward the center; traps at 0.</p>
         <img class="srv-chart" data-chart="radar-dens" alt="Memory density radar" width="960" height="480"/>
       </div>
       <div class="chart-panel">
         <h3>Q% vs RAM KiB — gold is top-left</h3>
-        <p class="hint">Every finished ok cell. Dot color = <b>train mode</b> (legend on chart). Gold ring = trifecta small-RAM. X = RAM KiB vs Acc champ; Y = Q (geomean Acc/Thru/Avail keep).</p>
+        <p class="hint">Every finished ok cell. Dot color = train mode. Gold ring = trifecta. Green ring = lean (≥95% Acc keep). Dashed lines = 20% Acc-champ RAM and 80% keep.</p>
         <img class="srv-chart" data-chart="lpd-ram" alt="Q% vs RAM" width="960" height="440"/>
       </div>
       <div class="chart-panel">
-        <h3>Acc keep % vs RAM — 80% Acc champ, 20% RAM</h3>
-        <p class="hint">Same cells, Acc keep only. Color = train mode. Gold wants high Acc keep at low RAM (top-left).</p>
+        <h3>Acc keep % vs RAM — lean 95% / gold 80% / 20% RAM</h3>
+        <p class="hint"><b>Acc keep %</b> = Hard Acc ÷ Acc-champ Acc (not SoftAcc). Gold wants high Acc keep at low RAM (top-left). Lean band is above the 95% line.</p>
         <img class="srv-chart" data-chart="lpd-acc" alt="Acc keep vs RAM" width="960" height="440"/>
       </div>
       <div class="chart-panel">
@@ -483,20 +486,29 @@
         <img class="srv-chart" data-chart="lpd-shrink" alt="Q% vs shrink" width="960" height="440"/>
       </div>
     </div>
-    <p class="hint" style="margin-top:0.75rem">Train-mode differences at a glance: <b>Honesty grids</b> below (mode × dtype / mode × arch means). Per-mode best Acc/RAM is in the mode table under these charts. Queue + mode mix live in Sweep progress.</p>
+    <p class="hint" style="margin-top:0.75rem">Gold-std by train mode, then lean winners by <b>arch / cam</b> (footprint among ≥95% Acc keep). Honesty grids below for mode × dtype means.</p>
     <div class="table-wrap" style="max-height:240px;margin-top:0.8rem">
       <table>
         <thead><tr>
-          <th>Mode</th><th class="num">n</th><th class="num">best Acc</th><th class="num">smallest KiB</th>
+          <th>Mode (gold-std)</th><th class="num">n</th><th class="num">best Hard Acc</th><th class="num">smallest KiB</th>
           <th class="num">fastest Thru</th><th>cell</th>
         </tr></thead>
         <tbody id="lpdModes"></tbody>
       </table>
     </div>
+    <div class="table-wrap" style="max-height:240px;margin-top:0.8rem">
+      <table>
+        <thead><tr>
+          <th>Arch / cam (lean ≥95%)</th><th class="num">n</th><th class="num">best Hard Acc</th><th class="num">smallest KiB</th>
+          <th class="num">fastest Thru</th><th>cell</th>
+        </tr></thead>
+        <tbody id="lpdLeanArch"></tbody>
+      </table>
+    </div>
     <div class="table-wrap" style="max-height:420px;margin-top:0.8rem">
       <table>
         <thead><tr>
-          <th>Band</th><th>Cell</th><th class="num">Acc%</th><th class="num">Thru%</th><th class="num">Avail%</th>
+          <th>Band</th><th>Cell</th><th class="num">Hard Acc</th><th class="num">Acc keep%</th><th class="num">Thru keep%</th><th class="num">Avail keep%</th>
           <th class="num">Q%</th><th class="num">RAM%</th><th class="num">LPD</th><th class="num">KiB</th>
         </tr></thead>
         <tbody id="lpdTable"></tbody>
@@ -866,7 +878,7 @@ function updateETA(j) {
 
 const BANDS = ['#152428','#151c2a','#241c14','#1c1424','#14241c','#241814'];
 const METRICS = [
-  { key: 'accuracy', snap: 'avg_accuracy', best: 'accuracy', label: 'Acc %', color: '#e6b35a', fixed: 100, digits: 1 },
+  { key: 'accuracy', snap: 'avg_accuracy', best: 'accuracy', label: 'Hard Acc %', color: '#e6b35a', fixed: 100, digits: 1 },
   { key: 'throughput', snap: 'throughput', best: 'throughput', label: 'throughput /s', color: '#7aa2f7', fixed: null, digits: 1 },
   { key: 'availability', snap: 'availability', best: 'availability', label: 'availability %', color: '#c3a6ff', fixed: 100, digits: 1 },
   { key: 'score', snap: 'score', best: 'score', label: 'lucy score', color: '#3dd6c6', fixed: null, digits: 3 },
@@ -882,7 +894,7 @@ function fitCanvas(c) {
 }
 function axisName(k) {
   return ({
-    availability: 'Avail %', avg_accuracy: 'Acc %', soft_acc: 'SoftAcc',
+    availability: 'Avail %', avg_accuracy: 'Hard Acc %', soft_acc: 'SoftAcc',
     score: 'Score', ram: 'RAM KiB', qpct: 'Q %', accpct: 'Acc keep %',
     shrink: 'shrink ×', throughput: 'Thru /s', adapt_pct: 'AdaptPct %',
   })[k] || k;
@@ -1545,7 +1557,7 @@ function drawRank() {
   }
   const maxLpd = Math.max(...rows.map(r => lpOf(r).lpd || 0), 1e-9);
   const maxThru = Math.max(...rows.map(r => r.snapshot?.throughput || 0), 1);
-  const head = `<div class="rank-head"><span>model</span><span>LPD</span><span>Q</span><span>acc</span><span>thru</span><span>avail</span><span>RAM%</span></div>`;
+  const head = `<div class="rank-head"><span>model</span><span>LPD</span><span>Q</span><span>HardAcc</span><span>thru</span><span>avail</span><span>RAM%</span></div>`;
   const body = rows.map(row => {
     const s = row.snapshot || {};
     const id = row.cell?.id || '';
@@ -1982,20 +1994,22 @@ function renderVs(heat) {
   const title = document.getElementById('vsTitle');
   const hint = document.getElementById('vsHint');
   if (title) title.textContent = 'vs ' + prettyMode(vs.baseline) + ' (matched dtype × format × arch)';
-  if (hint) hint.textContent = 'AccΔ is the honest column. ScoreΔ is usually Avail (duty clock), not a better chain rule. Acc win = AccΔ > 0.5. Score win = ScoreΔ > 1. Baseline is discovered (sgd / NormalBP / StepBP) from this board.';
+  if (hint) hint.textContent = 'Δ columns are Hard Acc / SoftAcc / Avail / Thru / Score vs the baseline mode on the same recipe — not Acc-keep%. Positive = better than baseline. Acc win% = share of matched cells with Hard AccΔ > 0.5. Green bars = wins; red = losses. Use Acc keep % / Lean in Lucy density above for footprint vs Acc-champ.';
   const wrap = document.getElementById('vsTableWrap');
   if (wrap) {
-    let html = '<table><thead><tr><th>mode</th><th class="num">n</th><th class="num">AccΔ</th><th class="num">Acc win%</th><th class="num">SoftΔ</th><th class="num">AvailΔ</th><th class="num">ThruΔ</th><th class="num">ScoreΔ</th><th class="num">Score win%</th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>mode</th><th class="num">n</th><th class="num">Hard AccΔ</th><th class="num">Acc win%</th><th class="num">SoftΔ</th><th class="num">AvailΔ</th><th class="num">ThruΔ</th><th class="num">ScoreΔ</th><th class="num">Score win%</th></tr></thead><tbody>';
     vs.modes.forEach(m => {
+      const acc = m.acc_delta||0, thr = m.thru_delta||0, av = m.avail_delta||0, sc = m.score_delta||0;
+      const tone = (v) => v > 0.5 ? 'color:#2da696' : (v < -0.5 ? 'color:#c53030' : '');
       html += `<tr>
         <td>${prettyMode(m.mode||'')}</td>
         <td class="num">${m.n||0}</td>
-        <td class="num">${(m.acc_delta||0).toFixed(1)}</td>
+        <td class="num" style="${tone(acc)}">${acc>=0?'+':''}${acc.toFixed(1)}</td>
         <td class="num">${(m.acc_win||0).toFixed(0)}</td>
-        <td class="num">${(m.soft_delta||0).toFixed(1)}</td>
-        <td class="num">${(m.avail_delta||0).toFixed(1)}</td>
-        <td class="num">${(m.thru_delta||0).toFixed(0)}</td>
-        <td class="num">${(m.score_delta||0).toFixed(1)}</td>
+        <td class="num">${(m.soft_delta||0)>=0?'+':''}${(m.soft_delta||0).toFixed(1)}</td>
+        <td class="num" style="${tone(av)}">${av>=0?'+':''}${av.toFixed(1)}</td>
+        <td class="num" style="${tone(thr)}">${thr>=0?'+':''}${thr.toFixed(0)}</td>
+        <td class="num" style="${tone(sc)}">${sc>=0?'+':''}${sc.toFixed(1)}</td>
         <td class="num">${(m.score_win||0).toFixed(0)}</td>
       </tr>`;
     });
@@ -2004,18 +2018,19 @@ function renderVs(heat) {
   const stack = document.getElementById('vsStack');
   if (!stack) return;
   const heats = [
-    ['AccΔ vs ' + vs.baseline + ' — mode × dtype', vs.by_dtype, 'acc'],
+    ['Hard AccΔ vs ' + vs.baseline + ' — mode × dtype (green=win)', vs.by_dtype, 'acc'],
     ['ScoreΔ vs ' + vs.baseline + ' — mode × dtype', vs.by_dtype, 'score'],
     ['AvailΔ vs ' + vs.baseline + ' — mode × dtype', vs.by_dtype, 'avail'],
-    ['AccΔ vs ' + vs.baseline + ' — mode × arch', vs.by_arch, 'acc'],
+    ['Hard AccΔ vs ' + vs.baseline + ' — mode × arch / cam', vs.by_arch, 'acc'],
   ];
   if ((vs.by_layer || []).length) {
-    heats.push(['AccΔ vs ' + vs.baseline + ' — mode × layer', vs.by_layer, 'acc']);
+    heats.push(['Hard AccΔ vs ' + vs.baseline + ' — mode × layer', vs.by_layer, 'acc']);
   }
   let html = `
-    <div class="chart-panel"><h3>mean AccΔ vs ${vs.baseline}</h3><canvas id="vsBarAcc" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
-    <div class="chart-panel"><h3>mean ScoreΔ vs ${vs.baseline}</h3><canvas id="vsBarScore" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
-    <div class="chart-panel"><h3>mean AvailΔ vs ${vs.baseline}</h3><canvas id="vsBarAvail" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>`;
+    <div class="chart-panel"><h3>mean Hard AccΔ vs ${prettyMode(vs.baseline)} (pp)</h3><canvas id="vsBarAcc" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
+    <div class="chart-panel"><h3>mean ThruΔ vs ${prettyMode(vs.baseline)}</h3><canvas id="vsBarThru" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
+    <div class="chart-panel"><h3>mean ScoreΔ vs ${prettyMode(vs.baseline)}</h3><canvas id="vsBarScore" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>
+    <div class="chart-panel"><h3>mean AvailΔ vs ${prettyMode(vs.baseline)}</h3><canvas id="vsBarAvail" width="960" height="${Math.max(160, vs.modes.length*28)}"></canvas></div>`;
   heats.forEach((h, i) => {
     html += `<div class="chart-panel"><h3>${h[0]}</h3><div class="table-wrap" id="vsHeat${i}"></div></div>`;
   });
@@ -2024,6 +2039,7 @@ function renderVs(heat) {
   }
   stack.innerHTML = html;
   drawSignedBars('vsBarAcc', vs.modes, 'acc_delta');
+  drawSignedBars('vsBarThru', vs.modes, 'thru_delta');
   drawSignedBars('vsBarScore', vs.modes, 'score_delta');
   drawSignedBars('vsBarAvail', vs.modes, 'avail_delta');
   heats.forEach((h, i) => {
@@ -2032,7 +2048,7 @@ function renderVs(heat) {
   });
   const famEl = document.getElementById('vsFam');
   if (famEl) {
-    famEl.innerHTML = '<table><thead><tr><th>step</th><th>plain</th><th class="num">n</th><th class="num">mean |AccΔ|</th></tr></thead><tbody>' +
+    famEl.innerHTML = '<table><thead><tr><th>step</th><th>plain</th><th class="num">n</th><th class="num">mean |Hard AccΔ|</th></tr></thead><tbody>' +
       vs.families.map(f => `<tr><td>${f.step||''}</td><td>${f.plain||''}</td><td class="num">${f.n||0}</td><td class="num">${(f.mean_abs_acc||0).toFixed(2)}</td></tr>`).join('') +
       '</tbody></table>';
   }
@@ -2241,31 +2257,47 @@ function drawLPDScatter(canvasId, rows, xk, yk, vline, hline, goldSide) {
 function drawLPD() {
   const l = (lastLive && lastLive.lpd) || {};
   const champEl = document.getElementById('lpdChamp');
+  const leanEl = document.getElementById('lpdLean');
   const goldEl = document.getElementById('lpdGold');
   const stdEl = document.getElementById('lpdStd');
   const tb = document.getElementById('lpdTable');
   const modesEl = document.getElementById('lpdModes');
+  const leanArchEl = document.getElementById('lpdLeanArch');
   const gold = l.gold || [];
   const near = l.near || [];
   const trap = l.trap || [];
+  const lean = l.lean || [];
   if (champEl) {
     const c = l.champ || {};
     const ac = l.acc_champ || {};
     const lc = l.live_champ || {};
     champEl.innerHTML = ac.id || c.id
-      ? `<span class="pill">acc champ</span> ${prettyCellId(ac.id||'—')} · Acc ${(ac.avg_accuracy||0).toFixed(1)} · Thru ${(ac.throughput||0).toFixed(0)} · ${(ac.ram_kib||0).toFixed(1)} KiB
-         · <span class="pill">lucy score</span> ${prettyCellId(c.id||'—')} · Score ${(c.score||0).toFixed(1)} · Acc ${(c.avg_accuracy||0).toFixed(1)} · Soft ${(c.soft_acc||0).toFixed(1)}
+      ? `<span class="pill">Acc champ (Hard Acc)</span> ${prettyCellId(ac.id||'—')} · Hard Acc ${(ac.avg_accuracy||0).toFixed(1)}% · Thru ${(ac.throughput||0).toFixed(0)} · ${(ac.ram_kib||0).toFixed(1)} KiB
+         · <span class="pill">lucy score</span> ${prettyCellId(c.id||'—')} · Score ${(c.score||0).toFixed(1)} · Hard Acc ${(c.avg_accuracy||0).toFixed(1)}% · Soft ${(c.soft_acc||0).toFixed(1)}
          · <span class="pill">live-fit</span> ${prettyCellId(lc.id||'—')}
-         · <span class="pill">gold ${gold.length}</span> <span class="pill">near ${near.length}</span> <span class="pill">trap ${trap.length}</span>
+         · <span class="pill">gold ${gold.length}</span> <span class="pill">near ${near.length}</span> <span class="pill">lean ${lean.length}</span> <span class="pill">trap ${trap.length}</span>
          <div style="margin-top:0.35rem">board fastest ${prettyCellId(l.fast_id||'—')} · ${(l.fast_thru||0).toFixed(0)}/s
          · learner Thru peak ${(l.peak_thru||0).toFixed(0)} · learner Avail peak ${(l.peak_avail||0).toFixed(1)}%</div>`
       : 'Need finished ok cells.';
+  }
+  if (leanEl) {
+    const lc = l.lean_champ || {};
+    if (lc.id) {
+      leanEl.className = 'lpd-callout';
+      leanEl.innerHTML = `<b>Lean ≥95% Acc keep</b> — smallest RAM among cells with Hard Acc ≥95% of Acc champ:
+        ${prettyCellId(lc.id)} · Hard Acc ${(lc.avg_accuracy||0).toFixed(1)}% · Acc keep ${((lc.rel_acc||0)*100).toFixed(0)}% ·
+        ${(lc.throughput||0).toFixed(0)}/s · Avail ${(lc.availability||0).toFixed(1)}% · ${(lc.ram_kib||0).toFixed(1)} KiB
+        · <span class="pill">${lean.length} in band</span>`;
+    } else {
+      leanEl.className = 'lpd-callout empty';
+      leanEl.textContent = 'No lean cell yet. Need Acc keep ≥95% of Acc champ, then pick smallest RAM / fastest Thru.';
+    }
   }
   if (goldEl) {
     if (gold.length) {
       goldEl.className = 'lpd-callout';
       goldEl.innerHTML = '<b>Gold</b> — ' + gold.slice(0, 8).map(r =>
-        `${prettyCellId(r.id)} · Q ${((r.q||0)*100).toFixed(0)}% · ${((r.ram_frac||0)*100).toFixed(0)}% Acc-champ RAM · ${ (r.shrink||0).toFixed(1)}× smaller`
+        `${prettyCellId(r.id)} · Q ${((r.q||0)*100).toFixed(0)}% · Acc keep ${((r.rel_acc||0)*100).toFixed(0)}% · ${((r.ram_frac||0)*100).toFixed(0)}% Acc-champ RAM · ${ (r.shrink||0).toFixed(1)}× smaller`
       ).join('<br>');
     } else {
       goldEl.className = 'lpd-callout empty';
@@ -2275,8 +2307,8 @@ function drawLPD() {
   if (stdEl) {
     const s = l.gold_std || {};
     stdEl.innerHTML = s.id
-      ? `<span class="pill">gold-std</span> Acc ≥80% plus Thru or Avail ≥80%, then smallest+fastest: ${prettyCellId(s.id)} · mode <b>${prettyMode(s.mode||'—')}</b> · Acc ${(s.avg_accuracy||0).toFixed(1)} · ${(s.throughput||0).toFixed(0)}/s · ${(s.ram_kib||0).toFixed(1)} KiB`
-      : 'No gold-std yet — need Acc ≥80% of Acc champ plus at least one other pillar.';
+      ? `<span class="pill">gold-std</span> Acc keep ≥80% plus Thru or Avail ≥80%, then smallest+fastest: ${prettyCellId(s.id)} · mode <b>${prettyMode(s.mode||'—')}</b> · Hard Acc ${(s.avg_accuracy||0).toFixed(1)}% · Acc keep ${((s.rel_acc||0)*100).toFixed(0)}% · ${(s.throughput||0).toFixed(0)}/s · ${(s.ram_kib||0).toFixed(1)} KiB`
+      : 'No gold-std yet — need Acc keep ≥80% of Acc champ plus at least one other pillar.';
   }
   if (modesEl) {
     const modes = l.gold_modes || [];
@@ -2293,11 +2325,27 @@ function drawLPD() {
     </tr>`;
     }).join('') : '<tr><td colspan="6">no 2+ pillar Acc-keep cells yet</td></tr>';
   }
+  if (leanArchEl) {
+    const arches = l.lean_by_arch || [];
+    leanArchEl.innerHTML = arches.length ? arches.map(m => {
+      let cell = m.smallest || '';
+      if (m.fastest && m.fastest !== m.smallest) cell += ' / ' + m.fastest;
+      return `<tr>
+      <td>${(m.mode||'—').replace(/^cnn$/i,'single')}</td>
+      <td class="num">${m.n||0}</td>
+      <td class="num">${(m.best_acc||0).toFixed(1)}</td>
+      <td class="num">${(m.min_ram_kib||0).toFixed(1)}</td>
+      <td class="num">${(m.max_thru||0).toFixed(0)}</td>
+      <td class="cellid">${formatCellHTML(null, cell)}</td>
+    </tr>`;
+    }).join('') : '<tr><td colspan="6">no lean (≥95% Acc keep) cells yet</td></tr>';
+  }
   const rows = l.top || [];
   if (tb) {
     tb.innerHTML = rows.length ? rows.map(r => `<tr class="clickable" data-cell="${escAttr(r.id||'')}" style="color:${bandColor(r.band)}">
       <td>${r.band||'—'}</td>
       <td class="cellid">${formatCellHTML(null, r.id)}</td>
+      <td class="num">${(r.avg_accuracy||0).toFixed(1)}</td>
       <td class="num">${((r.rel_acc||0)*100).toFixed(0)}</td>
       <td class="num">${((r.rel_thru||0)*100).toFixed(0)}</td>
       <td class="num">${((r.rel_avail||0)*100).toFixed(0)}</td>
@@ -2305,7 +2353,7 @@ function drawLPD() {
       <td class="num">${((r.ram_frac||0)*100).toFixed(0)}</td>
       <td class="num">${(r.lpd||0).toFixed(2)}</td>
       <td class="num">${(r.ram_kib||0).toFixed(1)}</td>
-    </tr>`).join('') : '<tr><td colspan="9">no finished ok cells yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="10">no finished ok cells yet</td></tr>';
     bindRowClicks(tb);
   }
 }

@@ -401,6 +401,35 @@ func LPDScatterSVG(pts []lpdScatterPt, xk, yk string, xMax, yMax float64, invert
 		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="%.0f" fill="%s" opacity="0.9"/>`, X(xs[i]), Y(ys[i]), r, col)
 		if p.Gold {
 			fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="8" fill="none" stroke="#b7791f" stroke-width="1.4"/>`, X(xs[i]), Y(ys[i]))
+		} else if p.Lean {
+			fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="7" fill="none" stroke="#9ece6a" stroke-width="1.2"/>`, X(xs[i]), Y(ys[i]))
+		}
+	}
+	// Gold / lean guides when axes are RAM × keep%.
+	if xk == "ram" && !invertX && xmax > xmin {
+		goldRAM := xmax * LPDGoldRAM // xmax is Acc-champ RAM → 20% line
+		if goldRAM >= xmin && goldRAM <= xmax {
+			gx := X(goldRAM)
+			fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b7791f" stroke-width="1" stroke-dasharray="5 4" opacity="0.85"/>`,
+				gx, padT, gx, float64(h)-padB)
+			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" fill="#b7791f" font-family="sans-serif" font-size="10">20%% Acc-champ RAM</text>`,
+				gx+4, padT+12)
+		}
+	}
+	if yk == "accpct" || yk == "qpct" {
+		drawH := func(pct float64, col, lab string) {
+			if pct < ymin || pct > ymax {
+				return
+			}
+			gy := Y(pct)
+			fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="1" stroke-dasharray="5 4" opacity="0.85"/>`,
+				padL, gy, float64(w)-padR, gy, col)
+			fmt.Fprintf(&b, `<text x="%.1f" y="%.1f" fill="%s" font-family="sans-serif" font-size="10">%s</text>`,
+				padL+4, gy-4, col, escSVG(lab))
+		}
+		drawH(LPDGoldKeep*100, "#b7791f", "80% keep")
+		if yk == "accpct" {
+			drawH(LPDLeanKeep*100, "#9ece6a", "lean 95% Acc keep")
 		}
 	}
 	axisLabel(&b, w, h, padL, padB, axisLabelName(xk), axisLabelName(yk))
@@ -412,6 +441,7 @@ type lpdScatterPt struct {
 	Band   string
 	Mode   string
 	Gold   bool
+	Lean   bool
 	RAM    float64
 	Shrink float64
 	QPct   float64
@@ -424,20 +454,28 @@ func LPDScatterPoints(l LPD) []lpdScatterPt {
 	var out []lpdScatterPt
 	add := func(r LPDRow) {
 		k := r.ID
-		if seen[k] {
+		if k == "" || seen[k] {
 			return
 		}
 		seen[k] = true
 		out = append(out, lpdScatterPt{
 			Band: r.Band, Mode: r.Mode, Gold: r.Gold,
+			Lean: r.RelAcc >= LPDLeanKeep,
 			RAM: r.RAMKiB, Shrink: r.Shrink,
 			QPct: (r.Q) * 100, AccPct: (r.RelAcc) * 100,
 		})
+	}
+	// Prefer full Pool so Acc-champ / gold cells aren't missing after Top[:40].
+	for _, r := range l.Pool {
+		add(r)
 	}
 	for _, r := range l.Gold {
 		add(r)
 	}
 	for _, r := range l.Near {
+		add(r)
+	}
+	for _, r := range l.Lean {
 		add(r)
 	}
 	for _, r := range l.Trap {
@@ -494,18 +532,71 @@ func RadarFromLPD(l LPD) (live, dens []RadarSeries) {
 		}
 		return x
 	}
+	// Synth a row from a champ when Top truncation / JSON omit of Pool would hide it.
+	synth := func(c LPDChamp) LPDRow {
+		ra, rt, rv := 0.0, 0.0, 0.0
+		if l.PeakAcc > 0 {
+			ra = c.Acc / l.PeakAcc
+		}
+		if l.PeakThru > 0 {
+			rt = c.Thru / l.PeakThru
+		}
+		if l.PeakAvail > 0 {
+			rv = c.Avail / l.PeakAvail
+		}
+		ref := l.AccChamp.RAMKiB
+		if ref <= 0 {
+			ref = 1e-6
+		}
+		ram := c.RAMKiB
+		if ram <= 0 {
+			ram = 1e-6
+		}
+		shrink := ref / ram
+		if shrink > LPDShrinkCap {
+			shrink = LPDShrinkCap
+		}
+		da, dt, dv := 0.0, 0.0, 0.0
+		if ra >= LPDKeepFloor {
+			da, dt, dv = ra*shrink, rt*shrink, rv*shrink
+		}
+		return LPDRow{
+			ID: c.ID, Mode: c.Mode, DType: c.DType, Arch: c.Arch,
+			Score: c.Score, Soft: c.Soft, Acc: c.Acc, Thru: c.Thru, Avail: c.Avail, RAMKiB: c.RAMKiB,
+			RelAcc: ra, RelThru: rt, RelAvail: rv,
+			DensAcc: da, DensThru: dt, DensAvail: dv, Shrink: shrink, LPD: 0,
+		}
+	}
 	rowBy := func(id string) *LPDRow {
 		if id == "" {
 			return nil
 		}
-		for _, src := range [][]LPDRow{l.Top, l.Gold, l.Near, l.Trap} {
+		for _, src := range [][]LPDRow{l.Pool, l.Top, l.Gold, l.Near, l.Lean, l.Trap} {
 			for i := range src {
 				if src[i].ID == id {
 					return &src[i]
 				}
 			}
 		}
+		if l.GoldStd.ID == id {
+			r := l.GoldStd
+			return &r
+		}
+		if l.LeanChamp.ID == id {
+			r := l.LeanChamp
+			return &r
+		}
 		return nil
+	}
+	rowOrChamp := func(id string, c LPDChamp) *LPDRow {
+		if r := rowBy(id); r != nil {
+			return r
+		}
+		if c.ID == "" {
+			return nil
+		}
+		r := synth(c)
+		return &r
 	}
 	cellLabel := func(row *LPDRow) string {
 		if row == nil {
@@ -546,28 +637,39 @@ func RadarFromLPD(l LPD) (live, dens []RadarSeries) {
 		})
 	}
 	if l.AccChamp.ID != "" {
-		push(&live, "Acc champ", "#e6b35a", rowBy(l.AccChamp.ID), false)
+		push(&live, "Acc champ", "#e6b35a", rowOrChamp(l.AccChamp.ID, l.AccChamp), false)
+	}
+	if l.LeanChamp.ID != "" {
+		push(&live, "Lean ≥95%", "#9ece6a", &l.LeanChamp, false)
 	}
 	if l.GoldStd.ID != "" {
-		push(&live, "Gold-std", "#b7791f", rowBy(l.GoldStd.ID), false)
+		push(&live, "Gold-std", "#b7791f", rowOrChamp(l.GoldStd.ID, LPDChamp{
+			ID: l.GoldStd.ID, Mode: l.GoldStd.Mode, DType: l.GoldStd.DType, Arch: l.GoldStd.Arch,
+			Score: l.GoldStd.Score, Soft: l.GoldStd.Soft, Acc: l.GoldStd.Acc, Thru: l.GoldStd.Thru,
+			Avail: l.GoldStd.Avail, RAMKiB: l.GoldStd.RAMKiB,
+		}), false)
 	}
 	if l.LiveChamp.ID != "" {
-		push(&live, "Live-fit", "#3dd6c6", rowBy(l.LiveChamp.ID), false)
+		push(&live, "Live-fit", "#3dd6c6", rowOrChamp(l.LiveChamp.ID, l.LiveChamp), false)
 	}
 	if l.Champ.ID != "" {
-		push(&live, "Lucy Score", "#e06c75", rowBy(l.Champ.ID), false)
+		push(&live, "Lucy Score", "#e06c75", rowOrChamp(l.Champ.ID, l.Champ), false)
+	}
+	if l.LeanChamp.ID != "" {
+		push(&dens, "Lean ≥95%", "#9ece6a", &l.LeanChamp, true)
 	}
 	if l.GoldStd.ID != "" {
-		push(&dens, "Gold-std", "#b7791f", rowBy(l.GoldStd.ID), true)
+		gs := l.GoldStd
+		push(&dens, "Gold-std", "#b7791f", &gs, true)
 	}
 	if len(l.Top) > 0 && l.Top[0].LPD > 0 {
 		push(&dens, "LPD lead", "#3dd6c6", &l.Top[0], true)
 	}
 	if l.AccChamp.ID != "" {
-		push(&dens, "Acc champ", "#e6b35a", rowBy(l.AccChamp.ID), true)
+		push(&dens, "Acc champ", "#e6b35a", rowOrChamp(l.AccChamp.ID, l.AccChamp), true)
 	}
 	if l.Champ.ID != "" {
-		push(&dens, "Lucy Score", "#e06c75", rowBy(l.Champ.ID), true)
+		push(&dens, "Lucy Score", "#e06c75", rowOrChamp(l.Champ.ID, l.Champ), true)
 	}
 	return live, dens
 }
@@ -691,7 +793,7 @@ func axisLabelName(k string) string {
 	case "availability":
 		return "Avail %"
 	case "avg_accuracy":
-		return "Acc %"
+		return "Hard Acc %"
 	case "soft_acc":
 		return "SoftAcc"
 	case "score":

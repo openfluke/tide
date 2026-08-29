@@ -7,6 +7,7 @@ import "github.com/openfluke/welvet/lucy"
 const (
 	LPDKeepFloor = lucy.LPDKeepFloor
 	LPDGoldKeep  = lucy.LPDGoldKeep
+	LPDLeanKeep  = lucy.LPDLeanKeep
 	LPDGoldRAM   = lucy.LPDGoldRAM
 	LPDNearRAM   = lucy.LPDNearRAM
 	LPDShrinkCap = lucy.LPDShrinkCap

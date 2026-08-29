@@ -25,7 +25,9 @@ func (s *Server) chartSource() ChartSource {
 	if s != nil {
 		task = s.Task
 	}
-	pts := report.PointsFromResults(live.Completed, task)
+	// Full archive — live.Completed is trimmed and starves LPD/radars/scatters.
+	completed := s.reportCompleted(live)
+	pts := report.PointsFromResults(completed, task)
 	heat := report.BuildHeat(pts)
 	lpd := report.BuildLPD(pts)
 	return ChartSource{
