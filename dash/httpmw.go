@@ -31,18 +31,28 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
-// writeJSON encodes v as JSON with optional ETag short-circuit.
+// WriteJSON encodes v as JSON with optional ETag short-circuit.
+// Marshals before writing so encode failures become 500s instead of empty 200s.
 func WriteJSON(w http.ResponseWriter, r *http.Request, etag string, v any) {
 	if etag != "" {
-		w.Header().Set("ETag", etag)
 		if inm := r.Header.Get("If-None-Match"); inm != "" && inm == etag {
+			w.Header().Set("ETag", etag)
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
 	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, "json encode: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if etag != "" {
+		w.Header().Set("ETag", etag)
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(b)
+	_, _ = w.Write([]byte{'\n'})
 }
 
 func WriteSVG(w http.ResponseWriter, r *http.Request, etag string, svg []byte) {

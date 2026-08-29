@@ -2421,13 +2421,13 @@ async function tick() {
       `${prettyCellId(j.message || '')} · phase ${j.phase || '—'} · ${epochLabel}` +
       (epochMax > 0 ? ` · ${epochsLeft} left · ${overallPct || '—'} overall` : '') +
       ` · hist ${j.history_len||0} · ${
-        awaiting ? 'PAUSED' : (j.running ? 'RUNNING' : 'idle')
+        awaiting ? 'PAUSED' : (runningN(j) > 0 ? `RUNNING ×${runningN(j)}` : 'idle')
       }`;
 
     const eta = updateETA(j);
     drawProgressPie(eta);
-    renderModeQueue(j.mode_progress);
-    renderWinners(j.winners);
+    renderModeQueue(j.mode_progress || []);
+    renderWinners(j.winners || {});
     drawModePie();
     await syncHistoryTip(j.history_len || 0, j.history_tip || []);
 
@@ -2442,7 +2442,7 @@ async function tick() {
         : (s.availability||0).toFixed(1)+'%';
       return `<div><span class="pill">${label}</span> ${v} · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
     };
-    bestEl.innerHTML = [
+    if (bestEl) bestEl.innerHTML = [
       line('score', b.score, 'score'),
       line('throughput', b.throughput, 'thru'),
       line('availability', b.availability, 'avail'),
@@ -2468,7 +2468,7 @@ async function tick() {
       const s = row.snapshot || {};
       return `<div><span class="pill">${label}</span> ${(s[effKey]||0).toFixed(2)}/MiB · ${((s.weight_bytes||0)/1024).toFixed(1)} KiB · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
     };
-    mobEl.innerHTML = [
+    if (mobEl) mobEl.innerHTML = [
       mline('score', m.score, 'mobile_score'),
       mline('throughput', m.throughput, 'mobile_throughput'),
       mline('availability', m.availability, 'mobile_availability'),
@@ -2479,17 +2479,19 @@ async function tick() {
     const blEl = document.getElementById('bestLearn');
     const learnLine = (label, row, fmt) => {
       if (!row) return `<div>${label}: —</div>`;
-      return `<div><span class="pill">${label}</span> ${fmt(row.snapshot)} · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
+      const s = row.snapshot || {};
+      return `<div><span class="pill">${label}</span> ${fmt(s)} · ${formatCellHTML(row.cell, row.cell?.id)}</div>`;
     };
-    blEl.innerHTML = [
-      learnLine('t→25%', bl.to25, s => fmtSec(s.time_to_acc25_sec)),
-      learnLine('t→50%', bl.to50, s => fmtSec(s.time_to_acc50_sec)),
-      learnLine('acc/sec', bl.acc_per_sec, s => (s.acc_per_sec||0).toFixed(3)),
+    if (blEl) blEl.innerHTML = [
+      learnLine('t→25%', bl.to25, s => fmtSec(s && s.time_to_acc25_sec)),
+      learnLine('t→50%', bl.to50, s => fmtSec(s && s.time_to_acc50_sec)),
+      learnLine('acc/sec', bl.acc_per_sec, s => ((s && s.acc_per_sec)||0).toFixed(3)),
     ].join('');
     const blm = j.best_learn_mobile || {};
-    document.getElementById('bestLearnMobile').innerHTML = [
-      learnLine('acc/sec/MiB', blm.acc_per_sec, s => (s.mobile_acc_per_sec||0).toFixed(2)),
-      learnLine('t→50% /MiB', blm.to50, s => fmtSec(s.time_to_acc50_sec)),
+    const blmEl = document.getElementById('bestLearnMobile');
+    if (blmEl) blmEl.innerHTML = [
+      learnLine('acc/sec/MiB', blm.acc_per_sec, s => ((s && s.mobile_acc_per_sec)||0).toFixed(2)),
+      learnLine('t→50% /MiB', blm.to50, s => fmtSec(s && s.time_to_acc50_sec)),
     ].join('');
 
     renderBoards();
@@ -2499,7 +2501,9 @@ async function tick() {
     renderLucyExtras();
     refreshCharts(j.chart_rev || Date.now(), followLive ? Math.max(0, history.length - 1) : +scrub.value);
   } catch (e) {
-    document.getElementById('status').textContent = 'waiting for /api/live…';
+    const msg = (e && e.message) ? e.message : String(e);
+    document.getElementById('status').textContent = 'live error: ' + msg;
+    console.error('tide live tick', e);
   }
 }
 setInterval(tick, 1000);

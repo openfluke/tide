@@ -1,12 +1,109 @@
 package report
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 	"strings"
 
 	"github.com/openfluke/tide/pulse"
 )
+
+// MarshalJSON encodes Heat for APIs. Empty grid cells are stored as NaN in
+// memory (SVG heatmaps), but encoding/json cannot emit NaN — that used to
+// make /api/live and /api/board return HTTP 200 with an empty body.
+func (h Heat) MarshalJSON() ([]byte, error) {
+	type dto struct {
+		Modes  []string `json:"modes,omitempty"`
+		DTypes []string `json:"dtypes,omitempty"`
+		Arches []string `json:"arches,omitempty"`
+		Layers []string `json:"layers,omitempty"`
+
+		ModeDTypeScore [][]any `json:"mode_dtype_score,omitempty"`
+		ModeDTypeSoft  [][]any `json:"mode_dtype_soft,omitempty"`
+		ModeDTypeAcc   [][]any `json:"mode_dtype_acc,omitempty"`
+		ModeArchScore  [][]any `json:"mode_arch_score,omitempty"`
+		ModeArchAcc    [][]any `json:"mode_arch_acc,omitempty"`
+		LayerModeScore [][]any `json:"layer_mode_score,omitempty"`
+		LayerModeAcc   [][]any `json:"layer_mode_acc,omitempty"`
+		ModeDTypeAvail [][]any `json:"mode_dtype_avail,omitempty"`
+		ModeArchAvail  [][]any `json:"mode_arch_avail,omitempty"`
+
+		ModeMeanScore  []any `json:"mode_mean_score,omitempty"`
+		ModeMeanSoft   []any `json:"mode_mean_soft,omitempty"`
+		ModeMeanAcc    []any `json:"mode_mean_acc,omitempty"`
+		ModeMeanAvail  []any `json:"mode_mean_avail,omitempty"`
+		ModeMeanThru   []any `json:"mode_mean_thru,omitempty"`
+		DTypeMeanScore []any `json:"dtype_mean_score,omitempty"`
+		DTypeMeanAcc   []any `json:"dtype_mean_acc,omitempty"`
+		ArchMeanScore  []any `json:"arch_mean_score,omitempty"`
+		ArchMeanAcc    []any `json:"arch_mean_acc,omitempty"`
+
+		Vs     *VsBoard    `json:"vs,omitempty"`
+		Points []CellPoint `json:"points,omitempty"`
+	}
+	return json.Marshal(dto{
+		Modes:          h.Modes,
+		DTypes:         h.DTypes,
+		Arches:         h.Arches,
+		Layers:         h.Layers,
+		ModeDTypeScore: jsonSafeGrid(h.ModeDTypeScore),
+		ModeDTypeSoft:  jsonSafeGrid(h.ModeDTypeSoft),
+		ModeDTypeAcc:   jsonSafeGrid(h.ModeDTypeAcc),
+		ModeArchScore:  jsonSafeGrid(h.ModeArchScore),
+		ModeArchAcc:    jsonSafeGrid(h.ModeArchAcc),
+		LayerModeScore: jsonSafeGrid(h.LayerModeScore),
+		LayerModeAcc:   jsonSafeGrid(h.LayerModeAcc),
+		ModeDTypeAvail: jsonSafeGrid(h.ModeDTypeAvail),
+		ModeArchAvail:  jsonSafeGrid(h.ModeArchAvail),
+		ModeMeanScore:  jsonSafeRow(h.ModeMeanScore),
+		ModeMeanSoft:   jsonSafeRow(h.ModeMeanSoft),
+		ModeMeanAcc:    jsonSafeRow(h.ModeMeanAcc),
+		ModeMeanAvail:  jsonSafeRow(h.ModeMeanAvail),
+		ModeMeanThru:   jsonSafeRow(h.ModeMeanThru),
+		DTypeMeanScore: jsonSafeRow(h.DTypeMeanScore),
+		DTypeMeanAcc:   jsonSafeRow(h.DTypeMeanAcc),
+		ArchMeanScore:  jsonSafeRow(h.ArchMeanScore),
+		ArchMeanAcc:    jsonSafeRow(h.ArchMeanAcc),
+		Vs:             h.Vs,
+		Points:         h.Points,
+	})
+}
+
+func jsonSafeFloat(v float64) any {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return nil
+	}
+	return v
+}
+
+func jsonSafeRow(in []float64) []any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]any, len(in))
+	for i, v := range in {
+		out[i] = jsonSafeFloat(v)
+	}
+	return out
+}
+
+func jsonSafeGrid(in [][]float64) [][]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([][]any, len(in))
+	for i, row := range in {
+		if row == nil {
+			continue
+		}
+		out[i] = make([]any, len(row))
+		for j, v := range row {
+			out[i][j] = jsonSafeFloat(v)
+		}
+	}
+	return out
+}
 
 const maxHeatPoints = 3000
 

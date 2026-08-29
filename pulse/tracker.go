@@ -463,6 +463,7 @@ func (t *Tracker) pulseLocked(cellID string, win metrics.Window, snap metrics.Sn
 		t.live.Current = row
 		cellID = row.Cell.ID
 	}
+	t.syncInflightLocked() // refresh Inflight value copies for /api/live
 	t.refreshBoardsLocked()
 	t.refreshProvisionalBestsLocked()
 	t.appendHistoryLocked(HistoryPoint{
