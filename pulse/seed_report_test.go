@@ -29,9 +29,25 @@ func TestSeedReportLogMergesAndGrows(t *testing.T) {
 		by[r.Cell.ID] = r
 	}
 	if by["b"].Snapshot.AvgAccuracy != 99 {
-		t.Fatalf("b not upserted: %+v", by["b"].Snapshot)
+		t.Fatalf("b Acc not upserted: %+v", by["b"].Snapshot)
 	}
+	// Incoming c has no Avail — should still be present.
 	if _, ok := by["c"]; !ok {
 		t.Fatal("missing c")
+	}
+	// Seed a with Avail=0 should keep prior Avail.
+	tr.SeedReportLog([]Result{
+		{Cell: cell("a"), Status: "ok", Snapshot: metrics.Snapshot{AvgAccuracy: 50, Availability: 0}},
+	})
+	a := tr.ReportResults()
+	for _, r := range a {
+		if r.Cell.ID == "a" {
+			if r.Snapshot.Availability != 30 {
+				t.Fatalf("a Avail overwritten: got %v want 30", r.Snapshot.Availability)
+			}
+			if r.Snapshot.AvgAccuracy != 50 {
+				t.Fatalf("a Acc not updated: %v", r.Snapshot.AvgAccuracy)
+			}
+		}
 	}
 }

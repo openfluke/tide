@@ -722,12 +722,11 @@ func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 		d.pdf.SetXY(left, y)
 		d.pdf.CellFormat(labelW, rh, d.fitText(r, labelW), "", 0, "L", false, 0, "")
 		for j := range cols {
+			cr, cg, cb := 36, 48, 56 // missing = dark hole (not in sample / not in plan)
+			present := i < len(grid) && j < len(grid[i]) && !math.IsNaN(grid[i][j])
 			v := 0.0
-			if i < len(grid) && j < len(grid[i]) {
+			if present {
 				v = grid[i][j]
-			}
-			cr, cg, cb := 36, 48, 56
-			if v != 0 || (i < len(grid) && j < len(grid[i]) && hasVal(grid, i, j)) {
 				t := 0.0
 				if max > min {
 					t = (v - min) / (max - min)
@@ -744,8 +743,8 @@ func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 				d.pdf.SetTextColor(240, 244, 246)
 			}
 			d.pdf.SetXY(x, y)
-			if v == 0 && !hasVal(grid, i, j) {
-				d.pdf.CellFormat(cw-0.3, rh-0.3, "", "", 0, "C", false, 0, "")
+			if !present {
+				d.pdf.CellFormat(cw-0.3, rh-0.3, "·", "", 0, "C", false, 0, "")
 			} else {
 				d.pdf.CellFormat(cw-0.3, rh-0.3, fmt.Sprintf("%.0f", v), "", 0, "C", false, 0, "")
 			}
@@ -756,7 +755,7 @@ func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 }
 
 func hasVal(grid [][]float64, i, j int) bool {
-	return i < len(grid) && j < len(grid[i]) && !math.IsNaN(grid[i][j]) && grid[i][j] != 0
+	return i < len(grid) && j < len(grid[i]) && !math.IsNaN(grid[i][j])
 }
 
 func heatRange(grid [][]float64) (min, max float64) {
@@ -764,7 +763,7 @@ func heatRange(grid [][]float64) (min, max float64) {
 	any := false
 	for _, row := range grid {
 		for _, v := range row {
-			if v == 0 {
+			if math.IsNaN(v) {
 				continue
 			}
 			any = true

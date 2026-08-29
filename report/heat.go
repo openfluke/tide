@@ -1,6 +1,7 @@
 package report
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -76,7 +77,12 @@ func BuildHeat(pts []CellPoint) Heat {
 	h.ModeDTypeAvail = grid1(pts, h.Modes, h.DTypes,
 		func(p CellPoint) string { return p.Mode },
 		func(p CellPoint) string { return p.DType },
-		func(p CellPoint) float64 { return p.Avail },
+		func(p CellPoint) float64 {
+			if p.Avail <= 0 {
+				return math.NaN()
+			}
+			return p.Avail
+		},
 	)
 	h.ModeArchAvail = grid1(pts, h.Modes, h.Arches,
 		func(p CellPoint) string { return p.Mode },
@@ -104,7 +110,7 @@ func uniq(pts []CellPoint, key func(CellPoint) string) []string {
 
 func grid3(pts []CellPoint, rows, cols []string, rowOf, colOf func(CellPoint) string) (score, soft, acc [][]float64) {
 	type accu struct {
-		n        int
+		n, ns    int
 		s, so, a float64
 	}
 	idxR := indexOf(rows)
@@ -124,9 +130,13 @@ func grid3(pts []CellPoint, rows, cols []string, rowOf, colOf func(CellPoint) st
 		}
 		b := &bucket[i][j]
 		b.n++
-		b.s += p.Score
 		b.so += p.Soft
 		b.a += p.Acc
+		// Score needs Availability; rows restored without Avail must not paint as Score=0.
+		if p.Avail > 0 {
+			b.ns++
+			b.s += p.Score
+		}
 	}
 	score = make([][]float64, len(rows))
 	soft = make([][]float64, len(rows))
@@ -137,12 +147,19 @@ func grid3(pts []CellPoint, rows, cols []string, rowOf, colOf func(CellPoint) st
 		acc[i] = make([]float64, len(cols))
 		for j := range cols {
 			if bucket[i][j].n == 0 {
+				score[i][j] = math.NaN()
+				soft[i][j] = math.NaN()
+				acc[i][j] = math.NaN()
 				continue
 			}
 			n := float64(bucket[i][j].n)
-			score[i][j] = bucket[i][j].s / n
 			soft[i][j] = bucket[i][j].so / n
 			acc[i][j] = bucket[i][j].a / n
+			if bucket[i][j].ns == 0 {
+				score[i][j] = math.NaN()
+			} else {
+				score[i][j] = bucket[i][j].s / float64(bucket[i][j].ns)
+			}
 		}
 	}
 	return
@@ -200,15 +217,21 @@ func grid1(pts []CellPoint, rows, cols []string, rowOf, colOf func(CellPoint) st
 		if !ok {
 			continue
 		}
+		v := val(p)
+		// Skip missing Availability so Avail heatmaps don't treat "unknown" as 0%.
+		if math.IsNaN(v) {
+			continue
+		}
 		b := &bucket[i][j]
 		b.n++
-		b.s += val(p)
+		b.s += v
 	}
 	out := make([][]float64, len(rows))
 	for i := range rows {
 		out[i] = make([]float64, len(cols))
 		for j := range cols {
 			if bucket[i][j].n == 0 {
+				out[i][j] = math.NaN()
 				continue
 			}
 			out[i][j] = bucket[i][j].s / float64(bucket[i][j].n)

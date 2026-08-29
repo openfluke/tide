@@ -314,8 +314,9 @@ func (t *Tracker) ReportResults() []Result {
 	return append([]Result(nil), t.reportLog...)
 }
 
-// SeedReportLog merges rows into the PDF archive (keeps larger/newer set).
-// Used when results.json / a full checkpoint must refill after Completed was capped.
+// SeedReportLog merges rows into the PDF archive (grows by cell ID).
+// When an incoming row has Availability==0, keeps Avail/Score from any
+// existing archive row for that ID (old results.json lacked Availability).
 func (t *Tracker) SeedReportLog(rows []Result) {
 	if t == nil || len(rows) == 0 {
 		return
@@ -332,15 +333,38 @@ func (t *Tracker) SeedReportLog(rows []Result) {
 			continue
 		}
 		if i, ok := by[id]; ok {
+			prev := t.reportLog[i]
+			if r.Snapshot.Availability <= 0 && prev.Snapshot.Availability > 0 {
+				r.Snapshot.Availability = prev.Snapshot.Availability
+				if r.Snapshot.Score <= 0 && prev.Snapshot.Score > 0 {
+					r.Snapshot.Score = prev.Snapshot.Score
+				}
+			}
+			if r.Snapshot.SoftAcc <= 0 && prev.Snapshot.SoftAcc > 0 {
+				r.Snapshot.SoftAcc = prev.Snapshot.SoftAcc
+			}
+			if r.Snapshot.Throughput <= 0 && prev.Snapshot.Throughput > 0 {
+				r.Snapshot.Throughput = prev.Snapshot.Throughput
+			}
+			if r.Snapshot.WeightBytes <= 0 && prev.Snapshot.WeightBytes > 0 {
+				r.Snapshot.WeightBytes = prev.Snapshot.WeightBytes
+				r.Snapshot.WeightMiB = prev.Snapshot.WeightMiB
+			}
+			// Prefer non-zero Acc from either side (results usually have Acc).
+			if r.Snapshot.AvgAccuracy <= 0 && prev.Snapshot.AvgAccuracy > 0 {
+				r.Snapshot.AvgAccuracy = prev.Snapshot.AvgAccuracy
+			}
+			if r.Snapshot.Availability > 0 && r.Snapshot.Throughput > 0 && r.Snapshot.AvgAccuracy > 0 {
+				r.Snapshot.Score = r.Snapshot.Throughput * r.Snapshot.Availability * r.Snapshot.AvgAccuracy / 10000
+			}
 			t.reportLog[i] = r
 			continue
 		}
 		by[id] = len(t.reportLog)
 		t.reportLog = append(t.reportLog, r)
 	}
-	t.live.Recorded = len(t.reportLog)
-	if t.live.Recorded < t.live.CellIndex {
-		// keep CellIndex from plan progress
+	if len(t.reportLog) > t.live.Recorded {
+		t.live.Recorded = len(t.reportLog)
 	}
 }
 
