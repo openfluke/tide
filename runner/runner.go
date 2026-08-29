@@ -320,7 +320,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	tr.BeginEpoch(cell, cfg.Epoch, "A")
 	m, err := cfg.buildNet(cell)
 	if err != nil {
-		tr.Finish("gap", err.Error(), metrics.Snapshot{})
+		tr.FinishID(cell.ID, "gap", err.Error(), metrics.Snapshot{})
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
 		return err
 	}
@@ -571,7 +571,7 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 			}
 			metrics.Finalize(&snap)
 			lastSnap.Store(snap)
-			tr.Pulse(w, snap, p)
+			tr.PulseID(cell.ID, w, snap, p)
 			msg := fmt.Sprintf("epoch %d · %s · %d/%d", cfg.Epoch, cell.ID, ds.EpochOffset(), trainLen)
 			if cfg.CellMin > 0 {
 				msg = fmt.Sprintf("%s · %s/%s", msg, time.Since(start).Truncate(10*time.Millisecond), cfg.CellMin)
@@ -699,13 +699,13 @@ func runCellEpoch(ctx context.Context, cfg Config, ds Dataset, tr *pulse.Tracker
 	}
 
 	if note, ok := failNote.Load().(string); ok && note != "" {
-		tr.Finish("fail", note, snap)
+		tr.FinishID(cell.ID, "fail", note, snap)
 		_ = persistProgress(cfg, tr, cellIdx+1, nil, nil)
 		m = nil
 		return fmt.Errorf("%s", note)
 	}
 
-	done := tr.Finish("ok", "", snap)
+	done := tr.FinishID(cell.ID, "ok", "", snap)
 	if cfg.Store != nil {
 		best := tr.Best()
 		mobile := tr.BestMobile()

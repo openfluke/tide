@@ -55,6 +55,7 @@ type Board struct {
 	Started          bool              `json:"started"`
 	AwaitingStart    bool              `json:"awaiting_start"`
 	Running          bool              `json:"running"`
+	RunningN         int               `json:"running_n"`
 	Phase            string            `json:"phase"`
 	Message          string            `json:"message"`
 	CellIndex        int               `json:"cell_index"`
@@ -68,6 +69,7 @@ type Board struct {
 	EpochDone        int               `json:"epoch_done"`
 	ProgressPct      float64           `json:"progress_pct"`
 	Current          *pulse.Result     `json:"current,omitempty"`
+	Inflight         []pulse.Result    `json:"inflight,omitempty"`
 	Best             pulse.Best        `json:"best"`
 	BestMobile       pulse.BestMobile  `json:"best_mobile"`
 	BestLearn        pulse.BestLearn   `json:"best_learn"`
@@ -223,9 +225,14 @@ func (s *Server) Board() Board {
 	heat := report.BuildHeat(pts)
 	_, emax, eleft, eoverall := s.epochProgress(pct)
 	running := live.Running
+	runningN := live.RunningN
+	if runningN == 0 && live.Current != nil && running {
+		runningN = 1
+	}
 	// Prefer plan completion over a stuck Running flag after Park/finish.
 	if plan > 0 && planDone >= plan {
 		running = false
+		runningN = 0
 	}
 	out := Board{
 		ID:               s.identityID(),
@@ -240,6 +247,7 @@ func (s *Server) Board() Board {
 		Started:          started,
 		AwaitingStart:    !started,
 		Running:          running,
+		RunningN:         runningN,
 		Phase:            live.Phase,
 		Message:          live.Message,
 		CellIndex:        live.CellIndex,
@@ -253,6 +261,7 @@ func (s *Server) Board() Board {
 		EpochDone:        epochDone,
 		ProgressPct:      pct,
 		Current:          live.Current,
+		Inflight:         append([]pulse.Result(nil), live.Inflight...),
 		Best:             live.Best,
 		BestMobile:       live.BestMobile,
 		BestLearn:        live.BestLearn,

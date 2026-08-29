@@ -94,7 +94,14 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 			a.done++
 		}
 	}
-	if live.Current != nil && live.Running {
+	if len(live.Inflight) > 0 {
+		for _, r := range live.Inflight {
+			m := string(r.Cell.Mode)
+			if a := by[m]; a != nil {
+				a.running++
+			}
+		}
+	} else if live.Current != nil && live.Running {
 		m := string(live.Current.Cell.Mode)
 		if a := by[m]; a != nil {
 			a.running++

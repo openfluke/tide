@@ -845,10 +845,17 @@ function sweepDurations() {
   return { avg, med, n: ms.length };
 }
 
+function runningN(j) {
+  if (!j) return 0;
+  if (j.running_n != null && j.running_n > 0) return j.running_n;
+  if ((j.inflight || []).length) return j.inflight.length;
+  return j.running ? 1 : 0;
+}
+
 function updateETA(j) {
   const total = j.plan || j.cell_total || 0;
   const done = j.epoch_done != null ? j.epoch_done : 0;
-  const left = Math.max(0, total - Math.min(done, total) - (j.running ? 1 : 0));
+  const left = Math.max(0, total - Math.min(done, total) - runningN(j));
   const p = j.pace || {};
   let avg = (p.avg_cell_sec || 0) * 1000;
   let med = (p.med_cell_sec || 0) * 1000;
@@ -1094,7 +1101,7 @@ function drawProgressPie(eta) {
   const ok = lastLive.epoch_ok != null ? lastLive.epoch_ok : done;
   const gap = lastLive.epoch_gap != null ? lastLive.epoch_gap : 0;
   const fail = lastLive.epoch_fail != null ? lastLive.epoch_fail : 0;
-  const running = lastLive.running ? 1 : 0;
+  const running = runningN(lastLive);
   const left = Math.max(0, total - Math.min(done, total) - fail - running);
   const barPct = total > 0 ? Math.min(100, 100 * done / total) : 0;
   const barEl = document.getElementById('sweepBar');
@@ -1134,7 +1141,14 @@ function drawProgressPie(eta) {
     `<div class="eta">epoch ETA ~ ${fmtDur(eta.epochEtaSec)} · sweep ~ ${epochEta}</div>`;
   const statsEl = document.getElementById('sweepStats');
   if (statsEl) {
-    const cur = lastLive.message ? prettyCellId(lastLive.message) : '—';
+    const cur = (() => {
+      const inf = lastLive.inflight || [];
+      if (inf.length > 1) {
+        return `${inf.length} in-flight · ` + inf.slice(0, 3).map(r => prettyCellId(r.cell?.id || '')).join(', ') + (inf.length > 3 ? '…' : '');
+      }
+      if (inf.length === 1) return prettyCellId(inf[0].cell?.id || lastLive.message || '');
+      return lastLive.message ? prettyCellId(lastLive.message) : '—';
+    })();
     statsEl.innerHTML = [
       ['Progress', pct + ' · ' + done + '/' + total],
       ['Queue left', String(left)],
@@ -1144,8 +1158,8 @@ function drawProgressPie(eta) {
       ['Epoch ETA', fmtDur(eta.epochEtaSec)],
       ['Sweep ETA', epochEta],
       ['Phase', lastLive.phase || '—'],
-      ['Current', cur.length > 42 ? cur.slice(0, 40) + '…' : cur],
-      ['Status', lastLive.running ? 'RUNNING' : (lastLive.awaiting_start ? 'PAUSED' : 'idle')],
+      ['In-flight', cur.length > 64 ? cur.slice(0, 62) + '…' : cur],
+      ['Status', runningN(lastLive) > 0 ? `RUNNING ×${runningN(lastLive)}` : (lastLive.awaiting_start ? 'PAUSED' : 'idle')],
       ['Recorded', String(rec)],
       ['History', String(lastLive.history_len || 0) + ' pts'],
     ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
@@ -2376,7 +2390,7 @@ async function tick() {
     const j = await r.json();
     lastLive = j;
     applyTaskMeta(j);
-    const awaiting = !!j.awaiting_start && !j.started && !j.running;
+    const awaiting = !!j.awaiting_start && !j.started && !(runningN(j) > 0);
     const banner = document.getElementById('startBanner');
     if (banner) banner.classList.toggle('show', awaiting);
     const doneN = j.epoch_done != null ? j.epoch_done : 0;

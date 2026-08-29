@@ -26,7 +26,9 @@ type Result struct {
 type Live struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 	Running     bool           `json:"running"`
-	Current     *Result        `json:"current,omitempty"`
+	RunningN    int            `json:"running_n"` // len(Inflight); UI uses this for parallel workers
+	Current     *Result        `json:"current,omitempty"`  // focus = most recently pulsed
+	Inflight    []Result       `json:"inflight,omitempty"` // all in-flight cells (parallel workers)
 	Completed         []Result   `json:"completed"`
 	Leaderboard       []Result   `json:"leaderboard"`        // ranked by raw Lucy Score
 	LeaderboardMobile []Result   `json:"leaderboard_mobile"` // ranked by Score/MiB
@@ -51,6 +53,7 @@ type Live struct {
 type Tracker struct {
 	mu           sync.RWMutex
 	live         Live
+	inflight     map[string]*Result // cell ID → running row (parallel-safe)
 	historyCap   int
 	completedCap int
 	reportLog    []Result // full run archive for PDF (/api/report); never trimmed
@@ -85,6 +88,9 @@ func (t *Tracker) snapshot(fullHistory bool) Live {
 		c := *t.live.Current
 		cp.Current = &c
 	}
+	cp.Inflight = append([]Result(nil), t.live.Inflight...)
+	cp.RunningN = len(cp.Inflight)
+	cp.Running = cp.RunningN > 0
 	cp.Completed = append([]Result(nil), t.live.Completed...)
 	cp.Leaderboard = append([]Result(nil), t.live.Leaderboard...)
 	cp.LeaderboardMobile = append([]Result(nil), t.live.LeaderboardMobile...)
@@ -186,7 +192,10 @@ func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, lear
 	t.live.CellTotal = cellTotal
 	t.live.Message = msg
 	t.live.Running = false
+	t.live.RunningN = 0
 	t.live.Current = nil
+	t.live.Inflight = nil
+	t.inflight = nil
 	t.live.UpdatedAt = time.Now()
 	// Seed done set from restored archive (DoneIDs-only seeds come via SeedDoneIDs).
 	for _, r := range completed {
@@ -247,7 +256,10 @@ func (t *Tracker) Park(msg string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.live.Running = false
+	t.live.RunningN = 0
 	t.live.Current = nil
+	t.live.Inflight = nil
+	t.inflight = nil
 	if msg != "" {
 		t.live.Message = msg
 	}
@@ -399,28 +411,58 @@ func (t *Tracker) BeginEpoch(cell permute.Cell, epoch int, phase string) {
 	if epoch < 1 {
 		epoch = 1
 	}
-	t.live.Running = true
-	t.live.Phase = phase
-	t.live.Current = &Result{
+	id := permute.NormalizeCellID(cell.ID)
+	cell.ID = id
+	r := &Result{
 		Cell:    cell,
 		Epoch:   epoch,
 		Status:  "running",
 		Started: time.Now(),
 	}
+	if t.inflight == nil {
+		t.inflight = map[string]*Result{}
+	}
+	t.inflight[id] = r
+	t.live.Phase = phase
+	t.live.Current = r
+	t.syncInflightLocked()
 	t.live.UpdatedAt = time.Now()
 }
 
+// Pulse updates the focus Current cell (single-worker / legacy). Prefer PulseID
+// when Workers>1 so siblings do not clobber each other.
 func (t *Tracker) Pulse(win metrics.Window, snap metrics.Snapshot, phase string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.live.Phase = phase
-	cellID := ""
+	id := ""
 	if t.live.Current != nil {
-		_ = win
-		t.live.Current.Snapshot = snap
-		cellID = t.live.Current.Cell.ID
+		id = t.live.Current.Cell.ID
 	}
-	// Live boards: completed + in-flight cell, refreshed every pulse.
+	t.pulseLocked(id, win, snap, phase)
+}
+
+// PulseID updates one in-flight cell by ID (parallel-safe).
+func (t *Tracker) PulseID(cellID string, win metrics.Window, snap metrics.Snapshot, phase string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.pulseLocked(permute.NormalizeCellID(cellID), win, snap, phase)
+}
+
+func (t *Tracker) pulseLocked(cellID string, win metrics.Window, snap metrics.Snapshot, phase string) {
+	t.live.Phase = phase
+	_ = win
+	var row *Result
+	if cellID != "" && t.inflight != nil {
+		row = t.inflight[cellID]
+	}
+	if row == nil {
+		row = t.live.Current
+	}
+	if row != nil {
+		row.Snapshot = snap
+		t.live.Current = row
+		cellID = row.Cell.ID
+	}
 	t.refreshBoardsLocked()
 	t.refreshProvisionalBestsLocked()
 	t.appendHistoryLocked(HistoryPoint{
@@ -438,26 +480,60 @@ func (t *Tracker) Pulse(win metrics.Window, snap metrics.Snapshot, phase string)
 	t.live.UpdatedAt = time.Now()
 }
 
+// Finish finalizes the focus Current cell (single-worker). Prefer FinishID when
+// Workers>1.
 func (t *Tracker) Finish(status, note string, snap metrics.Snapshot) Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.live.Current == nil {
 		return Result{}
 	}
-	t.live.Current.Status = status
-	t.live.Current.Note = note
-	t.live.Current.Snapshot = snap
-	// Keep summary metrics; drop heavy sparkline payloads.
-	slimSnapshot(&t.live.Current.Snapshot)
-	t.live.Current.Ended = time.Now()
-	done := *t.live.Current
+	return t.finishLocked(t.live.Current.Cell.ID, status, note, snap)
+}
+
+// FinishID finalizes one in-flight cell by ID (parallel-safe).
+func (t *Tracker) FinishID(cellID, status, note string, snap metrics.Snapshot) Result {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.finishLocked(permute.NormalizeCellID(cellID), status, note, snap)
+}
+
+func (t *Tracker) finishLocked(cellID, status, note string, snap metrics.Snapshot) Result {
+	var row *Result
+	if cellID != "" && t.inflight != nil {
+		row = t.inflight[cellID]
+	}
+	if row == nil && t.live.Current != nil && (cellID == "" || t.live.Current.Cell.ID == cellID) {
+		row = t.live.Current
+		cellID = row.Cell.ID
+	}
+	if row == nil {
+		return Result{}
+	}
+	slimSnapshot(&snap)
+	done := Result{
+		Cell:     row.Cell,
+		Epoch:    row.Epoch,
+		Status:   status,
+		Note:     note,
+		Snapshot: snap,
+		Started:  row.Started,
+		Ended:    time.Now(),
+	}
+	if done.Epoch < 1 {
+		done.Epoch = 1
+	}
+	delete(t.inflight, cellID)
+	if t.live.Current != nil && t.live.Current.Cell.ID == cellID {
+		t.live.Current = nil
+	}
+	t.syncInflightLocked()
 	t.commitLocked(done)
 	return done
 }
 
 // Commit records a finished cell with explicit wall-clock times.
-// Use this for multi-worker hosts where Begin/Finish on a shared Current
-// would clobber siblings and report ~0s durations.
+// Use this for multi-worker hosts; also drops any matching in-flight row.
 func (t *Tracker) Commit(cell permute.Cell, epoch int, status, note string, snap metrics.Snapshot, started, ended time.Time) Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -470,6 +546,8 @@ func (t *Tracker) Commit(cell permute.Cell, epoch int, status, note string, snap
 	if epoch < 1 {
 		epoch = 1
 	}
+	id := permute.NormalizeCellID(cell.ID)
+	cell.ID = id
 	slimSnapshot(&snap)
 	done := Result{
 		Cell:     cell,
@@ -480,13 +558,49 @@ func (t *Tracker) Commit(cell permute.Cell, epoch int, status, note string, snap
 		Started:  started,
 		Ended:    ended,
 	}
-	// Drop matching in-flight row if host had Begin'd this cell.
-	if t.live.Current != nil && t.live.Current.Cell.ID == cell.ID {
-		t.live.Current = nil
-		t.live.Running = false
+	if t.inflight != nil {
+		delete(t.inflight, id)
 	}
+	if t.live.Current != nil && t.live.Current.Cell.ID == id {
+		t.live.Current = nil
+	}
+	t.syncInflightLocked()
 	t.commitLocked(done)
 	return done
+}
+
+func (t *Tracker) syncInflightLocked() {
+	n := len(t.inflight)
+	t.live.RunningN = n
+	t.live.Running = n > 0
+	if n == 0 {
+		t.live.Inflight = nil
+		t.live.Current = nil
+		return
+	}
+	out := make([]Result, 0, n)
+	for _, r := range t.inflight {
+		if r == nil {
+			continue
+		}
+		out = append(out, *r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Started.Equal(out[j].Started) {
+			return out[i].Started.Before(out[j].Started)
+		}
+		return out[i].Cell.ID < out[j].Cell.ID
+	})
+	t.live.Inflight = out
+	if t.live.Current == nil || t.inflight[t.live.Current.Cell.ID] == nil {
+		// Focus = most recently started still flying.
+		cp := out[len(out)-1]
+		t.live.Current = &cp
+		// Keep map pointer as source of truth for later pulses.
+		if p := t.inflight[cp.Cell.ID]; p != nil {
+			t.live.Current = p
+		}
+	}
 }
 
 func (t *Tracker) commitLocked(done Result) {
@@ -500,9 +614,7 @@ func (t *Tracker) commitLocked(done Result) {
 		// fail is NOT durable-done — retry next pass / restart (results.json is truth).
 		t.markDoneLocked(done.Cell.ID)
 	}
-	if t.live.Current == nil {
-		t.live.Running = false
-	}
+	t.syncInflightLocked()
 	t.refreshBoardsLocked()
 	UpdateBest(&t.live.Best, done)
 	UpdateBestMobile(&t.live.BestMobile, done)
@@ -523,10 +635,13 @@ func (t *Tracker) commitLocked(done Result) {
 	t.live.UpdatedAt = time.Now()
 }
 
-// refreshBoardsLocked ranks completed + current in-flight row.
+// refreshBoardsLocked ranks completed + all in-flight rows.
 func (t *Tracker) refreshBoardsLocked() {
 	pool := append([]Result(nil), t.live.Completed...)
-	if t.live.Current != nil {
+	for _, r := range t.live.Inflight {
+		pool = append(pool, r)
+	}
+	if len(t.live.Inflight) == 0 && t.live.Current != nil {
 		pool = append(pool, *t.live.Current)
 	}
 	t.live.Leaderboard = rankByScore(pool)
@@ -535,20 +650,27 @@ func (t *Tracker) refreshBoardsLocked() {
 	t.live.LeaderboardLearnMobile = rankByLearnMobile(pool)
 }
 
-// refreshProvisionalBestsLocked updates Best cards including the running cell.
+// refreshProvisionalBestsLocked updates Best cards including running cells.
 func (t *Tracker) refreshProvisionalBestsLocked() {
-	if t.live.Current == nil {
-		return
+	for _, cur := range t.live.Inflight {
+		if cur.Status == "running" {
+			cur.Status = "ok"
+		}
+		UpdateBest(&t.live.Best, cur)
+		UpdateBestMobile(&t.live.BestMobile, cur)
+		UpdateBestLearn(&t.live.BestLearn, cur)
+		UpdateBestLearnMobile(&t.live.BestLearnMobile, cur)
 	}
-	cur := *t.live.Current
-	// Allow running into provisional winners for live UI.
-	if cur.Status == "running" {
-		cur.Status = "ok"
+	if len(t.live.Inflight) == 0 && t.live.Current != nil {
+		cur := *t.live.Current
+		if cur.Status == "running" {
+			cur.Status = "ok"
+		}
+		UpdateBest(&t.live.Best, cur)
+		UpdateBestMobile(&t.live.BestMobile, cur)
+		UpdateBestLearn(&t.live.BestLearn, cur)
+		UpdateBestLearnMobile(&t.live.BestLearnMobile, cur)
 	}
-	UpdateBest(&t.live.Best, cur)
-	UpdateBestMobile(&t.live.BestMobile, cur)
-	UpdateBestLearn(&t.live.BestLearn, cur)
-	UpdateBestLearnMobile(&t.live.BestLearnMobile, cur)
 }
 
 func rankByScore(in []Result) []Result {

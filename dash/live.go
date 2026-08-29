@@ -30,6 +30,7 @@ type LiveView struct {
 	EpochOverallPct float64 `json:"epoch_overall_pct"`
 
 	Running     bool   `json:"running"`
+	RunningN    int    `json:"running_n"`
 	Phase       string `json:"phase"`
 	Message     string `json:"message"`
 	CellIndex   int    `json:"cell_index"`
@@ -45,6 +46,7 @@ type LiveView struct {
 	Recorded   int `json:"recorded"`
 
 	Current              *pulse.Result `json:"current,omitempty"`
+	Inflight             []pulse.Result `json:"inflight,omitempty"`
 	Leaderboard          []pulse.Result `json:"leaderboard"`
 	LeaderboardMobile    []pulse.Result `json:"leaderboard_mobile"`
 	LeaderboardLearn     []pulse.Result `json:"leaderboard_learn"`
@@ -82,8 +84,12 @@ func (s *Server) LiveView() LiveView {
 	heat := b.Heat
 	heat.Points = nil
 	left := b.Plan - b.EpochDone
-	if b.Running && left > 0 {
-		left--
+	runN := b.RunningN
+	if runN == 0 && b.Running {
+		runN = 1
+	}
+	if runN > 0 && left > 0 {
+		left -= runN
 	}
 	if left < 0 {
 		left = 0
@@ -111,6 +117,7 @@ func (s *Server) LiveView() LiveView {
 		EpochsLeft:           b.EpochsLeft,
 		EpochOverallPct:      b.EpochOverallPct,
 		Running:              b.Running,
+		RunningN:             b.RunningN,
 		Phase:                b.Phase,
 		Message:              b.Message,
 		CellIndex:            b.CellIndex,
@@ -124,6 +131,7 @@ func (s *Server) LiveView() LiveView {
 		OkAll:                b.OkAll,
 		Recorded:             b.Recorded,
 		Current:              slimPtr(b.Current),
+		Inflight:             SlimResults(b.Inflight),
 		Leaderboard:          SlimResults(trimLeaderboard(live.Leaderboard, liveBoardCap)),
 		LeaderboardMobile:    SlimResults(trimLeaderboard(live.LeaderboardMobile, liveBoardCap)),
 		LeaderboardLearn:     SlimResults(trimLeaderboard(live.LeaderboardLearn, liveBoardCap)),
@@ -149,6 +157,11 @@ func (s *Server) cellByID(id string) (pulse.Result, bool) {
 	live := s.Tracker.SnapshotLive()
 	if live.Current != nil && live.Current.Cell.ID == id {
 		return *live.Current, true
+	}
+	for _, r := range live.Inflight {
+		if r.Cell.ID == id {
+			return r, true
+		}
 	}
 	for _, r := range live.Completed {
 		if r.Cell.ID == id {

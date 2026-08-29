@@ -228,7 +228,31 @@ func PulseSVG(history []pulse.HistoryPoint, best pulse.Best, end int) []byte {
 				}
 			}
 		}
+		metricC := bestForKey(best, m.bestKey)
+		metricV, metricID := champMetricValue(metricC, m.snap)
+		scoreV, scoreID := champMetricValue(scoreC, m.snap)
+		if m.fixed == nil {
+			if metricV > maxV {
+				maxV = metricV
+			}
+			if scoreV > maxV {
+				maxV = scoreV
+			}
+		}
 		yAt := func(v float64) float64 { return plotB - (v/maxV)*(plotB-plotT) }
+		x0, x1 := padL, float64(w)-padR
+		// Metric champ — dashed white (under live line).
+		if metricC != nil && metricV > 0 {
+			y := yAt(metricV)
+			fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-dasharray="7 5"/>`,
+				x0, y, x1, y)
+		}
+		// Score champ — dotted teal when a different cell.
+		if scoreC != nil && scoreV > 0 && (metricID == "" || scoreID != metricID) {
+			y := yAt(scoreV)
+			fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="rgba(61,214,198,0.9)" stroke-width="1.5" stroke-dasharray="2 4"/>`,
+				x0, y, x1, y)
+		}
 		b.WriteString(`<polyline fill="none" stroke="` + m.color + `" stroke-width="2" points="`)
 		for i, v := range vals {
 			if i > 0 {
@@ -239,9 +263,14 @@ func PulseSVG(history []pulse.HistoryPoint, best pulse.Best, end int) []byte {
 		}
 		b.WriteString(`"/>`)
 		tip := vals[len(vals)-1]
-		fmt.Fprintf(&b, `<text x="%.0f" y="%.0f" fill="%s" font-family="sans-serif" font-size="10">%s · %.`+fmtDigit(m.digits)+`</text>`, padL+4, y0+11, m.color, m.label, tip)
-		_ = scoreC
-		_ = m.bestKey
+		label := fmt.Sprintf("%s · %."+fmtDigit(m.digits), m.label, tip)
+		if metricC != nil {
+			label += fmt.Sprintf("  │ champ %."+fmtDigit(m.digits), metricV)
+		}
+		if scoreC != nil && (metricID == "" || scoreID != metricID) {
+			label += fmt.Sprintf("  │ score-champ %."+fmtDigit(m.digits), scoreV)
+		}
+		fmt.Fprintf(&b, `<text x="%.0f" y="%.0f" fill="%s" font-family="sans-serif" font-size="10">%s</text>`, padL+4, y0+11, m.color, escSVG(label))
 	}
 	if tip := slice[len(slice)-1]; tip.CellID != "" {
 		fmt.Fprintf(&b, `<text x="%.0f" y="12" fill="#e6eef2" font-family="monospace" font-size="11" text-anchor="end">%s</text>`, float64(w)-padR, escSVG(PrettyCell(tip.CellID)))
@@ -252,6 +281,42 @@ func PulseSVG(history []pulse.HistoryPoint, best pulse.Best, end int) []byte {
 
 func fmtDigit(d int) string {
 	return fmt.Sprintf("%df", d)
+}
+
+func bestForKey(best pulse.Best, key string) *pulse.Result {
+	switch key {
+	case "accuracy":
+		return best.Accuracy
+	case "throughput":
+		return best.Throughput
+	case "availability":
+		return best.Availability
+	case "score":
+		return best.Score
+	default:
+		return nil
+	}
+}
+
+func champMetricValue(r *pulse.Result, snap string) (float64, string) {
+	if r == nil {
+		return 0, ""
+	}
+	id := r.Cell.ID
+	switch snap {
+	case "avg_accuracy":
+		return r.Snapshot.AvgAccuracy, id
+	case "soft_acc":
+		return r.Snapshot.SoftAcc, id
+	case "throughput":
+		return r.Snapshot.Throughput, id
+	case "availability":
+		return r.Snapshot.Availability, id
+	case "score":
+		return r.Snapshot.Score, id
+	default:
+		return r.Snapshot.Score, id
+	}
 }
 
 // HeatmapSVG renders a colored grid table as SVG.
