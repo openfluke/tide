@@ -191,7 +191,7 @@ func (t *Tracker) Restore(completed []Result, best Best, mobile BestMobile, lear
 	// Seed done set from restored archive (DoneIDs-only seeds come via SeedDoneIDs).
 	for _, r := range completed {
 		switch r.Status {
-		case "ok", "gap", "fail":
+		case "ok", "gap":
 			t.markDoneLocked(r.Cell.ID)
 		}
 	}
@@ -224,6 +224,19 @@ func (t *Tracker) DoneSet() map[string]bool {
 		}
 	}
 	return out
+}
+
+// ResetDoneIDs replaces the durable skip set (used when results.json is truth).
+func (t *Tracker) ResetDoneIDs(ids []string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.doneIDs = map[string]bool{}
+	for _, id := range ids {
+		t.markDoneLocked(id)
+	}
 }
 
 // Park clears the running flag (epoch finished / idle with dashboards still up).
@@ -429,7 +442,8 @@ func (t *Tracker) commitLocked(done Result) {
 	t.upsertReportLocked(done)
 	t.trimCompletedLocked()
 	switch done.Status {
-	case "ok", "gap", "fail":
+	case "ok", "gap":
+		// fail is NOT durable-done — retry next pass / restart (results.json is truth).
 		t.markDoneLocked(done.Cell.ID)
 	}
 	if t.live.Current == nil {
