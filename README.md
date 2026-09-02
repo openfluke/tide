@@ -141,7 +141,7 @@ Set `dash.Server.Task` / `Subtitle` so the page names the workload (MNIST, sine,
 
 With `Server.River` set, also `/compare`, `/near`, `/lpd`, `/thru` — see [`river/README.md`](river/README.md).
 
-**PDF:** `/api/report.pdf` exports all Tide pages (live sweep, Lucy, honesty, winners, boards). River uses `/api/river/report.pdf` when integrated.
+**PDF:** `/api/report.pdf` exports all Tide pages plus the full River site when River is integrated (compare charts/tables, near, LPD, thru). Standalone River-only PDF: `/api/river/report.pdf`.
 
 Ocean mode (another tide that **does not train**) links any running dashboards:
 

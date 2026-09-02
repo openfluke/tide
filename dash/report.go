@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/phpdave11/gofpdf"
 	"github.com/openfluke/tide/pulse"
 	"github.com/openfluke/tide/report"
+	"github.com/openfluke/tide/river"
 )
 
 func (s *Server) reportCompleted(live pulse.Live) []pulse.Result {
@@ -74,7 +76,20 @@ func (s *Server) handleReportJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReportPDF(w http.ResponseWriter, r *http.Request) {
-	pdf, err := report.PDFTide(s.Report())
+	rep := s.Report()
+	var pdf []byte
+	var err error
+	if s.River != nil {
+		title := s.RiverOpts.PDFTitle
+		if title == "" {
+			title = "River compare"
+		}
+		pdf, err = report.PDFTideWithAppend(rep, func(pdf *gofpdf.Fpdf) {
+			river.RenderStorePDF(pdf, s.River, title)
+		})
+	} else {
+		pdf, err = report.PDFTide(rep)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -85,6 +100,9 @@ func (s *Server) handleReportPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.LR > 0 {
 		name += "-lr" + report.FormatLR(s.LR)
+	}
+	if s.River != nil {
+		name += "-full"
 	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`-lucy-report.pdf"`)

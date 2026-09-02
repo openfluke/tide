@@ -18,6 +18,21 @@ type barItem struct {
 
 // ComparePDF builds a multi-page PDF of the full River site (compare, near, LPD, thru).
 func ComparePDF(compare ComparePayload, near NearPayload, lpd LPDSearchPayload, thru ThruPayload, prog PlanProgress, title string) ([]byte, error) {
+	pdf := newRiverPDF(title)
+	writeComparePDF(pdf, compare, near, lpd, thru, prog, title, true)
+	var buf bytes.Buffer
+	if err := pdf.Output(&buf); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// RenderComparePDF appends River pages onto an existing gofpdf document (e.g. Tide combined report).
+func RenderComparePDF(pdf *gofpdf.Fpdf, compare ComparePayload, near NearPayload, lpd LPDSearchPayload, thru ThruPayload, prog PlanProgress, title string) {
+	writeComparePDF(pdf, compare, near, lpd, thru, prog, title, false)
+}
+
+func newRiverPDF(title string) *gofpdf.Fpdf {
 	if title == "" {
 		title = "River compare"
 	}
@@ -31,8 +46,16 @@ func ComparePDF(compare ComparePayload, near NearPayload, lpd LPDSearchPayload, 
 		pdf.SetTextColor(120, 130, 140)
 		pdf.CellFormat(0, 8, fmt.Sprintf("%s  ·  page %d", title, pdf.PageNo()), "", 0, "C", false, 0, "")
 	})
+	return pdf
+}
 
-	coverCompare(pdf, compare, prog, title)
+func writeComparePDF(pdf *gofpdf.Fpdf, compare ComparePayload, near NearPayload, lpd LPDSearchPayload, thru ThruPayload, prog PlanProgress, title string, withCover bool) {
+	if title == "" {
+		title = "River compare"
+	}
+	if withCover {
+		coverCompare(pdf, compare, prog, title)
+	}
 
 	leanPDF(pdf, "Lean champs — >=95% best Acc · smallest KiB · fastest", compare.LeanBest, compare.LeanBars)
 	leanPDF(pdf, "Lean champs by dtype — one winner each · KiB small->big", compare.LeanBest, compare.LeanByDtype)
@@ -45,6 +68,7 @@ func ComparePDF(compare ComparePayload, near NearPayload, lpd LPDSearchPayload, 
 	rowsChartPDF(pdf, "Top throughput", compare.TopThru, 15, func(r Row) float64 { return r.Throughput }, "thru", 91, 159, 212)
 	rowsChartPDF(pdf, "Top Acc/sec", compare.TopSpeed, 15, func(r Row) float64 { return r.AccPerSec }, "acc/s", 199, 179, 90)
 	denseChartPDF(pdf, compare.TopDense)
+	modeDtypeRangeChartsPDF(pdf, compare.ModeDtypeGrids)
 	modeDtypeGridsPDF(pdf, compare.ModeDtypeGrids)
 	bestModeByDtypePDF(pdf, compare.BestModeByDType)
 	overlapPDF(pdf, compare.Overlap)
@@ -53,12 +77,6 @@ func ComparePDF(compare ComparePayload, near NearPayload, lpd LPDSearchPayload, 
 	nearPDF(pdf, near)
 	lpdSearchPDF(pdf, lpd)
 	thruPDF(pdf, thru)
-
-	var buf bytes.Buffer
-	if err := pdf.Output(&buf); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 func coverCompare(pdf *gofpdf.Fpdf, p ComparePayload, prog PlanProgress, title string) {

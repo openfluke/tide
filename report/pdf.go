@@ -13,27 +13,45 @@ import (
 
 func PDFTide(r TideReport) ([]byte, error) {
 	p := newDoc("tide — " + nz(r.Task, r.ID))
-	p.coverTide(r)
-	p.sweepProgress(r)
-	p.bests(r)
-	p.axisTable("Lucy axis champions (this tide)", r.Axes)
-	p.modelsRanked(r.LPD)
-	p.winnersAll(r.Winners)
-	p.leaderboard("Leaderboard (Lucy Score)", r.Leaderboard)
-	p.leaderboardBy("Leaderboard (SoftAcc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.SoftAcc })
-	p.leaderboardBy("Leaderboard (hard Acc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.AvgAccuracy })
-	p.boardLeaderboards(r)
-	p.learnSpeed(r)
-	p.bars("Top scores", scoresOf(r.Leaderboard))
-	p.bars("Best settings per mode", winnerScores(r.Winners.BestSettingsPerMode, func(w WinnerRow) string { return w.Mode }))
-	p.lucyCharts(r.Cells, r.Heat)
-	p.lpdBoard(r.LPD)
-	p.spark("Live pulse (Score)", r.History, func(h pulse.HistoryPoint) float64 { return h.Score })
-	p.spark("Live pulse (SoftAcc)", r.History, func(h pulse.HistoryPoint) float64 { return h.Accuracy })
-	p.spark("Live pulse (Availability)", r.History, func(h pulse.HistoryPoint) float64 { return h.Availability })
-	p.spark("Live pulse (Throughput)", r.History, func(h pulse.HistoryPoint) float64 { return h.Throughput })
-	p.modeQueue(r.ModeProgress)
+	p.renderTideContent(r)
 	return p.bytes()
+}
+
+// PDFTideWithAppend builds the full Tide Lucy report and appends extra pages (e.g. River).
+func PDFTideWithAppend(r TideReport, appendPages func(*gofpdf.Fpdf)) ([]byte, error) {
+	title := "tide + river — " + nz(r.Task, r.ID)
+	p := newDoc(title)
+	p.renderTideContent(r)
+	if appendPages != nil {
+		p.pdf.AddPage()
+		p.h1("River — compare · near · LPD · throughput")
+		p.muted("Full River export: compare charts/tables, Acc-keep band, LPD search, throughput ranking.")
+		appendPages(p.pdf)
+	}
+	return p.bytes()
+}
+
+func (d *doc) renderTideContent(r TideReport) {
+	d.coverTide(r)
+	d.sweepProgress(r)
+	d.bests(r)
+	d.axisTable("Lucy axis champions (this tide)", r.Axes)
+	d.modelsRanked(r.LPD)
+	d.winnersAll(r.Winners)
+	d.leaderboard("Leaderboard (Lucy Score)", r.Leaderboard)
+	d.leaderboardBy("Leaderboard (SoftAcc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.SoftAcc })
+	d.leaderboardBy("Leaderboard (hard Acc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.AvgAccuracy })
+	d.boardLeaderboards(r)
+	d.learnSpeed(r)
+	d.bars("Top scores", scoresOf(r.Leaderboard))
+	d.bars("Best settings per mode", winnerScores(r.Winners.BestSettingsPerMode, func(w WinnerRow) string { return w.Mode }))
+	d.lucyCharts(r.Cells, r.Heat)
+	d.lpdBoard(r.LPD)
+	d.spark("Live pulse (Score)", r.History, func(h pulse.HistoryPoint) float64 { return h.Score })
+	d.spark("Live pulse (SoftAcc)", r.History, func(h pulse.HistoryPoint) float64 { return h.Accuracy })
+	d.spark("Live pulse (Availability)", r.History, func(h pulse.HistoryPoint) float64 { return h.Availability })
+	d.spark("Live pulse (Throughput)", r.History, func(h pulse.HistoryPoint) float64 { return h.Throughput })
+	d.modeQueue(r.ModeProgress)
 }
 
 func PDFOcean(o OceanReport) ([]byte, error) {
