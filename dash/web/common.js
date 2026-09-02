@@ -1628,10 +1628,7 @@ function renderLucyExtras() {
 async function tick() {
   try {
     const r = await fetch('/api/live', {
-      headers: {
-        'Accept-Encoding': 'gzip',
-        ...(liveETag ? { 'If-None-Match': liveETag } : {}),
-      },
+      headers: { 'Accept-Encoding': 'gzip' },
     });
     if (r.status === 304) return;
     if (!r.ok) throw new Error('live unavailable');

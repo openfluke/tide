@@ -2,7 +2,6 @@ package dash
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/openfluke/tide/pulse"
@@ -178,8 +177,8 @@ func (s *Server) cellByID(id string) (pulse.Result, bool) {
 
 func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
 	v := s.LiveView()
-	etag := `"live-` + strconv.FormatInt(v.ChartRev, 10) + `"`
-	WriteJSON(w, r, etag, v)
+	// No ETag — live poll must always refresh (304 was freezing progress UI).
+	WriteJSON(w, r, "", v)
 }
 
 func (s *Server) handleCell(w http.ResponseWriter, r *http.Request) {
