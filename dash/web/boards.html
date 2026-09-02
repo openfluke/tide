@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>tide — leaderboards</title>
+<link rel="stylesheet" href="/static/common.css"/>
+</head>
+<body data-page="boards">
+<header>
+  <h1><span>tide</span> <span id="taskTitle">live adaptation</span></h1>
+  <div class="meta" id="status">connecting…</div>
+  <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
+</header>
+<p class="score-eq">Synthetic organism metric — Lucy density. <b>Hard Acc</b> = argmax accuracy. <b>Acc keep %</b> = this Hard Acc ÷ Acc-champ Hard Acc (100% = matches the best Acc on the board). SoftAcc = serve-confidence, not Score. Score = Throughput × Availability × Hard Acc / 10,000. <b>Lean</b> = Acc keep ≥95%, then smallest RAM / fastest Thru / best Avail — sacrifice peak Acc only inside that band. Availability is infer/(infer+train): SGD that blocks the live loop dies here.</p>
+<p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
+<p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
+  Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
+</p>
+
+<div class="start-banner" id="startBanner">
+  <div>
+    <p><b id="startTitle">Training paused</b> — browse metrics, boards, and winners freely.</p>
+    <div class="sub" id="startSub">Nothing trains until you press Start. Finished cells are skipped (resume does not redo epoch-1 work).</div>
+  </div>
+  <button class="startbtn" id="startBtn" type="button">Start training</button>
+</div>
+
+<nav class="tide-nav"><a href="/">Live</a>
+  <a href="/lucy">Lucy</a>
+  <a href="/honesty">Honesty</a>
+  <a href="/winners">Winners</a>
+  <a href="/boards" class="active">Boards</a>
+  <span class="sep">|</span>
+  <a href="/compare">Compare</a>
+  <a href="/near">Acc keep</a>
+  <a href="/lpd">LPD</a>
+  <a href="/thru">Throughput</a>
+</nav>
+<div class="tables">
+  <section>
+    <h2>All models — raw Score</h2>
+    <p class="hint" id="boardCount">0 cells · click a row for SoftAcc 1s strip + full Lucy metrics</p>
+    <div class="table-tools">
+      <input id="filterRaw" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Cell</th><th>Score</th><th>SoftAcc</th><th>Hard</th><th>Adapt</th>
+          <th>Avail</th><th>Stab</th><th>Cons</th><th>Tput</th><th>InferMs</th><th>TrainMs</th><th>RAM</th><th>St</th>
+        </tr></thead>
+        <tbody id="board"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>All models — raw Score/MiB (trap)</h2>
+    <p class="hint" id="boardMobileCount">Score ÷ MiB. Binary wins this even at chance Acc. Use LPD above for goldilocks.</p>
+    <div class="table-tools">
+      <input id="filterMobile" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Cell</th><th>Band</th><th>Q%</th><th>Score/MiB</th><th>Score</th><th>SoftAcc</th><th>Hard</th><th>Adapt</th>
+          <th>Avail</th><th>Tput</th><th>InferMs</th><th>TrainMs</th><th>RAM</th><th>St</th>
+        </tr></thead>
+        <tbody id="boardMobile"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="tables">
+  <section>
+    <h2>Learn — fastest to 50% (then Acc/sec)</h2>
+    <p class="hint" id="boardLearnCount">0 cells</p>
+    <div class="table-tools">
+      <input id="filterLearn" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Cell</th><th>t→25%</th><th>t→50%</th><th>Acc/s</th><th>Acc</th><th>Dur</th><th>St</th></tr></thead>
+        <tbody id="boardLearn"></tbody>
+      </table>
+    </div>
+  </section>
+  <section>
+    <h2>Learn — Acc/sec/MiB (raw mobile)</h2>
+    <p class="hint" id="boardLearnMobileCount">Same trap as Score/MiB unless Acc held. Prefer LPD.</p>
+    <div class="table-tools">
+      <input id="filterLearnMobile" type="search" placeholder="filter cell id…"/>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Cell</th><th>Band</th><th>Q%</th><th>Acc/s/MiB</th><th>Acc/s</th><th>t→50%</th><th>RAM</th><th>Acc</th><th>St</th></tr></thead>
+        <tbody id="boardLearnMobile"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="modal-bg" id="cellModal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <button class="close" type="button" id="cellModalClose">close</button>
+    <h2>Cell detail — Lucy / test41 metrics</h2>
+    <div class="cellid" id="cellModalId">—</div>
+    <div class="metric-grid" id="cellModalMetrics"></div>
+    <h2 style="font-size:0.95rem;margin:0.5rem 0">SoftAcc % (1s blocks)</h2>
+    <p class="hint" id="cellModalStripHint">phase switches highlighted</p>
+    <div class="table-wrap">
+      <table class="soft-strip" id="cellModalStrip"></table>
+    </div>
+  </div>
+</div>
+
+
+<script src="/static/common.js"></script>
+</body>
+</html>

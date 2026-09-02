@@ -3,7 +3,6 @@ package dash
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/openfluke/tide/pulse"
@@ -17,17 +16,6 @@ func (s *Server) reportCompleted(live pulse.Live) []pulse.Result {
 		}
 	}
 	return live.Completed
-}
-
-func reportLeaderboard(completed []pulse.Result, n int) []pulse.Result {
-	out := append([]pulse.Result(nil), completed...)
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Snapshot.Score > out[j].Snapshot.Score
-	})
-	if n > 0 && len(out) > n {
-		out = out[:n]
-	}
-	return out
 }
 
 func (s *Server) Report() report.TideReport {
@@ -49,8 +37,24 @@ func (s *Server) Report() report.TideReport {
 	r.Winners = winnersView(b.Winners)
 	r.ModeProgress = modeProgressRows(b.ModeProgress)
 	r.Axes = axesView(b.Task, b.Axes)
-	r.Leaderboard = reportLeaderboard(reportRows, 40)
+	r.EpochOk = b.Ok
+	r.EpochGap = b.Gap
+	r.EpochFail = b.Fail
+	r.RunningN = b.RunningN
+	r.BestLearnMobile = live.BestLearnMobile
+	byScore, byMobile, byLearn, byLearnMobile := pulse.RebuildLeaderboards(reportRows)
+	r.Leaderboard = capResults(byScore, 50)
+	r.LeaderboardMobile = capResults(byMobile, 50)
+	r.LeaderboardLearn = capResults(byLearn, 50)
+	r.LeaderboardLearnMobile = capResults(byLearnMobile, 50)
 	return r
+}
+
+func capResults(in []pulse.Result, n int) []pulse.Result {
+	if n <= 0 || len(in) <= n {
+		return append([]pulse.Result(nil), in...)
+	}
+	return append([]pulse.Result(nil), in[:n]...)
 }
 
 func modeProgressRows(rows []ModeProgress) []report.ModeRow {
@@ -149,14 +153,20 @@ func winnersView(w Winners) report.WinnersView {
 			out = append(out, report.WinnerRow{
 				Group: a.Group, Winner: a.Winner, CellID: report.PrettyCell(a.CellID),
 				Mode: a.Mode, DType: a.DType, Format: a.Format, Arch: report.PrettyArch(a.Arch),
-				Score: a.Score, SoftAcc: a.SoftAcc, Acc: a.Accuracy, Avail: a.Avail, N: a.N,
+				Score: a.Score, SoftAcc: a.SoftAcc, Acc: a.Accuracy, Avail: a.Avail,
+				Throughput: a.Throughput, AccPerSec: a.AccPerSec, TimeTo50: a.TimeTo50, WeightKiB: a.WeightKiB,
+				N: a.N,
 			})
 		}
 		return out
 	}
 	return report.WinnersView{
 		BestSettingsPerMode: mapRows(w.BestSettingsPerMode),
+		BestCellPerMode:     mapRows(w.BestCellPerMode),
 		BestDTypePerMode:    mapRows(w.BestDTypePerMode),
+		BestFormatPerMode:   mapRows(w.BestFormatPerMode),
 		BestModePerDType:    mapRows(w.BestModePerDType),
+		BestModePerFormat:   mapRows(w.BestModePerFormat),
+		BestFormatPerDType:  mapRows(w.BestFormatPerDType),
 	}
 }

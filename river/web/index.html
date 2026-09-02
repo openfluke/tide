@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>__RIVER_TITLE__</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a222c;
+    --ink: #e8eef4;
+    --muted: #8b9aab;
+    --line: #2a3542;
+    --acc: #3ecf8e;
+    --thru: #5b9fd4;
+    --speed: #e6b35a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #1c2a38, var(--bg));
+    color: var(--ink);
+  }
+  header {
+    padding: 1.25rem 1.5rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -0.02em; }
+  header p { margin: 0.35rem 0 0; color: var(--muted); max-width: 52rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; padding: 0.75rem 1.5rem; color: var(--muted); font-size: 12px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+    padding: 0.5rem 1.5rem 1rem;
+  }
+  label { color: var(--muted); font-size: 12px; }
+  select, button {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 0.4rem 0.65rem; font: inherit;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--thru); }
+  main {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+    padding: 0 1.5rem 2rem;
+  }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  .card {
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem 1rem;
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 { margin: 0 0 0.65rem; font-size: 0.95rem; font-weight: 600; }
+  .chart-wrap { position: relative; height: 280px; }
+  .chart-wrap.tall { height: 360px; }
+  .chart-wrap.xwide { height: 420px; }
+  .lr-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.65rem; }
+  .lr-pills button {
+    padding: 0.28rem 0.55rem; font-size: 11px;
+    background: var(--bg); border: 1px solid var(--line);
+  }
+  .lr-pills button.active {
+    border-color: var(--thru); color: var(--ink); background: color-mix(in srgb, var(--thru) 18%, var(--panel));
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+  th, td { text-align: left; padding: 0.35rem 0.45rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 550; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  th.num { text-align: right; }
+  .id { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-scroll table { min-width: 52rem; }
+  .progress {
+    margin: 0.75rem 1.5rem 0;
+    padding: 0.85rem 1rem;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .progress.done { border-color: color-mix(in srgb, var(--acc) 55%, var(--line)); }
+  .progress-top {
+    display: flex; flex-wrap: wrap; gap: 0.65rem 1.35rem; align-items: baseline;
+    margin-bottom: 0.55rem; font-size: 13px;
+  }
+  .progress-top .big { font-size: 1.15rem; font-weight: 650; letter-spacing: -0.02em; }
+  .progress-top .muted { color: var(--muted); font-size: 12px; }
+  .progress-bar {
+    height: 8px; border-radius: 999px; background: var(--bg);
+    overflow: hidden; border: 1px solid var(--line);
+  }
+  .progress-bar > span {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--acc), var(--thru));
+    transition: width 0.4s ease;
+  }
+  .progress-arch {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 0.85rem;
+    margin-top: 0.55rem; font-size: 11px; color: var(--muted);
+  }
+  .progress-arch b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>__RIVER_TITLE__</h1>
+  <p>__RIVER_SUBTITLE__</p>
+</header>
+<div class="progress" id="progress">loading plan check…</div>
+<div class="meta" id="meta">loading…</div>
+<div class="controls">
+  <label>LR filter
+    <select id="lrFilter"><option value="">all LRs</option></select>
+  </label>
+  <label>Metric
+    <select id="metric">
+      <option value="acc">mean Acc</option>
+      <option value="throughput">mean Throughput</option>
+      <option value="acc_per_sec">mean Acc/sec</option>
+    </select>
+  </label>
+  <button id="refresh">Refresh</button>
+  <a href="/near" style="color:var(--acc);font-size:12px">Acc keep 70–100% →</a>
+  <a href="/lpd" style="color:var(--thru);font-size:12px">LPD search →</a>
+  <a href="/thru" style="color:var(--thru);font-size:12px">Throughput →</a>
+  <a id="pdfLink" href="__API__/report.pdf" target="_blank" rel="noopener" style="color:var(--speed);font-size:12px">download PDF</a>
+  <a id="tideLink" href="#" target="_blank" rel="noopener" style="color:var(--thru);font-size:12px;margin-left:auto">live Tide →</a>
+</div>
+<main>
+  <section class="card wide">
+    <h2>Lean champs — ≥95% of best Acc · smallest RAM · fastest</h2>
+    <p id="leanHint" style="margin:0 0 0.5rem;color:var(--muted);font-size:12px">
+      Across every mode × dtype × cam: hit Acc ≥ 95% of the global champion, then rank by weight KiB then train duration. Top 20.
+    </p>
+    <div class="chart-wrap xwide"><canvas id="cLean"></canvas></div>
+    <div id="tblLean" style="margin-top:0.65rem"></div>
+  </section>
+  <section class="card wide">
+    <h2>Lean champs by dtype — KiB small → big</h2>
+    <p id="leanDtypeHint" style="margin:0 0 0.5rem;color:var(--muted);font-size:12px">
+      Same ≥95% Acc rule, but one winner per dtype, sorted by model weight (smallest dtype first).
+    </p>
+    <div class="chart-wrap xwide"><canvas id="cLeanDtype"></canvas></div>
+    <div id="tblLeanDtype" style="margin-top:0.65rem"></div>
+  </section>
+  <section class="card"><h2>By train mode</h2><div class="chart-wrap"><canvas id="cMode"></canvas></div></section>
+  <section class="card"><h2>By dtype</h2><div class="chart-wrap"><canvas id="cDtype"></canvas></div></section>
+  <section class="card wide">
+    <h2>Train mode — min↔max range bar (dtypes inside)</h2>
+    <p style="margin:0 0 0.5rem;color:var(--muted);font-size:12px">Split by cameral arch. Each bar floats between worst→best dtype Acc for that mode (not from zero). Sorted worst→best. Pick LR:</p>
+    <div class="lr-pills" id="modeDtypeLR"></div>
+    <div id="modeDtypeArchPanels"></div>
+  </section>
+  <section class="card wide">
+    <h2>Best train mode by Acc — per dtype</h2>
+    <p style="margin:0 0 0.5rem;color:var(--muted);font-size:12px">For each dtype (and cam), which train mode got the highest Acc. Uses the LR pills above.</p>
+    <div id="bestModeArchPanels"></div>
+  </section>
+  <section class="card wide"><h2>Best Acc/sec÷MiB × Acc² (must actually learn, Acc≥40%)</h2><div class="chart-wrap tall"><canvas id="cDense"></canvas></div></section>
+  <section class="card wide"><h2>LR overlap — best Acc per mode (dtype only, not averaged)</h2><div class="chart-wrap tall"><canvas id="cOverlap"></canvas></div></section>
+  <section class="card wide"><h2>Top cells — Acc</h2><div id="tblAcc"></div></section>
+  <section class="card"><h2>Top throughput</h2><div id="tblThru"></div></section>
+  <section class="card"><h2>Top Acc/sec</h2><div id="tblSpeed"></div></section>
+  <section class="card wide"><h2>Top Acc/sec÷MiB × Acc²</h2><div id="tblDense"></div></section>
+</main>
+<script>
+const colors = ["#3ecf8e","#5b9fd4","#e6b35a","#c77dff","#ff6b6b","#4ecdc4","#f7a072","#a8dadc"];
+let data = null;
+let charts = {};
+let modeDtypeLR = ""; // selected LR for grouped chart (synced with pills)
+
+function modeColor(mode, modes) {
+  const i = (modes || []).indexOf(mode);
+  return colors[(i >= 0 ? i : mode.length) % colors.length];
+}
+
+function metricKey() {
+  const m = document.getElementById("metric").value;
+  if (m === "throughput") return "mean_throughput";
+  if (m === "acc_per_sec") return "mean_acc_per_sec";
+  return "mean_acc";
+}
+
+function groupedMetricKey() {
+  const m = document.getElementById("metric").value;
+  if (m === "throughput") return "mean_throughput";
+  if (m === "acc_per_sec") return "mean_acc_per_sec";
+  return "mean_acc";
+}
+
+function cellMetric(c, key) {
+  if (key === "mean_throughput") return c.mean_throughput;
+  if (key === "mean_acc_per_sec") return c.mean_acc_per_sec;
+  return c.mean_acc;
+}
+
+function lrFilter() { return document.getElementById("lrFilter").value; }
+
+function filterBars(bars) {
+  const lr = lrFilter();
+  if (!lr) return bars;
+  return bars.filter(b => b.lr_label === lr);
+}
+
+function barChart(id, bars, limit) {
+  const key = metricKey();
+  const rows = filterBars(bars).slice(0, limit || 24);
+  const labels = rows.map(b => b.lr_label ? `${b.key} · lr=${b.lr_label}` : b.key);
+  const vals = rows.map(b => b[key] || 0);
+  const color = key.includes("thru") ? "#5b9fd4" : key.includes("acc_per") ? "#e6b35a" : "#3ecf8e";
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "bar",
+    data: { labels, datasets: [{ label: key, data: vals, backgroundColor: color + "cc", borderWidth: 0 }] },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#8b9aab" }, grid: { color: "#2a354244" } },
+        y: { ticks: { color: "#8b9aab", font: { size: 10 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function setupModeDtypeLRButtons() {
+  const wrap = document.getElementById("modeDtypeLR");
+  const grids = data.mode_dtype_grids || [];
+  if (grids.length === 0) {
+    wrap.innerHTML = `<span style="color:var(--muted);font-size:12px">no data yet</span>`;
+    modeDtypeLR = "";
+    return;
+  }
+  if (!modeDtypeLR || !grids.some(g => g.lr_label === modeDtypeLR)) {
+    modeDtypeLR = grids[0].lr_label;
+  }
+  wrap.innerHTML = grids.map(g => {
+    const active = g.lr_label === modeDtypeLR ? " active" : "";
+    return `<button type="button" class="lr-pill${active}" data-lr="${g.lr_label}">lr=${g.lr_label}</button>`;
+  }).join("");
+  wrap.querySelectorAll(".lr-pill").forEach(btn => {
+    btn.onclick = () => {
+      modeDtypeLR = btn.dataset.lr;
+      document.getElementById("lrFilter").value = modeDtypeLR;
+      setupModeDtypeLRButtons();
+      renderCharts();
+    };
+  });
+}
+
+function dtypeColor(dtype, dtypes) {
+  const i = (dtypes || []).indexOf(dtype);
+  const hue = (i * 47) % 360;
+  return `hsla(${hue}, 55%, 55%, 0.85)`;
+}
+
+function archTag(arch) {
+  if (!arch || arch === "single") return "single×1";
+  if (arch === "bicameral" || arch === "bi") return "bicameral×2";
+  if (arch === "tricameral" || arch === "tri") return "tricameral×3";
+  if (/^cameral/i.test(arch)) return arch.replace(/x/i, "×");
+  return arch;
+}
+
+function archSortKey(arch) {
+  if (!arch || arch === "single") return 1;
+  if (arch === "bicameral") return 2;
+  if (arch === "tricameral") return 3;
+  const m = /cameral×(\d+)/i.exec(arch);
+  return m ? parseInt(m[1], 10) : 99;
+}
+
+function sortedArchesFromGrid(grid) {
+  const set = new Set();
+  for (const c of grid?.cells || []) if (c.arch) set.add(c.arch);
+  for (const a of grid?.arches || []) if (a) set.add(a);
+  for (const r of grid?.rows || []) if (r.arch) set.add(r.arch);
+  return [...set].sort((a, b) => archSortKey(a) - archSortKey(b) || a.localeCompare(b));
+}
+
+function archCanvasId(prefix, arch) {
+  return prefix + String(arch).replace(/[^a-zA-Z0-9]+/g, "_");
+}
+
+function archBarColors(arch) {
+  if (arch === "bicameral") return { bg: "rgba(199, 125, 255, 0.22)", border: "rgba(199, 125, 255, 0.85)" };
+  if (arch === "tricameral") return { bg: "rgba(230, 179, 90, 0.22)", border: "rgba(230, 179, 90, 0.85)" };
+  if (arch === "single") return { bg: "rgba(91, 159, 212, 0.22)", border: "rgba(91, 159, 212, 0.85)" };
+  const n = archSortKey(arch);
+  const hue = (n * 41 + 120) % 360;
+  return { bg: `hsla(${hue}, 55%, 55%, 0.22)`, border: `hsla(${hue}, 55%, 55%, 0.85)` };
+}
+
+function renderModeDtypeRangeChart(canvasId, grid, arch, dtypes) {
+  const id = canvasId;
+  const key = groupedMetricKey();
+  const metricLabel = key === "mean_throughput" ? "Throughput" : key === "mean_acc_per_sec" ? "Acc/sec" : "Acc";
+  const dec = key === "mean_acc" ? 1 : 2;
+  const lookup = {};
+  for (const c of grid.cells || []) {
+    if (c.arch !== arch) continue;
+    lookup[`${c.mode}|${c.dtype}`] = c;
+  }
+  const modes = [...grid.modes];
+  const modeMeta = modes.map(mode => {
+    const pts = dtypes.map(dt => {
+      const c = lookup[`${mode}|${dt}`];
+      const v = c ? cellMetric(c, key) : 0;
+      return { dt, v, cell: c };
+    }).filter(x => x.v > 0);
+    const vals = pts.map(x => x.v);
+    let min = vals.length ? Math.min(...vals) : 0;
+    let max = vals.length ? Math.max(...vals) : 0;
+    const mean = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    if (min === max && min > 0) {
+      const pad = min * 0.02 || 0.5;
+      min -= pad;
+      max += pad;
+    }
+    return { mode, arch, pts, min, max, mean };
+  }).filter(m => m.pts.length > 0);
+
+  modeMeta.sort((a, b) => {
+    if (a.mean !== b.mean) return a.mean - b.mean;
+    if (a.max !== b.max) return a.max - b.max;
+    if (a.min !== b.min) return a.min - b.min;
+    return a.mode.localeCompare(b.mode);
+  });
+  const modesSorted = modeMeta.map(m => m.mode);
+
+  const scatterPts = [];
+  for (const m of modeMeta) {
+    for (const p of m.pts) {
+      scatterPts.push({ x: m.mode, y: p.v, dt: p.dt, mode: m.mode, arch, cell: p.cell });
+    }
+  }
+
+  if (charts[id]) charts[id].destroy();
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!modeMeta.length) {
+    charts[id] = null;
+    return;
+  }
+
+  charts[id] = new Chart(el, {
+    data: {
+      labels: modesSorted,
+      datasets: [
+        {
+          type: "bar",
+          label: "dtype range",
+          data: modeMeta.map(m => [m.min, m.max]),
+          backgroundColor: archBarColors(arch).bg,
+          borderColor: archBarColors(arch).border,
+          borderWidth: 2,
+          borderSkipped: false,
+          barPercentage: 0.55,
+          order: 2,
+        },
+        {
+          type: "scatter",
+          label: "dtypes",
+          data: scatterPts,
+          pointBackgroundColor: scatterPts.map(p => dtypeColor(p.dt, dtypes)),
+          pointBorderColor: "rgba(15,20,25,0.6)",
+          pointBorderWidth: 1,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          order: 1,
+        },
+        {
+          type: "scatter",
+          label: "mean",
+          data: modeMeta.map(m => ({ x: m.mode, y: m.mean })),
+          pointBackgroundColor: "#e8eef4",
+          pointBorderColor: "#3ecf8e",
+          pointBorderWidth: 2,
+          pointStyle: "line",
+          pointRadius: 8,
+          rotation: 90,
+          order: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "nearest", intersect: true },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          labels: {
+            color: "#8b9aab",
+            filter(item) { return item.text === "dtype range" || item.text === "mean"; },
+          },
+        },
+        tooltip: {
+          callbacks: {
+            title(items) {
+              const raw = items[0]?.raw;
+              const mode = raw?.mode || raw?.x || modesSorted[items[0]?.dataIndex] || "";
+              const m = modeMeta.find(x => x.mode === mode);
+              if (!m) return mode;
+              return [
+                `${mode} · ${archTag(arch)} · lr=${grid.lr_label}`,
+                `range ${m.min.toFixed(dec)} → ${m.max.toFixed(dec)} · mean ${m.mean.toFixed(dec)} · ${m.pts.length} dtypes`,
+              ];
+            },
+            label(ctx) {
+              const raw = ctx.raw;
+              if (ctx.dataset.label === "dtype range") {
+                const m = modeMeta[ctx.dataIndex];
+                if (!m) return null;
+                return `spread: ${m.min.toFixed(dec)} (lowest) – ${m.max.toFixed(dec)} (highest)`;
+              }
+              if (ctx.dataset.label === "mean") {
+                return `mean ${metricLabel}: ${raw.y.toFixed(dec)}`;
+              }
+              return `${raw.dt}: ${raw.y.toFixed(dec)}`;
+            },
+            afterBody(items) {
+              const ctx0 = items[0];
+              if (!ctx0 || ctx0.dataset.label !== "dtype range") return [];
+              const m = modeMeta[ctx0.dataIndex];
+              if (!m) return [];
+              return m.pts.slice().sort((a, b) => b.v - a.v).map(p => `  ${p.dt}: ${p.v.toFixed(dec)}`);
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: "category",
+          title: { display: true, text: "train mode (worst → best)", color: "#8b9aab" },
+          ticks: { color: "#8b9aab", maxRotation: 45, minRotation: 45, font: { size: 10 } },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: false,
+          title: { display: true, text: `${metricLabel} — min↔max (not from 0)`, color: "#8b9aab" },
+          ticks: { color: "#8b9aab" },
+          grid: { color: "#2a354244" },
+        },
+      },
+    },
+  });
+}
+
+function modeDtypeChart() {
+  const wrap = document.getElementById("modeDtypeArchPanels");
+  const grids = data.mode_dtype_grids || [];
+  const grid = grids.find(g => g.lr_label === modeDtypeLR) || grids[0];
+  if (!grid) {
+    wrap.innerHTML = "";
+    Object.keys(charts).filter(k => k.startsWith("cModeDtype_")).forEach(k => { charts[k].destroy(); delete charts[k]; });
+    return;
+  }
+  const dtypes = grid.dtypes || [];
+  const arches = sortedArchesFromGrid(grid);
+  wrap.innerHTML = arches.map(arch => `
+    <h3 style="margin:1rem 0 0.35rem;font-size:0.85rem;font-weight:600;color:var(--muted)">${archTag(arch)}</h3>
+    <div class="chart-wrap xwide"><canvas id="${archCanvasId("cModeDtype_", arch)}"></canvas></div>
+  `).join("");
+  for (const arch of arches) {
+    renderModeDtypeRangeChart(archCanvasId("cModeDtype_", arch), grid, arch, dtypes);
+  }
+}
+
+function renderBestModeByDtype(canvasId, tableId, arch, modes) {
+  const grids = data.best_mode_by_dtype || [];
+  const grid = grids.find(g => g.lr_label === modeDtypeLR) || grids[0];
+  const rows = (grid?.rows || []).filter(r => r.arch === arch).slice().sort((a, b) => b.acc - a.acc);
+  const id = canvasId;
+  if (charts[id]) charts[id].destroy();
+  if (rows.length) {
+    charts[id] = new Chart(document.getElementById(id), {
+      type: "bar",
+      data: {
+        labels: rows.map(r => r.dtype),
+        datasets: [{
+          label: "best Acc",
+          data: rows.map(r => r.acc),
+          backgroundColor: rows.map(r => modeColor(r.mode, modes) + "cc"),
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title(items) {
+                const r = rows[items[0]?.dataIndex];
+                return r ? `${r.dtype} · ${archTag(arch)} · lr=${grid?.lr_label || "?"}` : "";
+              },
+              label(ctx) {
+                const r = rows[ctx.dataIndex];
+                if (!r) return "";
+                return [
+                  `best mode: ${r.mode}`,
+                  `Acc ${r.acc.toFixed(1)} · thru ${r.throughput.toFixed(0)} · acc/s ${r.acc_per_sec.toFixed(2)}`,
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: "best Acc", color: "#8b9aab" },
+            ticks: { color: "#8b9aab" },
+            grid: { color: "#2a354244" },
+          },
+          y: {
+            ticks: {
+              color: "#8b9aab",
+              font: { size: 10 },
+              callback(val, i) {
+                const r = rows[i];
+                return r ? `${r.dtype} · ${r.mode}` : val;
+              },
+            },
+            grid: { display: false },
+          },
+        },
+      },
+    });
+  }
+  const tbl = document.getElementById(tableId);
+  if (tbl) {
+    table(tbl, rows, [
+      { label: "acc", num: true, fn: r => r.acc.toFixed(1) },
+      { label: "mode", fn: r => r.mode },
+      { label: "dtype", fn: r => r.dtype },
+      { label: "thru", num: true, fn: r => r.throughput.toFixed(0) },
+      { label: "acc/s", num: true, fn: r => r.acc_per_sec.toFixed(2) },
+    ]);
+  }
+}
+
+function bestModeByDtypeCharts() {
+  const wrap = document.getElementById("bestModeArchPanels");
+  const grids = data.mode_dtype_grids || [];
+  const grid = grids.find(g => g.lr_label === modeDtypeLR) || grids[0];
+  const bestGrids = data.best_mode_by_dtype || [];
+  const bestGrid = bestGrids.find(g => g.lr_label === modeDtypeLR) || bestGrids[0];
+  const modes = grid?.modes || [];
+  const arches = sortedArchesFromGrid(grid || bestGrid);
+  if (!arches.length) {
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.innerHTML = arches.map(arch => {
+    const cid = archCanvasId("cBestModeDtype_", arch);
+    const tid = archCanvasId("tblBestMode_", arch);
+    return `
+      <h3 style="margin:${arch === arches[0] ? "0.75" : "1"}rem 0 0.35rem;font-size:0.85rem;font-weight:600;color:var(--muted)">${archTag(arch)}</h3>
+      <div class="chart-wrap tall"><canvas id="${cid}"></canvas></div>
+      <div id="${tid}" style="margin-top:0.5rem"></div>`;
+  }).join("");
+  for (const arch of arches) {
+    renderBestModeByDtype(archCanvasId("cBestModeDtype_", arch), archCanvasId("tblBestMode_", arch), arch, modes);
+  }
+}
+
+function denseChart() {
+  const id = "cDense";
+  let rows = data.dense_bars || [];
+  const lr = lrFilter();
+  if (lr) rows = rows.filter(r => r.lr_label === lr);
+  rows = rows.slice(0, 20);
+  const labels = rows.map(r => {
+    const kib = r.weight_kib ? `${r.weight_kib.toFixed(1)}KiB` : "?KiB";
+    return `${r.label} · ${kib}`;
+  });
+  const vals = rows.map(r => r.dense_score || 0);
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Acc/s÷MiB × (Acc/100)²",
+        data: vals,
+        backgroundColor: "#c77dffcc",
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const r = rows[ctx.dataIndex];
+              if (!r) return "";
+              return `score ${r.dense_score.toFixed(1)} · Acc/s÷MiB ${r.acc_per_sec_per_mib.toFixed(1)} · Acc ${r.acc.toFixed(1)}% · ${r.weight_kib.toFixed(1)} KiB`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: "Acc/s÷MiB × (Acc/100)²", color: "#8b9aab" }, ticks: { color: "#8b9aab" }, grid: { color: "#2a354244" } },
+        y: { ticks: { color: "#8b9aab", font: { size: 10 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function overlapChart() {
+  const id = "cOverlap";
+  const series = (data.overlap || []).slice(0, 12);
+  const lrSet = [...new Set(series.flatMap(s => s.points.map(p => p.lr_label)))];
+  const pointMeta = {}; // "mode|lr" → winning dtype/arch
+  const datasets = series.map((s, i) => ({
+    label: s.mode,
+    data: lrSet.map(lr => {
+      const p = s.points.find(x => x.lr_label === lr);
+      if (p) pointMeta[`${s.mode}|${lr}`] = p;
+      return p ? p.acc : null;
+    }),
+    borderColor: colors[i % colors.length],
+    backgroundColor: "transparent",
+    tension: 0.2,
+    spanGaps: true,
+  }));
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: "line",
+    data: { labels: lrSet, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: "#8b9aab", boxWidth: 12, font: { size: 10 } } },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const lr = lrSet[ctx.dataIndex];
+              const p = pointMeta[`${ctx.dataset.label}|${lr}`];
+              if (!p) return `${ctx.dataset.label}: —`;
+              return `${ctx.dataset.label} · ${p.dtype} · ${p.arch}  Acc ${p.acc.toFixed(1)}  thru ${p.throughput.toFixed(0)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: { display: true, text: "learning rate", color: "#8b9aab" }, ticks: { color: "#8b9aab" }, grid: { color: "#2a354244" } },
+        y: { title: { display: true, text: "best Acc (winning dtype)", color: "#8b9aab" }, ticks: { color: "#8b9aab" }, grid: { color: "#2a354244" } }
+      }
+    }
+  });
+}
+
+function table(el, rows, cols) {
+  const head = cols.map(c => {
+    const cls = c.num ? ' class="num"' : "";
+    const title = c.title ? ` title="${c.title}"` : "";
+    return `<th${cls}${title}>${c.label}</th>`;
+  }).join("");
+  const body = rows.map(r => `<tr>${cols.map(c => {
+    const v = c.fn(r);
+    const cls = c.num ? ' class="num"' : (c.mono ? ' class="id"' : "");
+    const title = c.mono ? ` title="${String(v).replaceAll('"','&quot;')}"` : "";
+    return `<td${cls}${title}>${v}</td>`;
+  }).join("")}</tr>`).join("");
+  el.innerHTML = `<div class="table-scroll"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function leanChart() {
+  renderLeanPanel({
+    canvasId: "cLean",
+    tableId: "tblLean",
+    hintId: "leanHint",
+    rows: (data.lean_bars || []).slice(0, 20),
+    sum: data.lean_best || {},
+    emptyHint: "Need finished rows with Acc + weight + duration.",
+  });
+}
+
+function leanDtypeChart() {
+  renderLeanPanel({
+    canvasId: "cLeanDtype",
+    tableId: "tblLeanDtype",
+    hintId: "leanDtypeHint",
+    rows: data.lean_by_dtype || [],
+    sum: data.lean_best || {},
+    emptyHint: "No dtype cleared the ≥95% Acc bar yet.",
+    dtypeMode: true,
+  });
+}
+
+function renderLeanPanel({ canvasId, tableId, hintId, rows, sum, emptyHint, dtypeMode }) {
+  const hint = document.getElementById(hintId);
+  if (hint) {
+    if (sum.best_acc) {
+      const extra = dtypeMode
+        ? ` · ${rows.length} dtypes with a lean champ (KiB ascending)`
+        : (sum.winner_id ? ` · winner <b>${sum.winner_kib.toFixed(1)} KiB</b> in <b>${sum.winner_duration_sec.toFixed(1)}s</b> @ ${sum.winner_acc.toFixed(1)}%` : "");
+      hint.innerHTML = `Champion Acc <b>${sum.best_acc.toFixed(1)}%</b> · threshold <b>${(sum.threshold||0).toFixed(1)}%</b> (95%) · eligible <b>${sum.eligible||0}</b>${extra}`;
+    } else {
+      hint.textContent = emptyHint;
+    }
+  }
+  const labels = rows.map(r => dtypeMode
+    ? `#${r.rank} ${r.dtype}`
+    : `#${r.rank} ${r.label}`);
+  const kib = rows.map(r => r.weight_kib || 0);
+  const secs = rows.map(r => r.duration_sec || 0);
+  if (charts[canvasId]) charts[canvasId].destroy();
+  if (!rows.length) {
+    document.getElementById(tableId).innerHTML = "";
+    return;
+  }
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Weight KiB (smaller better)",
+          data: kib,
+          backgroundColor: dtypeMode ? "#5b9fd4cc" : "#3ecf8ecc",
+          borderWidth: 0,
+          yAxisID: "y",
+          order: 2,
+        },
+        {
+          label: "Duration sec (faster better)",
+          data: secs,
+          type: "line",
+          borderColor: "#e6b35a",
+          backgroundColor: "#e6b35a88",
+          pointRadius: 3,
+          tension: 0.2,
+          yAxisID: "y1",
+          order: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: "#8b9aab", boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            afterBody(items) {
+              const r = rows[items[0]?.dataIndex];
+              if (!r) return "";
+              return [
+                `Acc ${r.acc.toFixed(1)}% (${r.pct_of_best.toFixed(1)}% of best)`,
+                `${r.weight_kib.toFixed(1)} KiB · ${r.duration_sec.toFixed(1)}s`,
+                `${r.mode} · ${r.dtype} · ${r.arch}`,
+                r.id,
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: "#8b9aab", font: { size: 10 }, maxRotation: 60, minRotation: 40 }, grid: { display: false } },
+        y: {
+          position: "left",
+          title: { display: true, text: "KiB", color: dtypeMode ? "#5b9fd4" : "#3ecf8e" },
+          ticks: { color: "#8b9aab" }, grid: { color: "#2a354244" }
+        },
+        y1: {
+          position: "right",
+          title: { display: true, text: "sec", color: "#e6b35a" },
+          ticks: { color: "#8b9aab" }, grid: { drawOnChartArea: false }
+        }
+      }
+    }
+  });
+  table(document.getElementById(tableId), rows, [
+    { label: "#", num: true, fn: r => r.rank },
+    { label: "KiB", num: true, title: "model weight size", fn: r => r.weight_kib.toFixed(1) },
+    { label: "train s", num: true, title: "wall-clock training duration (seconds)", fn: r => r.duration_sec.toFixed(1) },
+    { label: "Acc %", num: true, title: "final hard accuracy", fn: r => r.acc.toFixed(1) },
+    { label: "% of best", num: true, title: "Acc as % of global champion Acc", fn: r => r.pct_of_best.toFixed(1) },
+    { label: "mode", fn: r => r.mode },
+    { label: "dtype", fn: r => r.dtype },
+    { label: "arch", fn: r => r.arch },
+    { label: "id", mono: true, fn: r => r.id },
+  ]);
+}
+
+function renderCharts() {
+  barChart("cMode", data.by_mode || [], 20);
+  barChart("cDtype", data.by_dtype || [], 24);
+  leanChart();
+  leanDtypeChart();
+  modeDtypeChart();
+  bestModeByDtypeCharts();
+  denseChart();
+  overlapChart();
+}
+
+function renderProgress(p) {
+  const el = document.getElementById("progress");
+  if (!p || !p.plan) {
+    el.className = "progress";
+    el.innerHTML = `<div class="progress-top"><span class="muted">plan check unavailable (no plan IDs)</span></div>`;
+    return;
+  }
+  el.className = "progress" + (p.complete ? " done" : "");
+  const pct = (p.pct || 0).toFixed(1);
+  const rate = p.rate_per_hr ? `${p.rate_per_hr.toFixed(0)} cells/hr` : "—";
+  const win = p.window ? ` · pace ${p.window}` : "";
+  const eta = p.complete ? "done" : (p.eta_human || "—");
+  const arches = Object.entries(p.by_arch || {}).sort((a,b) => a[0].localeCompare(b[0]));
+  const archHTML = arches.map(([k,v]) =>
+    `<span>${k} <b>${v.done}/${v.plan}</b>${v.left ? ` · left ${v.left}` : ""}</span>`
+  ).join("");
+  el.innerHTML = `
+    <div class="progress-top">
+      <span class="big">${pct}%</span>
+      <span><b>${p.done}</b> / ${p.plan} done</span>
+      <span>left <b>${p.left}</b></span>
+      <span>ETA <b>${eta}</b></span>
+      <span class="muted">${rate}${win}</span>
+      <span class="muted">ETA = left ÷ recent pace (not full sweep)</span>
+    </div>
+    <div class="progress-bar"><span style="width:${Math.min(100, p.pct||0)}%"></span></div>
+    <div class="progress-arch">${archHTML}</div>`;
+}
+
+function render() {
+  if (!data) return;
+  const meta = document.getElementById("meta");
+  meta.innerHTML = `
+    <span><b>${data.machine || "?"}</b></span>
+    <span>train-n <b>${data.train_n}</b></span>
+    <span>seed <b>0x${(data.sample_seed>>>0).toString(16)}</b></span>
+    <span>matrix <b>${data.matrix}</b></span>
+    <span>LRs <b>${(data.lr_labels||[]).join(", ") || "—"}</b></span>
+    <span>rows <b>${(data.rows||[]).length}</b></span>
+    <span>updated <b>${data.generated ? new Date(data.generated).toLocaleString() : "—"}</b></span>`;
+
+  const sel = document.getElementById("lrFilter");
+  const cur = sel.value;
+  const labs = data.lr_labels || [];
+  sel.innerHTML = `<option value="">all LRs</option>` + labs.map(l => `<option value="${l}">${l}</option>`).join("");
+  const pick = modeDtypeLR || cur;
+  if ([...sel.options].some(o => o.value === pick)) sel.value = pick;
+  else if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+
+  setupModeDtypeLRButtons();
+  renderCharts();
+  renderTables();
+}
+
+function renderTables() {
+  const cols = [
+    { label: "acc", num: true, fn: r => r.acc.toFixed(1) },
+    { label: "thru", num: true, fn: r => r.throughput.toFixed(0) },
+    { label: "acc/s", num: true, fn: r => r.acc_per_sec.toFixed(2) },
+    { label: "KiB", num: true, fn: r => r.weight_kib ? r.weight_kib.toFixed(1) : "—" },
+    { label: "score", num: true, fn: r => r.dense_score ? r.dense_score.toFixed(1) : "—" },
+    { label: "acc/s÷MiB", num: true, fn: r => r.acc_per_sec_per_mib ? r.acc_per_sec_per_mib.toFixed(1) : "—" },
+    { label: "t50s", num: true, fn: r => r.time_to_50_sec ? r.time_to_50_sec.toFixed(2) : "—" },
+    { label: "lr", fn: r => r.lr_label },
+    { label: "id", mono: true, fn: r => r.id },
+  ];
+  table(document.getElementById("tblAcc"), data.top_acc || [], cols);
+  table(document.getElementById("tblThru"), data.top_throughput || [], cols);
+  table(document.getElementById("tblSpeed"), data.top_acc_per_sec || [], cols);
+  table(document.getElementById("tblDense"), data.top_acc_per_sec_per_mib || [], cols);
+}
+
+async function load() {
+  const [res, meta, prog] = await Promise.all([
+    fetch("__API__/results").then(r => r.json()),
+    fetch("__API__/meta").then(r => r.json()),
+    fetch("__API__/progress").then(r => r.json()).catch(() => null),
+  ]);
+  data = res;
+  const a = document.getElementById("tideLink");
+  if (meta.tide_url) { a.href = meta.tide_url; a.style.display = ""; }
+  else { a.style.display = "none"; }
+  renderProgress(prog || meta.progress);
+  render();
+}
+
+document.getElementById("refresh").onclick = load;
+document.getElementById("metric").onchange = render;
+document.getElementById("lrFilter").onchange = () => {
+  const v = document.getElementById("lrFilter").value;
+  if (v) modeDtypeLR = v;
+  setupModeDtypeLRButtons();
+  renderCharts();
+};
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

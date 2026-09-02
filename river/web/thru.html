@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>__RIVER_TITLE__</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a222c;
+    --ink: #e8eef4;
+    --muted: #8b9aab;
+    --line: #2a3542;
+    --acc: #3ecf8e;
+    --thru: #5b9fd4;
+    --speed: #e6b35a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #1c2a38, var(--bg));
+    color: var(--ink);
+  }
+  header {
+    padding: 1.25rem 1.5rem 0.5rem;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -0.02em; }
+  header p { margin: 0.35rem 0 0; color: var(--muted); max-width: 58rem; }
+  .meta { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; padding: 0.75rem 1.5rem; color: var(--muted); font-size: 12px; }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+    padding: 0.5rem 1.5rem 1rem;
+  }
+  label { color: var(--muted); font-size: 12px; display: inline-flex; align-items: center; gap: 0.35rem; }
+  select, input[type="search"], button {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 0.4rem 0.65rem; font: inherit;
+  }
+  input[type="range"] { width: 9rem; accent-color: var(--acc); }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--thru); }
+  a { color: var(--thru); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  main { padding: 0 1.5rem 2rem; }
+  .card {
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--line); border-radius: 10px; padding: 0.85rem 1rem 1rem;
+  }
+  .table-scroll { overflow: auto; max-height: calc(100vh - 14rem); -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 78rem; }
+  th, td { text-align: left; padding: 0.35rem 0.45rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th {
+    color: var(--muted); font-weight: 550; position: sticky; top: 0;
+    background: var(--panel); cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--ink); }
+  th.sorted { color: var(--acc); }
+  td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .id { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); max-width: 18rem; overflow: hidden; text-overflow: ellipsis; }
+  .band {
+    display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .band-gold { background: color-mix(in srgb, #e6b35a 28%, transparent); color: #e6b35a; }
+  .band-near { background: color-mix(in srgb, #5b9fd4 28%, transparent); color: #5b9fd4; }
+  .band-keep { background: color-mix(in srgb, #3ecf8e 28%, transparent); color: #3ecf8e; }
+  .band-lean, .band-acc { background: color-mix(in srgb, #c77dff 22%, transparent); color: #c77dff; }
+  .band-trap { background: color-mix(in srgb, #ff6b6b 22%, transparent); color: #ff6b6b; }
+  .credit {
+    display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .credit-bp { background: color-mix(in srgb, #8b9aab 22%, transparent); color: #b8c4d0; }
+  .credit-chain { background: color-mix(in srgb, #e6b35a 28%, transparent); color: #e6b35a; }
+  .credit-non_bp { background: color-mix(in srgb, #3ecf8e 28%, transparent); color: #3ecf8e; }
+  .credit-mix { background: color-mix(in srgb, #5b9fd4 28%, transparent); color: #5b9fd4; }
+  .callouts {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 0.75rem; padding: 0 1.5rem 0.85rem;
+  }
+  .callout {
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.85rem;
+    font-size: 12px; color: var(--muted);
+  }
+  .callout strong { color: var(--ink); font-weight: 650; }
+  .callout .title { color: var(--ink); font-weight: 600; margin-bottom: 0.25rem; font-size: 12px; }
+  .callout .id { display: block; margin-top: 0.35rem; max-width: 100%; }
+  .callout.nonbp { border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
+  .callout.chain { border-color: color-mix(in srgb, var(--speed) 45%, var(--line)); }
+  tr.nonbp td { background: color-mix(in srgb, var(--acc) 14%, transparent); }
+  tr.best-nonbp td { background: color-mix(in srgb, var(--acc) 24%, transparent); }
+  .empty { color: var(--muted); padding: 2rem; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>__RIVER_TITLE__</h1>
+  <p>
+    Every finished cell ranked by Tide <b>throughput</b> (samples/sec), with Acc keep % and mix BranchModes.
+    Lucy Score = Thru × Avail × Acc / 10 000 · optional Acc-keep filter hides cells below the floor.
+    <b>Chain ≠ non-BP</b>: tween_chain / MeshTweenChain use chain-rule Backward+SGD (same path as BP).
+  </p>
+</header>
+<div class="meta" id="meta">loading…</div>
+<div class="callouts" id="callouts"></div>
+<div class="controls">
+  <a href="__COMPARE_HOME__">← compare</a>
+  <a href="/near">Acc keep →</a>
+  <a href="/lpd">LPD search →</a>
+  <a href="__API__/report.pdf" target="_blank" rel="noopener" style="margin-left:auto">download PDF</a>
+  <label><input type="checkbox" id="keepersOnly"/> Acc keep ≥70% only</label>
+  <label>Acc keep floor
+    <input type="range" id="minKeep" min="70" max="100" step="1" value="70"/>
+    <b id="minKeepLab">70%</b>
+  </label>
+  <label>credit
+    <select id="credit"><option value="">all</option>
+      <option value="mix">mix</option>
+      <option value="non_bp">non-BP</option>
+      <option value="chain">chain→SGD</option>
+      <option value="bp">BP</option>
+    </select>
+  </label>
+  <label>LR
+    <select id="lr"><option value="">all</option></select>
+  </label>
+  <label>mode
+    <select id="mode"><option value="">all</option></select>
+  </label>
+  <label>dtype
+    <select id="dtype"><option value="">all</option></select>
+  </label>
+  <label>arch
+    <select id="arch"><option value="">all</option></select>
+  </label>
+  <label>band
+    <select id="band"><option value="">all</option></select>
+  </label>
+  <label>search <input type="search" id="q" placeholder="id / mode / dtype…" style="min-width:12rem"/></label>
+  <button id="refresh">Refresh</button>
+  <a id="tideLink" href="#" target="_blank" rel="noopener" style="margin-left:auto">live Tide →</a>
+</div>
+<main>
+  <section class="card">
+    <div class="table-scroll" id="wrap"><div class="empty">loading…</div></div>
+  </section>
+</main>
+<script>
+let raw = null;
+let sortKey = "throughput";
+let sortDir = -1; // desc
+
+const COLS = [
+  { key: "rank", label: "#", num: true },
+  { key: "credit", label: "credit", fmt: r => {
+    const lab = r.credit === "non_bp" ? "non-BP" : r.credit === "chain" ? "chain→SGD" : r.credit === "mix" ? "mix" : "BP";
+    const star = r.best_non_bp ? " ★" : "";
+    return `<span class="credit credit-${r.credit||'bp'}">${lab}${star}</span>`;
+  }},
+  { key: "mix_pattern", label: "pat", fmt: r => r.mix_pattern || "—" },
+  { key: "branch_modes", label: "cams modes", fmt: r => (r.branch_modes && r.branch_modes.length) ? r.branch_modes.join(" · ") : (r.mode || "—") },
+  { key: "throughput", label: "Thru", num: true, fmt: r => r.throughput.toFixed(0) },
+  { key: "pct_of_best", label: "% of Acc champ", num: true, fmt: r => r.pct_of_best.toFixed(1) },
+  { key: "acc", label: "Acc", num: true, fmt: r => r.acc.toFixed(1) },
+  { key: "soft_acc", label: "SoftAcc", num: true, fmt: r => r.soft_acc ? r.soft_acc.toFixed(1) : "—" },
+  { key: "availability", label: "Avail", num: true, fmt: r => r.availability ? r.availability.toFixed(1) : "—" },
+  { key: "score", label: "Score", num: true, title: "Thru × Avail × Acc / 10000", fmt: r => r.score ? r.score.toFixed(1) : "—" },
+  { key: "lpd", label: "LPD", num: true, fmt: r => r.lpd ? r.lpd.toFixed(2) : "—" },
+  { key: "q", label: "Q", num: true, fmt: r => r.q ? r.q.toFixed(3) : "—" },
+  { key: "ram_kib", label: "KiB", num: true, fmt: r => r.ram_kib.toFixed(1) },
+  { key: "shrink", label: "shrink", num: true, title: "Acc-champ RAM / this RAM", fmt: r => r.shrink ? r.shrink.toFixed(2) : "—" },
+  { key: "ram_frac", label: "RAM frac", num: true, fmt: r => r.ram_frac ? (100*r.ram_frac).toFixed(1)+"%" : "—" },
+  { key: "duration_sec", label: "train s", num: true, fmt: r => r.duration_sec ? r.duration_sec.toFixed(1) : "—" },
+  { key: "acc_per_sec", label: "Acc/s", num: true, fmt: r => r.acc_per_sec ? r.acc_per_sec.toFixed(2) : "—" },
+  { key: "dense_score", label: "dense", num: true, fmt: r => r.dense_score ? r.dense_score.toFixed(1) : "—" },
+  { key: "rel_thru", label: "Thru keep", num: true, fmt: r => r.rel_thru ? (100*r.rel_thru).toFixed(0)+"%" : "—" },
+  { key: "rel_avail", label: "Avail keep", num: true, fmt: r => r.rel_avail ? (100*r.rel_avail).toFixed(0)+"%" : "—" },
+  { key: "pillars", label: "pillars", num: true, fmt: r => r.pillars },
+  { key: "band", label: "band", fmt: r => `<span class="band band-${(r.band||'').replace(/[^a-z]/g,'')}">${r.band||"—"}</span>` },
+  { key: "mode", label: "mode", fmt: r => r.mode },
+  { key: "dtype", label: "dtype", fmt: r => r.dtype },
+  { key: "arch", label: "arch", fmt: r => r.arch },
+  { key: "lr_label", label: "lr", fmt: r => r.lr_label || "—" },
+  { key: "id", label: "id", mono: true, fmt: r => r.id },
+];
+
+function fillSelect(id, values) {
+  const el = document.getElementById(id);
+  const cur = el.value;
+  const opts = [`<option value="">all</option>`].concat([...values].sort().map(v => `<option value="${v}">${v}</option>`));
+  el.innerHTML = opts.join("");
+  if ([...el.options].some(o => o.value === cur)) el.value = cur;
+}
+
+function highlightCard(title, h, cls, empty) {
+  if (!h) return `<div class="callout ${cls||""}"><div class="title">${title}</div>${empty||"none yet"}</div>`;
+  const band = h.in_band ? "in Acc-keep band" : "below current floor (still best of class)";
+  const note = h.note ? `<div style="margin-top:0.35rem">${h.note}</div>` : "";
+  return `<div class="callout ${cls||""}">
+    <div class="title">${title}</div>
+    <strong>${h.acc.toFixed(1)}%</strong> Acc · ${h.pct_of_best.toFixed(1)}% of champ
+    · <b>${h.mode}</b> · ${h.dtype} · ${h.arch}${h.lr_label ? " · lr="+h.lr_label : ""}
+    <div>${band}</div>
+    ${note}
+    <span class="id" title="${h.id}">${h.id}</span>
+  </div>`;
+}
+
+function thruCard(title, h, cls, empty) {
+  if (!h) return `<div class="callout ${cls||""}"><div class="title">${title}</div>${empty||"none yet"}</div>`;
+  const note = h.note ? `<div style="margin-top:0.35rem">${h.note}</div>` : "";
+  const thru = (h.throughput != null) ? h.throughput : null;
+  const thruLab = thru != null ? `<strong>${thru.toFixed(0)}</strong> thru · ` : "";
+  return `<div class="callout ${cls||""}">
+    <div class="title">${title}</div>
+    ${thruLab}<strong>${(h.acc||0).toFixed(1)}%</strong> Acc · ${(h.pct_of_best||0).toFixed(1)}% of Acc champ
+    · <b>${h.mode||"—"}</b> · ${h.dtype||""} · ${h.arch||""}${h.lr_label ? " · lr="+h.lr_label : ""}
+    ${note}
+    <span class="id" title="${h.id}">${h.id}</span>
+  </div>`;
+}
+function renderCallouts() {
+  const el = document.getElementById("callouts");
+  let champ = null;
+  if (raw.best_id && raw.rows) {
+    const hit = raw.rows.find(r => r.id === raw.best_id);
+    if (hit) {
+      champ = { id: hit.id, acc: hit.acc, pct_of_best: hit.pct_of_best, mode: hit.mode,
+        dtype: hit.dtype, arch: hit.arch, lr_label: hit.lr_label, throughput: hit.throughput };
+    }
+  }
+  const withThru = (h) => {
+    if (!h || !raw.rows) return h;
+    const hit = raw.rows.find(r => r.id === h.id);
+    if (hit) return Object.assign({}, h, { throughput: hit.throughput, mode: hit.mode });
+    return h;
+  };
+  el.innerHTML =
+    thruCard("Throughput champion", champ, "", "no thru champ") +
+    thruCard("Best non-BP thru", withThru(raw.best_non_bp), "nonbp", "no non-BP rows yet") +
+    thruCard("Best Chain thru (→ SGD)", withThru(raw.best_chain), "chain", "no chain rows yet");
+}
+
+function filtered() {
+  if (!raw) return [];
+  const lr = document.getElementById("lr").value;
+  const mode = document.getElementById("mode").value;
+  const dtype = document.getElementById("dtype").value;
+  const arch = document.getElementById("arch").value;
+  const band = document.getElementById("band").value;
+  const credit = document.getElementById("credit").value;
+  const keepers = document.getElementById("keepersOnly").checked;
+  const minKeep = parseFloat(document.getElementById("minKeep").value) || 70;
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  let rows = raw.rows || [];
+  if (keepers) rows = rows.filter(r => (r.pct_of_best || 0) >= minKeep);
+  if (lr) rows = rows.filter(r => r.lr_label === lr);
+  if (mode) rows = rows.filter(r => r.mode === mode);
+  if (dtype) rows = rows.filter(r => r.dtype === dtype);
+  if (arch) rows = rows.filter(r => r.arch === arch);
+  if (band) rows = rows.filter(r => r.band === band);
+  if (credit) rows = rows.filter(r => r.credit === credit);
+  if (q) {
+    rows = rows.filter(r =>
+      (r.id || "").toLowerCase().includes(q) ||
+      (r.mode || "").toLowerCase().includes(q) ||
+      (r.dtype || "").toLowerCase().includes(q) ||
+      (r.arch || "").toLowerCase().includes(q) ||
+      (r.band || "").toLowerCase().includes(q) ||
+      (r.credit || "").toLowerCase().includes(q)
+    );
+  }
+  rows = rows.slice();
+  rows.sort((a, b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (typeof av === "string" || typeof bv === "string") {
+      return sortDir * String(av ?? "").localeCompare(String(bv ?? ""));
+    }
+    return sortDir * ((av ?? 0) - (bv ?? 0));
+  });
+  return rows;
+}
+
+function renderTable() {
+  const rows = filtered();
+  const meta = document.getElementById("meta");
+  const bands = Object.entries(raw.bands || {}).sort((a,b) => b[1]-a[1])
+    .map(([k,v]) => `${k} <b>${v}</b>`).join(" · ") || "—";
+  const credits = Object.entries(raw.credits || {}).sort((a,b) => b[1]-a[1])
+    .map(([k,v]) => `${k==="non_bp"?"non-BP":k==="chain"?"chain→SGD":k==="mix"?"mix":"BP"} <b>${v}</b>`).join(" · ") || "—";
+  meta.innerHTML = `
+    <span>best thru <b>${(raw.best_thru||0).toFixed(0)}</b></span>
+    <span>Acc champ <b>${(raw.best_acc||0).toFixed(1)}%</b></span>
+    <span>rows <b>${raw.n_rows||0}</b> / ${raw.n_total||0}</span>
+    <span>showing <b>${rows.length}</b></span>
+    <span>credit ${credits}</span>
+    <span>bands ${bands}</span>`;
+
+  if (!rows.length) {
+    document.getElementById("wrap").innerHTML = `<div class="empty">No cells (or filters emptied the list).</div>`;
+    return;
+  }
+  const head = COLS.map(c => {
+    const cls = [c.num ? "num" : "", c.key === sortKey ? "sorted" : ""].filter(Boolean).join(" ");
+    const arrow = c.key === sortKey ? (sortDir < 0 ? " ▼" : " ▲") : "";
+    const title = c.title ? ` title="${c.title}"` : "";
+    return `<th class="${cls}" data-key="${c.key}"${title}>${c.label}${arrow}</th>`;
+  }).join("");
+  const body = rows.map(r => {
+    const cls = [];
+    if (r.credit === "non_bp") cls.push("nonbp");
+    if (r.best_non_bp) cls.push("best-nonbp");
+    const trCls = cls.length ? ` class="${cls.join(" ")}"` : "";
+    return `<tr${trCls}>${COLS.map(c => {
+      const cls = c.num ? ' class="num"' : (c.mono ? ' class="id"' : "");
+      const title = c.mono ? ` title="${String(r.id).replaceAll('"','&quot;')}"` : "";
+      const v = c.fmt ? c.fmt(r) : r[c.key];
+      return `<td${cls}${title}>${v}</td>`;
+    }).join("")}</tr>`;
+  }).join("");
+  document.getElementById("wrap").innerHTML =
+    `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  document.querySelectorAll("th[data-key]").forEach(th => {
+    th.onclick = () => {
+      const k = th.dataset.key;
+      if (sortKey === k) sortDir *= -1;
+      else { sortKey = k; sortDir = (k === "ram_kib" || k === "duration_sec" || k === "ram_frac") ? 1 : -1; }
+      renderTable();
+    };
+  });
+}
+
+function populateFilters() {
+  const rows = raw.rows || [];
+  fillSelect("lr", new Set(rows.map(r => r.lr_label).filter(Boolean)));
+  fillSelect("mode", new Set(rows.map(r => r.mode).filter(Boolean)));
+  fillSelect("dtype", new Set(rows.map(r => r.dtype).filter(Boolean)));
+  fillSelect("arch", new Set(rows.map(r => r.arch).filter(Boolean)));
+  fillSelect("band", new Set(rows.map(r => r.band).filter(Boolean)));
+}
+
+async function load() {
+  const min = document.getElementById("minKeep").value;
+  document.getElementById("minKeepLab").textContent = min + "%";
+  const [near, meta] = await Promise.all([
+    fetch("__API__/thru").then(r => r.json()),
+    fetch("__API__/meta").then(r => r.json()).catch(() => ({})),
+  ]);
+  raw = near;
+  const a = document.getElementById("tideLink");
+  if (meta.tide_url) { a.href = meta.tide_url; a.style.display = ""; }
+  else { a.style.display = "none"; }
+  populateFilters();
+  renderCallouts();
+  renderTable();
+}
+
+["lr","mode","dtype","arch","band","credit","keepersOnly"].forEach(id => {
+  document.getElementById(id).onchange = renderTable;
+});
+document.getElementById("q").oninput = renderTable;
+document.getElementById("minKeep").oninput = () => {
+  document.getElementById("minKeepLab").textContent = document.getElementById("minKeep").value + "%";
+  if (document.getElementById("keepersOnly").checked) renderTable();
+};
+document.getElementById("refresh").onclick = load;
+load();
+setInterval(load, 20000);
+</script>
+</body>
+</html>

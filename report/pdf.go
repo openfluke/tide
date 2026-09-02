@@ -14,12 +14,16 @@ import (
 func PDFTide(r TideReport) ([]byte, error) {
 	p := newDoc("tide — " + nz(r.Task, r.ID))
 	p.coverTide(r)
+	p.sweepProgress(r)
 	p.bests(r)
 	p.axisTable("Lucy axis champions (this tide)", r.Axes)
-	p.winners(r.Winners)
+	p.modelsRanked(r.LPD)
+	p.winnersAll(r.Winners)
 	p.leaderboard("Leaderboard (Lucy Score)", r.Leaderboard)
 	p.leaderboardBy("Leaderboard (SoftAcc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.SoftAcc })
 	p.leaderboardBy("Leaderboard (hard Acc)", r.Leaderboard, func(x pulse.Result) float64 { return x.Snapshot.AvgAccuracy })
+	p.boardLeaderboards(r)
+	p.learnSpeed(r)
 	p.bars("Top scores", scoresOf(r.Leaderboard))
 	p.bars("Best settings per mode", winnerScores(r.Winners.BestSettingsPerMode, func(w WinnerRow) string { return w.Mode }))
 	p.lucyCharts(r.Cells, r.Heat)
@@ -57,7 +61,8 @@ func PDFOcean(o OceanReport) ([]byte, error) {
 		p.coverTide(t)
 		p.bests(t)
 		p.axisTable("Lucy axes — "+nz(t.Task, t.ID), t.Axes)
-		p.winners(t.Winners)
+		p.modelsRanked(t.LPD)
+		p.winnersAll(t.Winners)
 		p.leaderboard("Leaderboard — "+nz(t.Task, t.ID), t.Leaderboard)
 		p.bars("Top scores — "+nz(t.Task, t.ID), scoresOf(t.Leaderboard))
 		p.lucyCharts(t.Cells, t.Heat)
@@ -159,39 +164,15 @@ func (d *doc) bests(r TideReport) {
 	if r.BestLearn.AccPerSec != nil {
 		add("acc/sec", r.BestLearn.AccPerSec)
 	}
+	if r.BestLearnMobile.AccPerSec != nil {
+		add("acc/sec/MiB", r.BestLearnMobile.AccPerSec)
+	}
 	d.table([]string{"Axis", "Cell", "Score", "Soft", "Acc", "Thru", "Avail"}, func(k int) []string {
 		if k >= len(rows) {
 			return nil
 		}
 		r := rows[k]
 		return []string{r.axis, PrettyCell(r.id), fmt.Sprintf("%.2f", r.score), fmt.Sprintf("%.1f", r.soft), fmt.Sprintf("%.1f", r.acc), fmt.Sprintf("%.1f", r.thru), fmt.Sprintf("%.1f", r.avail)}
-	})
-}
-
-func (d *doc) winners(w WinnersView) {
-	d.h2("Best settings per train mode")
-	d.table([]string{"Mode", "DType", "Format", "Score", "Soft", "Acc", "Avail", "n"}, func(k int) []string {
-		if k >= len(w.BestSettingsPerMode) {
-			return nil
-		}
-		a := w.BestSettingsPerMode[k]
-		return []string{PrettyMode(a.Mode), a.DType, a.Format, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Acc), fmt.Sprintf("%.1f", a.Avail), fmt.Sprintf("%d", a.N)}
-	})
-	d.h2("Best dtype per mode")
-	d.table([]string{"Mode", "Winner dtype", "Score", "Soft", "Acc"}, func(k int) []string {
-		if k >= len(w.BestDTypePerMode) {
-			return nil
-		}
-		a := w.BestDTypePerMode[k]
-		return []string{PrettyMode(a.Mode), a.Winner, fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Acc)}
-	})
-	d.h2("Best mode per dtype")
-	d.table([]string{"DType", "Winner mode", "Score", "Soft", "Acc"}, func(k int) []string {
-		if k >= len(w.BestModePerDType) {
-			return nil
-		}
-		a := w.BestModePerDType[k]
-		return []string{a.Group, PrettyMode(a.Winner), fmt.Sprintf("%.1f", a.Score), fmt.Sprintf("%.1f", a.SoftAcc), fmt.Sprintf("%.1f", a.Acc)}
 	})
 }
 

@@ -111,7 +111,8 @@ Credit modes (FastProxy, Sparse, …) run `TrainStackMSE` on the Dense sandwich;
 | `metrics` | Re-export of `welvet/lucy` (SoftAcc, Score, `BuildLPD`) |
 | `permute` | dtype × format × mode × arch @ SIMD |
 | `pulse` | live run state for the dashboard |
-| `dash` | HTTP + HTML charts (1s poll). JSON: `/api/live`, `/api/board`, `/api/meta`, `/api/winners`, `/api/start` (CORS `*`) |
+| `dash` | HTTP dashboard (1s poll). Pages: `/` live, `/lucy`, `/honesty`, `/winners`, `/boards`. JSON: `/api/live`, `/api/board`, `/api/meta`, `/api/winners`, `/api/start` |
+| `river` | Compare / Acc-keep / LPD / throughput (optional on dash via `Server.River`) |
 | `ocean` | tide-of-tides: poll many dashboards, consolidate best mode/dtype |
 | `runner` | concurrent serve + train pulses (`Config.Build` optional; nil keeps `chain.Model`) |
 | `chain` | CNN / Bi / Tri Welvet models |
@@ -127,6 +128,20 @@ go run . -addr :8080 -mode smoke
 ```
 
 Set `dash.Server.Task` / `Subtitle` so the page names the workload (MNIST, sine, …).
+
+### Dashboard pages
+
+| Route | Content |
+|-------|---------|
+| `/` | Sweep progress, live pulse, models ranked |
+| `/lucy` | Lucy density (LPD, gold/lean, radar charts) |
+| `/honesty` | Honesty grids, scatter plots, vs baseline |
+| `/winners` | Best raw, learn speed, cross-tab winner tables |
+| `/boards` | Full leaderboards + cell detail modal |
+
+With `Server.River` set, also `/compare`, `/near`, `/lpd`, `/thru` — see [`river/README.md`](river/README.md).
+
+**PDF:** `/api/report.pdf` exports all Tide pages (live sweep, Lucy, honesty, winners, boards). River uses `/api/river/report.pdf` when integrated.
 
 Ocean mode (another tide that **does not train**) links any running dashboards:
 

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>tide — honesty grids</title>
+<link rel="stylesheet" href="/static/common.css"/>
+</head>
+<body data-page="honesty">
+<header>
+  <h1><span>tide</span> <span id="taskTitle">live adaptation</span></h1>
+  <div class="meta" id="status">connecting…</div>
+  <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
+</header>
+<p class="score-eq">Synthetic organism metric — Lucy density. <b>Hard Acc</b> = argmax accuracy. <b>Acc keep %</b> = this Hard Acc ÷ Acc-champ Hard Acc (100% = matches the best Acc on the board). SoftAcc = serve-confidence, not Score. Score = Throughput × Availability × Hard Acc / 10,000. <b>Lean</b> = Acc keep ≥95%, then smallest RAM / fastest Thru / best Avail — sacrifice peak Acc only inside that band. Availability is infer/(infer+train): SGD that blocks the live loop dies here.</p>
+<p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
+<p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
+  Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
+</p>
+
+<div class="start-banner" id="startBanner">
+  <div>
+    <p><b id="startTitle">Training paused</b> — browse metrics, boards, and winners freely.</p>
+    <div class="sub" id="startSub">Nothing trains until you press Start. Finished cells are skipped (resume does not redo epoch-1 work).</div>
+  </div>
+  <button class="startbtn" id="startBtn" type="button">Start training</button>
+</div>
+
+<nav class="tide-nav"><a href="/">Live</a>
+  <a href="/lucy">Lucy</a>
+  <a href="/honesty" class="active">Honesty</a>
+  <a href="/winners">Winners</a>
+  <a href="/boards">Boards</a>
+  <span class="sep">|</span>
+  <a href="/compare">Compare</a>
+  <a href="/near">Acc keep</a>
+  <a href="/lpd">LPD</a>
+  <a href="/thru">Throughput</a>
+</nav>
+<main>
+  <section class="wide">
+    <h2>Honesty grids</h2>
+    <p class="hint">Which train mode keeps Acc without stalling serve. Acc is argmax. SoftAcc is serve-confidence, not Score. Avail is the duty clock. Axes come from the finished cells — not a frozen mode list.</p>
+    <div class="chart-stack">
+      <div class="chart-panel">
+        <h3>Mean Score — mode × dtype</h3>
+        <img class="srv-chart" data-chart="heat-score" alt="Mean Score heatmap" width="960" height="320"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Mean hard Acc — mode × dtype</h3>
+        <img class="srv-chart" data-chart="heat-acc" alt="Mean Acc heatmap" width="960" height="320"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Mean SoftAcc (serve-confidence) — mode × dtype</h3>
+        <img class="srv-chart" data-chart="heat-soft" alt="Mean SoftAcc heatmap" width="960" height="320"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Mean Avail — mode × dtype</h3>
+        <img class="srv-chart" data-chart="heat-avail" alt="Mean Avail heatmap" width="960" height="320"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Mean Score — mode × arch</h3>
+        <img class="srv-chart" data-chart="heat-arch" alt="Mean Score mode x arch" width="960" height="320"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Mean Avail — mode × arch</h3>
+        <img class="srv-chart" data-chart="heat-arch-avail" alt="Mean Avail mode x arch" width="960" height="320"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Avail vs hard Acc</h3>
+        <img class="srv-chart" data-chart="scatter-avail-acc" alt="Avail vs hard Acc" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>SoftAcc vs Lucy Score</h3>
+        <img class="srv-chart" data-chart="scatter-soft-score" alt="SoftAcc vs Score" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Hard Acc vs Score</h3>
+        <img class="srv-chart" data-chart="scatter-acc-score" alt="Hard Acc vs Score" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>SoftAcc vs hard Acc (they diverge on large vocabs)</h3>
+        <img class="srv-chart" data-chart="scatter-soft-acc" alt="SoftAcc vs hard Acc" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Thru vs hard Acc</h3>
+        <img class="srv-chart" data-chart="scatter-thru-acc" alt="Thru vs hard Acc" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Thru vs Avail</h3>
+        <img class="srv-chart" data-chart="scatter-thru-avail" alt="Thru vs Avail" width="960" height="440"/>
+      </div>
+      <div class="chart-panel" id="adaptPanel" style="display:none">
+        <h3>AdaptPct vs hard Acc</h3>
+        <img class="srv-chart" data-chart="scatter-adapt-acc" alt="AdaptPct vs hard Acc" width="960" height="440"/>
+      </div>
+    </div>
+  </section>
+  <section class="wide" id="vsSection" style="display:none">
+    <h2 id="vsTitle">vs baseline</h2>
+    <p class="hint" id="vsHint"></p>
+    <div class="table-wrap" id="vsTableWrap"></div>
+    <div class="chart-stack" id="vsStack"></div>
+  </section>
+
+</main>
+
+<script src="/static/common.js"></script>
+</body>
+</html>

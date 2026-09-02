@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>tide — live</title>
+<link rel="stylesheet" href="/static/common.css"/>
+</head>
+<body data-page="live">
+<header>
+  <h1><span>tide</span> <span id="taskTitle">live adaptation</span></h1>
+  <div class="meta" id="status">connecting…</div>
+  <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
+</header>
+<p class="score-eq">Synthetic organism metric — Lucy density. <b>Hard Acc</b> = argmax accuracy. <b>Acc keep %</b> = this Hard Acc ÷ Acc-champ Hard Acc (100% = matches the best Acc on the board). SoftAcc = serve-confidence, not Score. Score = Throughput × Availability × Hard Acc / 10,000. <b>Lean</b> = Acc keep ≥95%, then smallest RAM / fastest Thru / best Avail — sacrifice peak Acc only inside that band. Availability is infer/(infer+train): SGD that blocks the live loop dies here.</p>
+<p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
+<p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
+  Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
+</p>
+
+<div class="start-banner" id="startBanner">
+  <div>
+    <p><b id="startTitle">Training paused</b> — browse metrics, boards, and winners freely.</p>
+    <div class="sub" id="startSub">Nothing trains until you press Start. Finished cells are skipped (resume does not redo epoch-1 work).</div>
+  </div>
+  <button class="startbtn" id="startBtn" type="button">Start training</button>
+</div>
+
+<nav class="tide-nav"><a href="/" class="active">Live</a>
+  <a href="/lucy">Lucy</a>
+  <a href="/honesty">Honesty</a>
+  <a href="/winners">Winners</a>
+  <a href="/boards">Boards</a>
+  <span class="sep">|</span>
+  <a href="/compare">Compare</a>
+  <a href="/near">Acc keep</a>
+  <a href="/lpd">LPD</a>
+  <a href="/thru">Throughput</a>
+</nav>
+<div class="top-row">
+  <section>
+    <h2>Sweep progress</h2>
+    <p class="hint">This epoch vs full plan. ETA uses average cell duration from finished runs.</p>
+    <div class="sweep-panel">
+      <div class="sweep-left">
+        <div>
+          <canvas id="pieChart" width="240" height="180"></canvas>
+          <div class="progress-bar"><i id="sweepBar" style="width:0%"></i></div>
+          <div class="pie-aside" id="pieAside">—</div>
+        </div>
+        <div class="mode-mix-block">
+          <h3>Mode mix (finished)</h3>
+          <p class="hint">Train modes already completed this epoch.</p>
+          <canvas id="modePie" width="240" height="160"></canvas>
+          <div class="pie-aside" id="modeAside">—</div>
+        </div>
+      </div>
+      <div>
+        <div class="sweep-stats" id="sweepStats">—</div>
+        <h2 style="margin-top:1rem">Queue by train mode</h2>
+        <p class="hint">Done / running / left for each mode in plan order.</p>
+        <div class="table-wrap" style="max-height:280px">
+          <table>
+            <thead><tr><th>Mode</th><th>Done</th><th>Run</th><th>Left</th><th>Total</th><th></th></tr></thead>
+            <tbody id="modeQueue"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="pulse-panel">
+  <section>
+    <h2>Live pulse — current vs champions</h2>
+    <p class="hint">
+      Solid = live. Dashed white = champ on <b>that metric</b>. Dotted teal = Lucy <b>Score champ</b>’s value on this metric.
+      Background bands = model changes.
+    </p>
+    <div class="legend">
+      <span><i style="background:#e6b35a"></i>live Hard Acc</span>
+      <span><i style="background:#7aa2f7"></i>live throughput</span>
+      <span><i style="background:#c3a6ff"></i>live availability</span>
+      <span><i style="background:#3dd6c6"></i>live lucy score</span>
+      <span><i style="background:#ffffff; outline:1px dashed #fff"></i>metric champ</span>
+      <span><i style="background:transparent; outline:1px dotted #3dd6c6"></i>score champ</span>
+    </div>
+    <img class="srv-chart" id="chart-pulse" data-chart="pulse" alt="Live pulse chart" width="960" height="520"/>
+    <div class="scrub">
+      <button class="livebtn" id="livebtn" type="button">LIVE</button>
+      <input id="scrub" type="range" min="0" max="0" value="0"/>
+      <span id="scrubLabel">live</span>
+    </div>
+    <div id="current" class="meta" style="margin-top:0.75rem">—</div>
+  </section>
+</div>
+<main>
+  <section class="wide">
+    <h2>Models ranked — live-fit + Lucy density</h2>
+    <p class="hint">
+      Ranked by <b>LPD</b> (memory density of Acc/Thru/Avail). Bars: LPD, Q keep, <b>Hard Acc</b>, Thru, Avail, RAM vs Acc champ.
+      Traps (chance Acc, tiny RAM) get LPD 0 and sink. Label is <b>mode</b> plus <b>layer · dtype · quant · head</b>.
+    </p>
+    <div class="legend">
+      <span><i style="background:#b7791f"></i>LPD</span>
+      <span><i style="background:#3dd6c6"></i>Q</span>
+      <span><i style="background:#e6b35a"></i>Hard Acc</span>
+      <span><i style="background:#7aa2f7"></i>thru</span>
+      <span><i style="background:#c3a6ff"></i>avail</span>
+      <span><i style="background:#8aa0ad"></i>RAM% (smaller better)</span>
+    </div>
+    <div class="rank-list" id="rankChart"></div>
+  </section>
+
+</main>
+
+<script src="/static/common.js"></script>
+</body>
+</html>

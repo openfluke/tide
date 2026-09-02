@@ -3,6 +3,7 @@ package dash
 import (
 	"embed"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"strconv"
 	"sync"
@@ -11,10 +12,11 @@ import (
 	"github.com/openfluke/tide/checkpoint"
 	"github.com/openfluke/tide/permute"
 	"github.com/openfluke/tide/pulse"
+	"github.com/openfluke/tide/river"
 )
 
-//go:embed index.html
-var static embed.FS
+//go:embed web/*
+var webFS embed.FS
 
 // Server serves the live HTML dashboard + JSON pulse.
 // Tide is dataset-agnostic: the host (e.g. live_mnist) supplies Cells + optional Task.
@@ -33,6 +35,10 @@ type Server struct {
 	LR float64
 	// ID is the ocean peer name. Empty → Task, then Addr.
 	ID string
+
+	// River is an optional results store for compare / near / LPD / throughput pages.
+	River     *river.Store
+	RiverOpts river.Options
 
 	startMu sync.Mutex
 	started bool
@@ -127,19 +133,42 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	webRoot, err := fs.Sub(webFS, "web")
+	if err != nil {
+		panic(err)
+	}
+	servePage := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			b, err := webFS.ReadFile("web/" + name)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(b)
+		}
+	}
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(webRoot))))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		b, err := static.ReadFile("index.html")
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(b)
+		servePage("live.html")(w, r)
 	})
+	mux.HandleFunc("/lucy", servePage("lucy.html"))
+	mux.HandleFunc("/honesty", servePage("honesty.html"))
+	mux.HandleFunc("/winners", servePage("winners.html"))
+	mux.HandleFunc("/boards", servePage("boards.html"))
+	if s.River != nil {
+		opts := s.RiverOpts
+		opts.Integrated = true
+		opts.TideListen = s.Addr
+		if opts.Title == "" && s.Task != "" {
+			opts.Title = s.Task + " compare"
+		}
+		river.Mount(mux, s.River, opts)
+	}
 	mux.HandleFunc("/api/live", s.handleLive)
 	mux.HandleFunc("/api/cell", s.handleCell)
 	mux.HandleFunc("/api/charts/", s.handleChart)

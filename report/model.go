@@ -26,11 +26,19 @@ type TideReport struct {
 	Recorded     int                  `json:"recorded"`
 	Status       string               `json:"status"`
 	Formula      string               `json:"formula"`
-	Best         pulse.Best           `json:"best"`
-	BestMobile   pulse.BestMobile     `json:"best_mobile"`
-	BestLearn    pulse.BestLearn      `json:"best_learn"`
-	Winners      WinnersView          `json:"winners"`
-	Leaderboard  []pulse.Result       `json:"leaderboard"`
+	Best             pulse.Best             `json:"best"`
+	BestMobile       pulse.BestMobile       `json:"best_mobile"`
+	BestLearn        pulse.BestLearn        `json:"best_learn"`
+	BestLearnMobile  pulse.BestLearnMobile  `json:"best_learn_mobile"`
+	Winners          WinnersView            `json:"winners"`
+	Leaderboard      []pulse.Result         `json:"leaderboard"`
+	LeaderboardMobile    []pulse.Result `json:"leaderboard_mobile,omitempty"`
+	LeaderboardLearn     []pulse.Result `json:"leaderboard_learn,omitempty"`
+	LeaderboardLearnMobile []pulse.Result `json:"leaderboard_learn_mobile,omitempty"`
+	EpochOk   int `json:"epoch_ok,omitempty"`
+	EpochGap  int `json:"epoch_gap,omitempty"`
+	EpochFail int `json:"epoch_fail,omitempty"`
+	RunningN  int `json:"running_n,omitempty"`
 	ModeProgress []ModeRow            `json:"mode_progress"`
 	History      []pulse.HistoryPoint `json:"history,omitempty"`
 	Axes         []AxisView           `json:"axes,omitempty"`
@@ -122,23 +130,31 @@ type TopRow struct {
 
 type WinnersView struct {
 	BestSettingsPerMode []WinnerRow `json:"best_settings_per_mode"`
+	BestCellPerMode     []WinnerRow `json:"best_cell_per_mode"`
 	BestDTypePerMode    []WinnerRow `json:"best_dtype_per_mode"`
+	BestFormatPerMode   []WinnerRow `json:"best_format_per_mode"`
 	BestModePerDType    []WinnerRow `json:"best_mode_per_dtype"`
+	BestModePerFormat   []WinnerRow `json:"best_mode_per_format"`
+	BestFormatPerDType  []WinnerRow `json:"best_format_per_dtype"`
 }
 
 type WinnerRow struct {
-	Group   string  `json:"group"`
-	Winner  string  `json:"winner"`
-	CellID  string  `json:"cell_id"`
-	Mode    string  `json:"mode"`
-	DType   string  `json:"dtype"`
-	Format  string  `json:"format"`
-	Arch    string  `json:"arch"`
-	Score   float64 `json:"score"`
-	SoftAcc float64 `json:"soft_acc"`
-	Acc     float64 `json:"avg_accuracy"`
-	Avail   float64 `json:"availability"`
-	N       int     `json:"n"`
+	Group      string  `json:"group"`
+	Winner     string  `json:"winner"`
+	CellID     string  `json:"cell_id"`
+	Mode       string  `json:"mode"`
+	DType      string  `json:"dtype"`
+	Format     string  `json:"format"`
+	Arch       string  `json:"arch"`
+	Score      float64 `json:"score"`
+	SoftAcc    float64 `json:"soft_acc"`
+	Acc        float64 `json:"avg_accuracy"`
+	Avail      float64 `json:"availability"`
+	Throughput float64 `json:"throughput,omitempty"`
+	AccPerSec  float64 `json:"acc_per_sec,omitempty"`
+	TimeTo50   float64 `json:"time_to_acc50_sec,omitempty"`
+	WeightKiB  float64 `json:"weight_kib,omitempty"`
+	N          int     `json:"n"`
 }
 
 // CellPoint is one finished ok cell, slim enough for heatmaps / Pareto / scatter.

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>tide — Lucy density</title>
+<link rel="stylesheet" href="/static/common.css"/>
+</head>
+<body data-page="lucy">
+<header>
+  <h1><span>tide</span> <span id="taskTitle">live adaptation</span></h1>
+  <div class="meta" id="status">connecting…</div>
+  <a href="/api/report.pdf" style="margin-left:auto;color:#3dd6c6;font-size:0.9rem">download PDF</a>
+</header>
+<p class="score-eq">Synthetic organism metric — Lucy density. <b>Hard Acc</b> = argmax accuracy. <b>Acc keep %</b> = this Hard Acc ÷ Acc-champ Hard Acc (100% = matches the best Acc on the board). SoftAcc = serve-confidence, not Score. Score = Throughput × Availability × Hard Acc / 10,000. <b>Lean</b> = Acc keep ≥95%, then smallest RAM / fastest Thru / best Avail — sacrifice peak Acc only inside that band. Availability is infer/(infer+train): SGD that blocks the live loop dies here.</p>
+<p class="score-eq"><b>Mode names</b> — <code>[T]</code>=Tween · <code>[S]</code>=Split · <code>[FP]</code>=FastProxy · <code>[L]</code>=Linear · <code>[HP]</code>=HeadProxy</p>
+<p class="score-eq" id="taskSub" style="opacity:.85;font-size:0.85rem;margin-top:-0.35rem">
+  Tide runs any serve+train sweep — the host picks the dataset. Finished cell IDs are skipped on resume.
+</p>
+
+<div class="start-banner" id="startBanner">
+  <div>
+    <p><b id="startTitle">Training paused</b> — browse metrics, boards, and winners freely.</p>
+    <div class="sub" id="startSub">Nothing trains until you press Start. Finished cells are skipped (resume does not redo epoch-1 work).</div>
+  </div>
+  <button class="startbtn" id="startBtn" type="button">Start training</button>
+</div>
+
+<nav class="tide-nav"><a href="/">Live</a>
+  <a href="/lucy" class="active">Lucy</a>
+  <a href="/honesty">Honesty</a>
+  <a href="/winners">Winners</a>
+  <a href="/boards">Boards</a>
+  <span class="sep">|</span>
+  <a href="/compare">Compare</a>
+  <a href="/near">Acc keep</a>
+  <a href="/lpd">LPD</a>
+  <a href="/thru">Throughput</a>
+</nav>
+<main>
+  <section class="wide">
+    <h2>Lucy density — synthetic organism</h2>
+    <p class="hint" id="lpdHint">
+      The thing being measured is a net that <b>runs and trains at the same time</b> in a small box.
+      Pure Hard Acc is not enough: SGD can look accurate while it blocks serve and burns RAM.
+      <b>Hard Acc</b> = argmax. <b>Acc keep %</b> = Hard Acc ÷ Acc-champ Acc (not SoftAcc).
+      <b>Score</b> = Thru × Avail × Hard Acc / 10,000. <b>Q</b> = geomean Acc-keep / Thru-keep / Avail-keep vs learner peaks.
+      <b>LPD</b> = Q × shrink vs Acc-champ RAM; 0 unless Acc keep ≥70%.
+      <b>Gold</b> = all three pillars ≥80% at ≤20% Acc-champ RAM. <b>Gold-std</b> = Acc keep ≥80% plus Thru or Avail, then smallest then fastest.
+      <b>Lean (≥95%)</b> = Acc keep ≥95% of Acc champ, then smallest RAM / fastest Thru / best Avail — the footprint win without collapsing Acc.
+    </p>
+    <div class="legend">
+      <span><i style="background:#b7791f"></i>gold trifecta, small RAM</span>
+      <span><i style="background:#9ece6a"></i>lean ≥95% Acc keep</span>
+      <span><i style="background:#e6b35a"></i>near 2+ pillars, ≤50% RAM</span>
+      <span><i style="background:#3dd6c6"></i>keep 2+ pillars, fat</span>
+      <span><i style="background:#7aa2f7"></i>acc-only</span>
+      <span><i style="background:#e06c75"></i>trap tiny RAM, Acc keep&lt;70%</span>
+    </div>
+    <div id="lpdChamp" class="meta" style="margin-bottom:0.5rem">—</div>
+    <div id="lpdLean" class="lpd-callout empty">No lean cell yet. Need Acc keep ≥95% of Acc champ, then pick smallest RAM / fastest Thru.</div>
+    <div id="lpdGold" class="lpd-callout empty">No gold cell yet. Need all three pillars at ≥80% of learner peaks in ≤20% of Acc-champ RAM.</div>
+    <div id="lpdStd" class="meta" style="margin-bottom:0.5rem">—</div>
+    <div class="chart-stack">
+      <div class="chart-panel">
+        <h3>Consciousness radar — Acc keep / Thru keep / Avail keep</h3>
+        <p class="hint">Each triangle is one <b>champ cell</b> (Acc champ, Lean ≥95%, Gold-std, Live-fit, Lucy Score). Axes are keep-% vs learner peaks — not raw Hard Acc.</p>
+        <img class="srv-chart" data-chart="radar-live" alt="Consciousness radar" width="960" height="480"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Memory density radar — keep × shrink vs Acc-champ RAM</h3>
+        <p class="hint">Same champ cells; each axis is keep × how much smaller than Acc-champ RAM. Fat accurate models sit toward the center; traps at 0.</p>
+        <img class="srv-chart" data-chart="radar-dens" alt="Memory density radar" width="960" height="480"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Q% vs RAM KiB — gold is top-left</h3>
+        <p class="hint">Every finished ok cell. Dot color = train mode. Gold ring = trifecta. Green ring = lean (≥95% Acc keep). Dashed lines = 20% Acc-champ RAM and 80% keep.</p>
+        <img class="srv-chart" data-chart="lpd-ram" alt="Q% vs RAM" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Acc keep % vs RAM — lean 95% / gold 80% / 20% RAM</h3>
+        <p class="hint"><b>Acc keep %</b> = Hard Acc ÷ Acc-champ Acc (not SoftAcc). Gold wants high Acc keep at low RAM (top-left). Lean band is above the 95% line.</p>
+        <img class="srv-chart" data-chart="lpd-acc" alt="Acc keep vs RAM" width="960" height="440"/>
+      </div>
+      <div class="chart-panel">
+        <h3>Q% vs shrink vs Acc champ — gold is top-right</h3>
+        <p class="hint">X = shrink × (Acc-champ RAM / this). Color = train mode. Top-right = dense live-fit.</p>
+        <img class="srv-chart" data-chart="lpd-shrink" alt="Q% vs shrink" width="960" height="440"/>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:0.75rem">Gold-std by train mode, then lean winners by <b>arch / cam</b> (footprint among ≥95% Acc keep). Honesty grids below for mode × dtype means.</p>
+    <div class="table-wrap" style="max-height:240px;margin-top:0.8rem">
+      <table>
+        <thead><tr>
+          <th>Mode (gold-std)</th><th class="num">n</th><th class="num">best Hard Acc</th><th class="num">smallest KiB</th>
+          <th class="num">fastest Thru</th><th>cell</th>
+        </tr></thead>
+        <tbody id="lpdModes"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="max-height:240px;margin-top:0.8rem">
+      <table>
+        <thead><tr>
+          <th>Arch / cam (lean ≥95%)</th><th class="num">n</th><th class="num">best Hard Acc</th><th class="num">smallest KiB</th>
+          <th class="num">fastest Thru</th><th>cell</th>
+        </tr></thead>
+        <tbody id="lpdLeanArch"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap" style="max-height:420px;margin-top:0.8rem">
+      <table>
+        <thead><tr>
+          <th>Band</th><th>Cell</th><th class="num">Hard Acc</th><th class="num">Acc keep%</th><th class="num">Thru keep%</th><th class="num">Avail keep%</th>
+          <th class="num">Q%</th><th class="num">RAM%</th><th class="num">LPD</th><th class="num">KiB</th>
+        </tr></thead>
+        <tbody id="lpdTable"></tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<script src="/static/common.js"></script>
+</body>
+</html>
