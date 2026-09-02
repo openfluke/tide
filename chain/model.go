@@ -393,6 +393,20 @@ func (m *Model) denseSandwich() (*parallel.Stack, error) {
 	return s, nil
 }
 
+// SetCamSync configures cross-cam weight blending on the cameral dense sandwich (cams ≥ 2).
+// No-op for single-cam cells.
+func (m *Model) SetCamSync(cfg parallel.CamSyncConfig) error {
+	if m == nil || m.Para == nil || !m.isCameral() {
+		return nil
+	}
+	s, err := m.denseSandwich()
+	if err != nil {
+		return err
+	}
+	s.SetCamSync(cfg)
+	return nil
+}
+
 func (m *Model) lineOps() []any {
 	ops := []any{m.CNN1, m.CNN2, &parallel.Flatten{Feat: m.FlatIn}}
 	if m.isCameral() {
