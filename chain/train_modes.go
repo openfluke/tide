@@ -39,6 +39,9 @@ func (m *Model) TrainStep(x, target *core.Tensor[float32], lr float64, mode perm
 	case permute.ModeTweenChain, permute.ModeStepTweenChain:
 		return loss, m.tweenChain(tp, target, lr)
 	case permute.ModeSGD, permute.ModeStepSGD:
+		if m.paraMixed() {
+			return m.trainCredit(target, tp, lr, mode)
+		}
 		return loss, m.sgdFull(tp, target, lr)
 	default:
 		wv, werr := mode.Welvet()
@@ -264,4 +267,16 @@ func (m *Model) trainCredit(target *core.Tensor[float32], tp *tape, lr float64, 
 		return loss, err
 	}
 	return loss, nil
+}
+
+func (m *Model) paraMixed() bool {
+	if m == nil || m.Para == nil {
+		return false
+	}
+	for _, bm := range m.Para.BranchModes {
+		if bm != parallel.ModeInherit {
+			return true
+		}
+	}
+	return false
 }
