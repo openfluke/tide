@@ -7,6 +7,31 @@ import (
 	"github.com/openfluke/tide/pulse"
 )
 
+func TestModeProgressMixCellsSeparateFromSGD(t *testing.T) {
+	cells := []permute.Cell{
+		{ID: "binary|none|sgd|single|simd|lr=0.005", Mode: permute.ModeSGD},
+		{ID: "binary|none|sgd|single|simd|lr=0.05", Mode: permute.ModeSGD},
+		{ID: "binary|none|sgd|bicameral|simd|bm=tween+sgd|pat=alt|lr=0.005", Mode: permute.ModeSGD},
+		{ID: "binary|none|tween|single|simd|lr=0.005", Mode: permute.ModeTween},
+	}
+	tr := pulse.New()
+	s := &Server{Tracker: tr, Cells: cells, Epoch: 1}
+	mp := s.modeProgress(tr.SnapshotLive())
+	by := map[string]ModeProgress{}
+	for _, m := range mp {
+		by[m.Mode] = m
+	}
+	if by["sgd"].Total != 2 {
+		t.Fatalf("sgd total %d want 2", by["sgd"].Total)
+	}
+	if by["cam-mix"].Total != 1 {
+		t.Fatalf("cam-mix total %d want 1", by["cam-mix"].Total)
+	}
+	if by["tween"].Total != 1 {
+		t.Fatalf("tween total %d want 1", by["tween"].Total)
+	}
+}
+
 func TestModeProgressCountsUniquePlanCells(t *testing.T) {
 	cells := []permute.Cell{
 		{ID: "float32|none|sgd|single|simd|lr=0.6", Mode: permute.ModeSGD},

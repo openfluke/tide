@@ -70,7 +70,7 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 	seen := map[string]bool{}
 	by := map[string]*agg{}
 	for _, c := range s.Cells {
-		m := string(c.Mode)
+		m := permute.QueueMode(c)
 		if !seen[m] {
 			seen[m] = true
 			order = append(order, m)
@@ -91,7 +91,7 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 		doneSet = s.Tracker.DoneSet()
 	}
 	for _, c := range s.Cells {
-		m := string(c.Mode)
+		m := permute.QueueMode(c)
 		a := by[m]
 		if a == nil {
 			continue
@@ -102,13 +102,13 @@ func (s *Server) modeProgress(live pulse.Live) []ModeProgress {
 	}
 	if len(live.Inflight) > 0 {
 		for _, r := range live.Inflight {
-			m := string(r.Cell.Mode)
+			m := permute.QueueMode(r.Cell)
 			if a := by[m]; a != nil {
 				a.running++
 			}
 		}
 	} else if live.Current != nil && live.Running {
-		m := string(live.Current.Cell.Mode)
+		m := permute.QueueMode(live.Current.Cell)
 		if a := by[m]; a != nil {
 			a.running++
 		}

@@ -544,6 +544,7 @@ const MODE_PALETTE = {
   tween_chain: '#c3a6ff',
   step_tween: '#e06c75',
   step_tween_chain: '#8fd19e',
+  'cam-mix': '#5b9fd4',
 };
 const FALLBACK_PALETTE = [
   '#9ad0f5','#d4a574','#6bcb8a','#ff9ecd','#a8b4c0','#5ec8e6','#c9d66b','#f0a0a0',
@@ -581,6 +582,7 @@ function bindRowClicks(root) {
 
 function prettyMode(s) {
   s = String(s || '');
+  if (s === 'cam-mix') return 'cam-mix';
   return s.replace(/FastProxy/g, '[FP]').replace(/HeadProxy/g, '[HP]').replace(/Linear/g, '[L]').replace(/Split/g, '[S]').replace(/Tween/g, '[T]');
 }
 function prettyCellId(id) {
