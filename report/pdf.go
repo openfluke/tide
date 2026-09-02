@@ -100,7 +100,7 @@ type doc struct {
 
 func newDoc(title string) *doc {
 	title = latin(title)
-	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf := gofpdf.New("L", "mm", "A4", "")
 	pdf.SetCompression(false)
 	pdf.SetTitle(title, false)
 	pdf.SetAuthor("tide / ocean Lucy report", false)
@@ -364,7 +364,7 @@ func (d *doc) bars(title string, items []kv) {
 	barH := 4.2
 	d.pdf.SetFont("Helvetica", "", 6)
 	for _, it := range items {
-		if d.pdf.GetY()+barH > 278 {
+		if d.pdf.GetY()+barH > d.pageBreakY() {
 			d.pdf.AddPage()
 			d.h2(title)
 			d.pdf.SetFont("Helvetica", "", 6)
@@ -432,7 +432,7 @@ func (d *doc) h1(s string) {
 }
 
 func (d *doc) h2(s string) {
-	if d.pdf.GetY() > 265 {
+	if d.pdf.GetY() > d.pageBreakY()-15 {
 		d.pdf.AddPage()
 	}
 	d.pdf.SetFont("Helvetica", "B", 11)
@@ -455,27 +455,19 @@ func (d *doc) body(s string) {
 func (d *doc) gap(mm float64) { d.pdf.Ln(mm) }
 
 func (d *doc) table(headers []string, row func(int) []string) {
-	if len(headers) >= 8 {
-		d.tableSized(headers, row, true)
-		return
-	}
-	d.tableSized(headers, row, false)
+	d.tableSized(headers, row)
 }
 
-func (d *doc) tableSized(headers []string, row func(int) []string, forceLandscape bool) {
+func (d *doc) tableSized(headers []string, row func(int) []string) {
 	cols := len(headers)
 	if cols == 0 {
 		return
 	}
-	wasPortrait := !d.isLandscape()
-	if forceLandscape {
-		d.pdf.AddPageFormat("L", gofpdf.SizeType{Wd: 297, Ht: 210})
-	}
 	l, _, r, _ := d.pdf.GetMargins()
-	pageW, pageH := d.pdf.GetPageSize()
+	pageW, _ := d.pdf.GetPageSize()
 	usable := pageW - l - r - 1
 	widths := tableColWidths(headers, usable)
-	yMax := pageH - 22
+	yMax := d.pageBreakY()
 
 	writeHeader := func() {
 		d.pdf.SetFont("Helvetica", "B", 6)
@@ -496,13 +488,8 @@ func (d *doc) tableSized(headers []string, row func(int) []string, forceLandscap
 			break
 		}
 		if d.pdf.GetY()+6 > yMax {
-			if forceLandscape {
-				d.pdf.AddPageFormat("L", gofpdf.SizeType{Wd: 297, Ht: 210})
-			} else {
-				d.pdf.AddPage()
-			}
-			pageW, pageH = d.pdf.GetPageSize()
-			yMax = pageH - 22
+			d.pdf.AddPage()
+			yMax = d.pageBreakY()
 			writeHeader()
 		}
 		fill := i%2 == 1
@@ -514,15 +501,12 @@ func (d *doc) tableSized(headers []string, row func(int) []string, forceLandscap
 		}
 		d.pdf.Ln(-1)
 	}
-	if forceLandscape && wasPortrait {
-		d.pdf.AddPageFormat("P", gofpdf.SizeType{Wd: 210, Ht: 297})
-	}
 	d.gap(3)
 }
 
-func (d *doc) isLandscape() bool {
-	w, h := d.pdf.GetPageSize()
-	return w > h
+func (d *doc) pageBreakY() float64 {
+	_, h := d.pdf.GetPageSize()
+	return h - 22
 }
 
 func tableColWidths(headers []string, left float64) []float64 {

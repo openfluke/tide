@@ -156,7 +156,7 @@ func (d *doc) signedBars(title string, items []kv) {
 	mid := left + labelW + barW/2
 	d.pdf.SetFont("Helvetica", "", 6)
 	for _, it := range items {
-		if d.pdf.GetY()+barH > 278 {
+		if d.pdf.GetY()+barH > d.pageBreakY() {
 			d.pdf.AddPage()
 			d.h2(title)
 			d.pdf.SetFont("Helvetica", "", 6)
@@ -627,7 +627,7 @@ func (d *doc) heatmapSignedPage(title string, rows, cols []string, grid [][]floa
 	d.h2(title)
 	const headH = 34.0
 	need := headH + 8.0 + float64(len(rows))*5.2
-	if d.pdf.GetY()+need > 270 {
+	if d.pdf.GetY()+need > d.pageBreakY()-8 {
 		d.pdf.AddPage()
 		d.h2(title)
 	}
@@ -653,7 +653,7 @@ func (d *doc) heatmapSignedPage(title string, rows, cols []string, grid [][]floa
 	d.heatColHeads(left, labelW, cw, headH, cols)
 	for i, r := range rows {
 		y := d.pdf.GetY()
-		if y > 278 {
+		if y > d.pageBreakY() {
 			d.pdf.AddPage()
 			d.heatColHeads(left, labelW, cw, headH, cols)
 			y = d.pdf.GetY()
@@ -696,7 +696,7 @@ func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 	d.h2(title)
 	const headH = 34.0
 	need := headH + 8.0 + float64(len(rows))*5.2
-	if d.pdf.GetY()+need > 270 {
+	if d.pdf.GetY()+need > d.pageBreakY()-8 {
 		d.pdf.AddPage()
 		d.h2(title)
 	}
@@ -712,7 +712,7 @@ func (d *doc) heatmapPage(title string, rows, cols []string, grid [][]float64) {
 	d.heatColHeads(left, labelW, cw, headH, cols)
 	for i, r := range rows {
 		y := d.pdf.GetY()
-		if y > 278 {
+		if y > d.pageBreakY() {
 			d.pdf.AddPage()
 			d.heatColHeads(left, labelW, cw, headH, cols)
 			y = d.pdf.GetY()

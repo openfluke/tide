@@ -4,13 +4,6 @@ import (
 	"github.com/phpdave11/gofpdf"
 )
 
-var (
-	a4Portrait  = gofpdf.SizeType{Wd: 210, Ht: 297}
-	a4Landscape = gofpdf.SizeType{Wd: 297, Ht: 210}
-)
-
-const portraitTableMaxW = 185.0
-
 func sumWidths(widths []float64) float64 {
 	s := 0.0
 	for _, w := range widths {
@@ -31,11 +24,6 @@ func scaleWidths(widths []float64, maxTotal float64) []float64 {
 	return out
 }
 
-func isLandscapePage(pdf *gofpdf.Fpdf) bool {
-	w, h := pdf.GetPageSize()
-	return w > h
-}
-
 func usablePageWidth(pdf *gofpdf.Fpdf) float64 {
 	w, _ := pdf.GetPageSize()
 	l, _, r, _ := pdf.GetMargins()
@@ -48,31 +36,10 @@ func pageBreakY(pdf *gofpdf.Fpdf) float64 {
 	return h - b - 14 // footer band
 }
 
-func addLandscapePage(pdf *gofpdf.Fpdf) {
-	pdf.AddPageFormat("L", a4Landscape)
-}
-
-func addPortraitPage(pdf *gofpdf.Fpdf) {
-	pdf.AddPageFormat("P", a4Portrait)
-}
-
-func tableNeedsLandscape(headers []string, widths []float64, force bool) bool {
-	if force {
-		return true
-	}
-	return len(headers) >= 10 || sumWidths(widths) > portraitTableMaxW
-}
-
-// paginatedTable renders a full table, rotating to landscape when columns are wide.
-// Returns to portrait afterward if this call opened landscape.
-func paginatedTable(pdf *gofpdf.Fpdf, headers []string, widths []float64, fontSize float64, forceLandscape bool, rowAt func(i int) ([]string, bool)) {
+// paginatedTable renders a full-width table (document is landscape throughout).
+func paginatedTable(pdf *gofpdf.Fpdf, headers []string, widths []float64, fontSize float64, rowAt func(i int) ([]string, bool)) {
 	if len(headers) == 0 {
 		return
-	}
-	landscape := tableNeedsLandscape(headers, widths, forceLandscape)
-	wasPortrait := !isLandscapePage(pdf)
-	if landscape {
-		addLandscapePage(pdf)
 	}
 	widths = scaleWidths(widths, usablePageWidth(pdf)-1.0)
 	yMax := pageBreakY(pdf)
@@ -89,18 +56,11 @@ func paginatedTable(pdf *gofpdf.Fpdf, headers []string, widths []float64, fontSi
 			break
 		}
 		if pdf.GetY()+6 > yMax {
-			if landscape {
-				addLandscapePage(pdf)
-			} else {
-				pdf.AddPage()
-			}
+			pdf.AddPage()
 			yMax = pageBreakY(pdf)
 			writeHeader()
 		}
 		tableRowFit(pdf, cols, widths)
-	}
-	if landscape && wasPortrait {
-		addPortraitPage(pdf)
 	}
 }
 

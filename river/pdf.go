@@ -36,7 +36,7 @@ func newRiverPDF(title string) *gofpdf.Fpdf {
 	if title == "" {
 		title = "River compare"
 	}
-	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf := gofpdf.New("L", "mm", "A4", "")
 	pdf.SetCompression(false)
 	pdf.SetTitle(title, false)
 	pdf.SetAuthor("openfluke/river", false)
@@ -162,7 +162,7 @@ func leanPDF(pdf *gofpdf.Fpdf, heading string, sum *LeanSummary, bars []LeanBar)
 	subhead(pdf, "Detail table")
 	headers := []string{"#", "KiB", "train s", "Acc %", "%best", "mode", "dtype", "arch"}
 	widths := []float64{8, 14, 16, 14, 14, 36, 24, 40}
-	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+	paginatedTable(pdf, headers, widths, 8, func(i int) ([]string, bool) {
 		if i >= len(bars) {
 			return nil, false
 		}
@@ -205,7 +205,7 @@ func aggPDF(pdf *gofpdf.Fpdf, heading string, bars []AggBar, r, g, b int) {
 	subhead(pdf, "Detail table")
 	headers := []string{"key", "n", "mean Acc", "best Acc", "mean thru"}
 	widths := []float64{70, 14, 24, 24, 28}
-	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+	paginatedTable(pdf, headers, widths, 8, func(i int) ([]string, bool) {
 		if i >= len(cp) {
 			return nil, false
 		}
@@ -244,7 +244,7 @@ func rowsChartPDF(pdf *gofpdf.Fpdf, heading string, rows []Row, n int, val func(
 	subhead(pdf, "Detail table")
 	headers := []string{"Acc", "thru", "acc/s", "KiB", "mode", "dtype", "arch"}
 	widths := []float64{14, 16, 16, 14, 36, 24, 40}
-	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+	paginatedTable(pdf, headers, widths, 8, func(i int) ([]string, bool) {
 		if i >= len(rows) {
 			return nil, false
 		}
@@ -285,7 +285,7 @@ func denseChartPDF(pdf *gofpdf.Fpdf, rows []Row) {
 	subhead(pdf, "Detail table")
 	headers := []string{"score", "Acc", "KiB", "acc/s", "mode", "dtype", "arch"}
 	widths := []float64{16, 14, 14, 16, 36, 24, 40}
-	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+	paginatedTable(pdf, headers, widths, 8, func(i int) ([]string, bool) {
 		if i >= len(rows) {
 			return nil, false
 		}
@@ -353,7 +353,7 @@ func hbars(pdf *gofpdf.Fpdf, items []barItem, unit string, fr, fg, fb int, pagin
 	pdf.Ln(5)
 	pdf.SetFont("Helvetica", "", 6.5)
 	for _, it := range items {
-		if paginate && pdf.GetY()+barH > 278 {
+		if paginate && pdf.GetY()+barH > pageBreakY(pdf) {
 			pdf.AddPage()
 			pdf.SetFont("Helvetica", "", 6.5)
 		}
@@ -401,7 +401,7 @@ func section(pdf *gofpdf.Fpdf, title string) {
 }
 
 func subhead(pdf *gofpdf.Fpdf, title string) {
-	if pdf.GetY() > 265 {
+	if pdf.GetY() > pageBreakY(pdf)-15 {
 		pdf.AddPage()
 	}
 	pdf.SetFont("Helvetica", "B", 10)

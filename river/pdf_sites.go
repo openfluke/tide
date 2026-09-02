@@ -103,7 +103,7 @@ func modeDtypeGridsPDF(pdf *gofpdf.Fpdf, grids []ModeDtypeGrid) {
 		section(pdf, "Mode x dtype x arch @ "+g.LRLabel)
 		headers := []string{"mode", "dtype", "arch", "n", "mean Acc", "best Acc", "mean thru"}
 		widths := []float64{48, 22, 28, 10, 22, 22, 22}
-		paginatedTable(pdf, headers, widths, 7, false, func(i int) ([]string, bool) {
+		paginatedTable(pdf, headers, widths, 7, func(i int) ([]string, bool) {
 			if i >= len(g.Cells) {
 				return nil, false
 			}
@@ -149,7 +149,7 @@ func bestModeByDtypePDF(pdf *gofpdf.Fpdf, grids []BestModeByDTypeGrid) {
 			subhead(pdf, "Detail table")
 			headers := []string{"dtype", "mode", "Acc", "thru", "acc/s", "id"}
 			widths := []float64{24, 40, 16, 18, 18, 80}
-			paginatedTable(pdf, headers, widths, 8, true, func(i int) ([]string, bool) {
+			paginatedTable(pdf, headers, widths, 8, func(i int) ([]string, bool) {
 				if i >= len(archRows) {
 					return nil, false
 				}
@@ -341,7 +341,7 @@ func nearRowTable(pdf *gofpdf.Fpdf, heading string, rows []NearRow, limit int) {
 		8, 7, 8, 8, 9, 9, 9, 8,
 		9, 9, 8, 10, 16, 10, 12, 8, 36,
 	}
-	paginatedTable(pdf, headers, widths, 5.5, true, func(i int) ([]string, bool) {
+	paginatedTable(pdf, headers, widths, 6, func(i int) ([]string, bool) {
 		if i >= limit {
 			return nil, false
 		}
