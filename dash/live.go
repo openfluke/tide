@@ -30,6 +30,7 @@ type LiveView struct {
 
 	Running     bool   `json:"running"`
 	RunningN    int    `json:"running_n"`
+	Workers     int    `json:"workers,omitempty"`
 	Phase       string `json:"phase"`
 	Message     string `json:"message"`
 	CellIndex   int    `json:"cell_index"`
@@ -117,6 +118,7 @@ func (s *Server) LiveView() LiveView {
 		EpochOverallPct:      b.EpochOverallPct,
 		Running:              b.Running,
 		RunningN:             b.RunningN,
+		Workers:              s.Workers,
 		Phase:                b.Phase,
 		Message:              b.Message,
 		CellIndex:            b.CellIndex,

@@ -229,6 +229,11 @@ func (s *Server) Board() Board {
 	if runningN == 0 && live.Current != nil && running {
 		runningN = 1
 	}
+	// Parallel sweep: between cell checkpoints inflight is briefly empty — still active.
+	if started && plan > 0 && planDone < plan && runningN == 0 && s != nil && s.Workers > 0 && s.Started() {
+		running = true
+		runningN = s.Workers
+	}
 	// Prefer plan completion over a stuck Running flag after Park/finish.
 	if plan > 0 && planDone >= plan {
 		running = false

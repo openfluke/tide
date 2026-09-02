@@ -35,6 +35,8 @@ type Server struct {
 	LR float64
 	// ID is the ocean peer name. Empty → Task, then Addr.
 	ID string
+	// Workers is parallel cell trainers (for sweep-active UI when between checkpoints).
+	Workers int
 
 	// River is an optional results store for compare / near / LPD / throughput pages.
 	River     *river.Store
