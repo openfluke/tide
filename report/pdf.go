@@ -455,44 +455,74 @@ func (d *doc) body(s string) {
 func (d *doc) gap(mm float64) { d.pdf.Ln(mm) }
 
 func (d *doc) table(headers []string, row func(int) []string) {
-	cols := len(headers)
-	widths := tableColWidths(headers, 174)
-	d.pdf.SetFont("Helvetica", "B", 6)
-	d.pdf.SetFillColor(22, 40, 48)
-	d.pdf.SetTextColor(230, 240, 242)
-	for i, h := range headers {
-		d.pdf.CellFormat(widths[i], 6, d.fitText(h, widths[i]), "1", 0, "L", true, 0, "")
+	if len(headers) >= 8 {
+		d.tableSized(headers, row, true)
+		return
 	}
-	d.pdf.Ln(-1)
-	d.pdf.SetFont("Helvetica", "", 6)
-	d.pdf.SetTextColor(30, 40, 45)
+	d.tableSized(headers, row, false)
+}
+
+func (d *doc) tableSized(headers []string, row func(int) []string, forceLandscape bool) {
+	cols := len(headers)
+	if cols == 0 {
+		return
+	}
+	wasPortrait := !d.isLandscape()
+	if forceLandscape {
+		d.pdf.AddPageFormat("L", gofpdf.SizeType{Wd: 297, Ht: 210})
+	}
+	l, _, r, _ := d.pdf.GetMargins()
+	pageW, pageH := d.pdf.GetPageSize()
+	usable := pageW - l - r - 1
+	widths := tableColWidths(headers, usable)
+	yMax := pageH - 22
+
+	writeHeader := func() {
+		d.pdf.SetFont("Helvetica", "B", 6)
+		d.pdf.SetFillColor(22, 40, 48)
+		d.pdf.SetTextColor(230, 240, 242)
+		for i, h := range headers {
+			d.pdf.CellFormat(widths[i], 6, d.fitText(h, widths[i]), "1", 0, "L", true, 0, "")
+		}
+		d.pdf.Ln(-1)
+		d.pdf.SetFont("Helvetica", "", 6)
+		d.pdf.SetTextColor(30, 40, 45)
+	}
+	writeHeader()
+
 	for i := 0; ; i++ {
-		r := row(i)
-		if r == nil {
+		rw := row(i)
+		if rw == nil {
 			break
 		}
-		if d.pdf.GetY() > 275 {
-			d.pdf.AddPage()
-			d.pdf.SetFont("Helvetica", "B", 6)
-			d.pdf.SetFillColor(22, 40, 48)
-			d.pdf.SetTextColor(230, 240, 242)
-			for j, h := range headers {
-				d.pdf.CellFormat(widths[j], 6, d.fitText(h, widths[j]), "1", 0, "L", true, 0, "")
+		if d.pdf.GetY()+6 > yMax {
+			if forceLandscape {
+				d.pdf.AddPageFormat("L", gofpdf.SizeType{Wd: 297, Ht: 210})
+			} else {
+				d.pdf.AddPage()
 			}
-			d.pdf.Ln(-1)
-			d.pdf.SetFont("Helvetica", "", 6)
-			d.pdf.SetTextColor(30, 40, 45)
+			pageW, pageH = d.pdf.GetPageSize()
+			yMax = pageH - 22
+			writeHeader()
 		}
 		fill := i%2 == 1
 		if fill {
 			d.pdf.SetFillColor(236, 242, 244)
 		}
-		for j := 0; j < cols && j < len(r); j++ {
-			d.pdf.CellFormat(widths[j], 5, d.fitText(r[j], widths[j]), "1", 0, "L", fill, 0, "")
+		for j := 0; j < cols && j < len(rw); j++ {
+			d.pdf.CellFormat(widths[j], 5, d.fitText(rw[j], widths[j]), "1", 0, "L", fill, 0, "")
 		}
 		d.pdf.Ln(-1)
 	}
+	if forceLandscape && wasPortrait {
+		d.pdf.AddPageFormat("P", gofpdf.SizeType{Wd: 210, Ht: 297})
+	}
 	d.gap(3)
+}
+
+func (d *doc) isLandscape() bool {
+	w, h := d.pdf.GetPageSize()
+	return w > h
 }
 
 func tableColWidths(headers []string, left float64) []float64 {

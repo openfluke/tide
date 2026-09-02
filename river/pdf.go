@@ -162,25 +162,22 @@ func leanPDF(pdf *gofpdf.Fpdf, heading string, sum *LeanSummary, bars []LeanBar)
 	subhead(pdf, "Detail table")
 	headers := []string{"#", "KiB", "train s", "Acc %", "%best", "mode", "dtype", "arch"}
 	widths := []float64{8, 14, 16, 14, 14, 36, 24, 40}
-	tableHeader(pdf, headers, widths)
-	pdf.SetFont("Helvetica", "", 8)
-	for _, b := range bars {
-		if pdf.GetY() > 270 {
-			pdf.AddPage()
-			tableHeader(pdf, headers, widths)
-			pdf.SetFont("Helvetica", "", 8)
+	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+		if i >= len(bars) {
+			return nil, false
 		}
-		tableRow(pdf, []string{
+		b := bars[i]
+		return []string{
 			fmt.Sprintf("%d", b.Rank),
 			fmt.Sprintf("%.1f", b.WeightKiB),
 			fmt.Sprintf("%.1f", b.DurationSec),
 			fmt.Sprintf("%.1f", b.Acc),
 			fmt.Sprintf("%.1f", b.PctOfBest),
-			clip(b.Mode, 22),
-			clip(b.DType, 14),
-			clip(b.Arch, 24),
-		}, widths)
-	}
+			b.Mode,
+			b.DType,
+			b.Arch,
+		}, true
+	})
 }
 
 func aggPDF(pdf *gofpdf.Fpdf, heading string, bars []AggBar, r, g, b int) {
@@ -208,22 +205,19 @@ func aggPDF(pdf *gofpdf.Fpdf, heading string, bars []AggBar, r, g, b int) {
 	subhead(pdf, "Detail table")
 	headers := []string{"key", "n", "mean Acc", "best Acc", "mean thru"}
 	widths := []float64{70, 14, 24, 24, 28}
-	tableHeader(pdf, headers, widths)
-	pdf.SetFont("Helvetica", "", 8)
-	for _, a := range cp {
-		if pdf.GetY() > 270 {
-			pdf.AddPage()
-			tableHeader(pdf, headers, widths)
-			pdf.SetFont("Helvetica", "", 8)
+	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+		if i >= len(cp) {
+			return nil, false
 		}
-		tableRow(pdf, []string{
-			clip(a.Key, 40),
+		a := cp[i]
+		return []string{
+			a.Key,
 			fmt.Sprintf("%d", a.N),
 			fmt.Sprintf("%.1f", a.MeanAcc),
 			fmt.Sprintf("%.1f", a.BestAcc),
 			fmt.Sprintf("%.0f", a.MeanThru),
-		}, widths)
-	}
+		}, true
+	})
 }
 
 func rowsChartPDF(pdf *gofpdf.Fpdf, heading string, rows []Row, n int, val func(Row) float64, unit string, cr, cg, cb int) {
@@ -250,24 +244,21 @@ func rowsChartPDF(pdf *gofpdf.Fpdf, heading string, rows []Row, n int, val func(
 	subhead(pdf, "Detail table")
 	headers := []string{"Acc", "thru", "acc/s", "KiB", "mode", "dtype", "arch"}
 	widths := []float64{14, 16, 16, 14, 36, 24, 40}
-	tableHeader(pdf, headers, widths)
-	pdf.SetFont("Helvetica", "", 8)
-	for _, r := range rows {
-		if pdf.GetY() > 270 {
-			pdf.AddPage()
-			tableHeader(pdf, headers, widths)
-			pdf.SetFont("Helvetica", "", 8)
+	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+		if i >= len(rows) {
+			return nil, false
 		}
-		tableRow(pdf, []string{
+		r := rows[i]
+		return []string{
 			fmt.Sprintf("%.1f", r.Acc),
 			fmt.Sprintf("%.0f", r.Throughput),
 			fmt.Sprintf("%.2f", r.AccPerSec),
 			fmt.Sprintf("%.1f", r.WeightKiB),
-			clip(r.Mode, 22),
-			clip(r.DType, 14),
-			clip(r.Arch, 24),
-		}, widths)
-	}
+			r.Mode,
+			r.DType,
+			r.Arch,
+		}, true
+	})
 }
 
 func denseChartPDF(pdf *gofpdf.Fpdf, rows []Row) {
@@ -294,24 +285,21 @@ func denseChartPDF(pdf *gofpdf.Fpdf, rows []Row) {
 	subhead(pdf, "Detail table")
 	headers := []string{"score", "Acc", "KiB", "acc/s", "mode", "dtype", "arch"}
 	widths := []float64{16, 14, 14, 16, 36, 24, 40}
-	tableHeader(pdf, headers, widths)
-	pdf.SetFont("Helvetica", "", 8)
-	for _, r := range rows {
-		if pdf.GetY() > 270 {
-			pdf.AddPage()
-			tableHeader(pdf, headers, widths)
-			pdf.SetFont("Helvetica", "", 8)
+	paginatedTable(pdf, headers, widths, 8, false, func(i int) ([]string, bool) {
+		if i >= len(rows) {
+			return nil, false
 		}
-		tableRow(pdf, []string{
+		r := rows[i]
+		return []string{
 			fmt.Sprintf("%.1f", r.DenseScore),
 			fmt.Sprintf("%.1f", r.Acc),
 			fmt.Sprintf("%.1f", r.WeightKiB),
 			fmt.Sprintf("%.2f", r.AccPerSec),
-			clip(r.Mode, 22),
-			clip(r.DType, 14),
-			clip(r.Arch, 24),
-		}, widths)
-	}
+			r.Mode,
+			r.DType,
+			r.Arch,
+		}, true
+	})
 }
 
 func progressArchPDF(pdf *gofpdf.Fpdf, prog PlanProgress) {
@@ -427,17 +415,14 @@ func tableHeader(pdf *gofpdf.Fpdf, headers []string, widths []float64) {
 	pdf.SetFillColor(230, 236, 242)
 	pdf.SetTextColor(50, 60, 70)
 	for i, h := range headers {
-		pdf.CellFormat(widths[i], 6, latin(h), "1", 0, "L", true, 0, "")
+		w := widths[i]
+		pdf.CellFormat(w, 6, cellText(pdf, h, w), "1", 0, "L", true, 0, "")
 	}
 	pdf.Ln(-1)
 }
 
 func tableRow(pdf *gofpdf.Fpdf, cols []string, widths []float64) {
-	pdf.SetTextColor(30, 40, 50)
-	for i, c := range cols {
-		pdf.CellFormat(widths[i], 5.5, latin(c), "1", 0, "L", false, 0, "")
-	}
-	pdf.Ln(-1)
+	tableRowFit(pdf, cols, widths)
 }
 
 func latin(s string) string {

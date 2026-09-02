@@ -102,22 +102,18 @@ func modeDtypeGridsPDF(pdf *gofpdf.Fpdf, grids []ModeDtypeGrid) {
 		pdf.AddPage()
 		section(pdf, "Mode x dtype x arch @ "+g.LRLabel)
 		headers := []string{"mode", "dtype", "arch", "n", "mean Acc", "best Acc", "mean thru"}
-		widths := []float64{36, 22, 28, 10, 22, 22, 22}
-		tableHeader(pdf, headers, widths)
-		pdf.SetFont("Helvetica", "", 7)
-		for i := 0; i < len(g.Cells); i++ {
-			c := g.Cells[i]
-			if pdf.GetY() > 270 {
-				pdf.AddPage()
-				tableHeader(pdf, headers, widths)
-				pdf.SetFont("Helvetica", "", 7)
+		widths := []float64{48, 22, 28, 10, 22, 22, 22}
+		paginatedTable(pdf, headers, widths, 7, false, func(i int) ([]string, bool) {
+			if i >= len(g.Cells) {
+				return nil, false
 			}
-			tableRow(pdf, []string{
-				clip(c.Mode, 20), clip(c.DType, 12), clip(c.Arch, 16),
+			c := g.Cells[i]
+			return []string{
+				c.Mode, c.DType, c.Arch,
 				fmt.Sprintf("%d", c.N), fmt.Sprintf("%.1f", c.MeanAcc), fmt.Sprintf("%.1f", c.BestAcc),
 				fmt.Sprintf("%.0f", c.MeanThru),
-			}, widths)
-		}
+			}, true
+		})
 	}
 }
 
@@ -152,21 +148,18 @@ func bestModeByDtypePDF(pdf *gofpdf.Fpdf, grids []BestModeByDTypeGrid) {
 			hbars(pdf, items, "Acc %", 62, 207, 142, true)
 			subhead(pdf, "Detail table")
 			headers := []string{"dtype", "mode", "Acc", "thru", "acc/s", "id"}
-			widths := []float64{24, 40, 16, 18, 18, 58}
-			tableHeader(pdf, headers, widths)
-			pdf.SetFont("Helvetica", "", 8)
-			for _, r := range archRows {
-				if pdf.GetY() > 270 {
-					pdf.AddPage()
-					tableHeader(pdf, headers, widths)
-					pdf.SetFont("Helvetica", "", 8)
+			widths := []float64{24, 40, 16, 18, 18, 80}
+			paginatedTable(pdf, headers, widths, 8, true, func(i int) ([]string, bool) {
+				if i >= len(archRows) {
+					return nil, false
 				}
-				tableRow(pdf, []string{
-					clip(r.DType, 12), clip(r.Mode, 22),
+				r := archRows[i]
+				return []string{
+					r.DType, r.Mode,
 					fmt.Sprintf("%.1f", r.Acc), fmt.Sprintf("%.0f", r.Throughput), fmt.Sprintf("%.2f", r.AccPerSec),
-					clip(r.ID, 40),
-				}, widths)
-			}
+					r.ID,
+				}, true
+			})
 		}
 	}
 }
@@ -337,37 +330,31 @@ func nearRowTable(pdf *gofpdf.Fpdf, heading string, rows []NearRow, limit int) {
 		limit = len(rows)
 	}
 	pdf.Ln(2)
-	subhead(pdf, heading+" (all "+fmt.Sprintf("%d", limit)+" rows · landscape)")
-	addLandscapePage(pdf)
+	subhead(pdf, heading+" (all "+fmt.Sprintf("%d", limit)+" rows)")
 	headers := []string{
 		"#", "credit", "pat", "cams", "keep%", "Acc", "Soft", "Thru", "Avail", "Score",
 		"LPD", "Q", "KiB", "shrink", "RAM%", "train s", "Acc/s", "dense",
 		"ThruK", "AvailK", "pillars", "band", "mode", "dtype", "arch", "lr", "id",
 	}
 	widths := []float64{
-		6, 10, 8, 16, 9, 9, 9, 9, 9, 9,
+		6, 10, 8, 18, 9, 9, 9, 9, 9, 9,
 		8, 7, 8, 8, 9, 9, 9, 8,
-		9, 9, 8, 10, 14, 10, 12, 8, 28,
+		9, 9, 8, 10, 16, 10, 12, 8, 36,
 	}
-	tableHeader(pdf, headers, widths)
-	pdf.SetFont("Helvetica", "", 5.5)
-	yMax := landscapeYMax(pdf)
-	for i := 0; i < limit; i++ {
-		r := rows[i]
-		if pdf.GetY() > yMax {
-			addLandscapePage(pdf)
-			tableHeader(pdf, headers, widths)
-			pdf.SetFont("Helvetica", "", 5.5)
+	paginatedTable(pdf, headers, widths, 5.5, true, func(i int) ([]string, bool) {
+		if i >= limit {
+			return nil, false
 		}
+		r := rows[i]
 		cams := r.Mode
 		if len(r.BranchModes) > 0 {
 			cams = strings.Join(r.BranchModes, "+")
 		}
-		tableRow(pdf, []string{
+		return []string{
 			fmt.Sprintf("%d", r.Rank),
 			creditLabel(r.Credit),
 			nz(r.MixPattern, "-"),
-			clip(cams, 14),
+			cams,
 			fmt.Sprintf("%.1f", r.PctOfBest),
 			fmt.Sprintf("%.1f", r.Acc),
 			fmtSoft(r.SoftAcc),
@@ -386,22 +373,13 @@ func nearRowTable(pdf *gofpdf.Fpdf, heading string, rows []NearRow, limit int) {
 			fmtPct(r.RelAvail),
 			fmt.Sprintf("%d", r.Pillars),
 			nz(r.Band, "-"),
-			clip(r.Mode, 12),
-			clip(r.DType, 8),
-			clip(r.Arch, 10),
+			r.Mode,
+			r.DType,
+			r.Arch,
 			nz(r.LRLabel, "-"),
-			clip(r.ID, 24),
-		}, widths)
-	}
-	pdf.AddPageFormat("P", gofpdf.SizeType{Wd: 210, Ht: 297})
-}
-
-func addLandscapePage(pdf *gofpdf.Fpdf) {
-	pdf.AddPageFormat("L", gofpdf.SizeType{Wd: 297, Ht: 210})
-}
-
-func landscapeYMax(_ *gofpdf.Fpdf) float64 {
-	return 188.0
+			r.ID,
+		}, true
+	})
 }
 
 func creditLabel(c string) string {
